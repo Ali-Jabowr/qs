@@ -2,7 +2,9 @@
 
 Automated visual quality inspection for a food factory production line. One client, in Volgograd, with verbal intent to pay if it works.
 
-**Status:** pre-survey. No hardware bought, no code written. The site visit is the blocking action.
+**Status:** survey returned 2026-09-02, but **the site visit never happened** — most answers are our own assumptions and no video, photos or defective samples were collected. No hardware bought, no code written.
+
+👉 **Start every session at [`CLAUDE.md`](CLAUDE.md).** Survey analysis: [`docs/03-survey-answers.md`](docs/03-survey-answers.md).
 
 ---
 
@@ -58,18 +60,27 @@ notes/   working notes
 
 ## Next actions
 
-1. **Do the site visit.** `docs/01-site-survey.md` — questions in Russian, plus the list of what to film and physically bring back. Nothing else can be decided without it.
-2. **Bring back defective samples.** The scarcest resource in the whole project. Photograph everything, take the physical units if allowed.
-3. **Get an acceptance number** (survey Q28) — what detection rate makes them buy. Verbatim.
-4. Bench prototype on the recorded video, on the RTX 3060. No purchases.
-5. Spec and buy hardware only after that works.
+1. **Bench prototype — unblocked, start now.** 40 identical supermarket items, an improvised
+   rig (phone + cardboard box + desk lamp, spend zero), damage 10 deliberately, train PatchCore,
+   test three lighting geometries. Answers the central technical question without the factory.
+2. **Send six follow-up questions, not the 28-question sheet again** — see
+   `docs/03-survey-answers.md`. The first one, *millimetres with a tolerance or pass/fail against
+   a golden reference*, sets the whole hardware budget.
+3. **Do the visit and bring back defective samples.** Scarcest resource in the project.
+4. **Get one escape priced in rubles.** "2% per day" of an unknown base is not a number.
+5. **Price and pitch the marking station** on the other conveyor — deterministic, no training
+   data, and a batch has already been returned because of it.
+6. Spec and buy hardware only after Gate A. Nothing before.
 
 ## Open questions
 
-- What food product, how many SKUs — unknown, survey answers it
-- Line speed — unknown, and it's the main hardware driver
-- Fail behaviour: alert / auto-reject / log only — undecided, ask the client
-- Washdown environment? Drives enclosure cost from 10k to 100k ₽
+- **Millimetres or pass/fail?** A top camera cannot see height and its footprint scales ~1.67×
+  on a 400 mm object at 1 m working distance. This blocks the camera spec.
+- Does product move continuously or index/stop at the point? Blocks the shutter decision.
+- Is height itself a checked dimension? Decides one camera or two.
+- What is one escape worth in rubles? Blocks pricing.
+- Who signs off food safety over open product, and what do they require? Can veto the install.
+- Which printer on the marking conveyor, and what goes wrong with it? Blocks station A.
 
 ## Constraints carried over
 
