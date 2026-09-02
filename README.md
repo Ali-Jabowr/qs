@@ -51,8 +51,10 @@ Layer 1 is the product. Layer 2 is the R&D. Shipping them in this order means th
 ## Repo
 
 ```
-docs/    01-site-survey.md    the visit kit — fill this in first
+docs/    01-site-survey.md    the visit kit (answers returned 2026-09-02)
          02-hardware.md       decision tree, not a shopping list
+         03-survey-answers.md what came back, and what it actually means
+         04-build-plan.md     ← the plan. Six stages to a demo.
 data/    site visit media, samples, datasets
 src/     (empty — nothing written until there's data)
 notes/   working notes

@@ -22,6 +22,7 @@ QS/
   docs/01-site-survey.md the 28-question factory visit kit (sent to client)
   docs/02-hardware.md    conditional decision tree — NOT a shopping list
   docs/03-survey-answers.md   the returned answers + what they actually mean
+  docs/04-build-plan.md  ← THE PLAN. Six stages to a demo. Follow it in order.
   data/                  git-ignored. site media, samples, datasets
   src/                   empty. Nothing written until there is real data.
 ```
@@ -121,6 +122,8 @@ availability, Честный ЗНАК deadlines, ФСИ windows; **re-verify reg
 Ali's global `/graphify` skill must be invoked via the Skill tool the moment he types it.
 
 ## 10. The next three things
+
+**Follow `docs/04-build-plan.md`.** It fixes the whole sequence; these three are its head.
 
 1. **Bench prototype on supermarket food** — unblocked, start now. 40 identical items,
    a lighting rig, deliberately damage 10, train PatchCore, measure. Answers the central
