@@ -107,13 +107,13 @@ stages:
       - id: E0.3
         text_en: Interface contracts — TriggerSource, FrameSource, Inspector, Sink, Annunciator
         text_ru: Контракты интерфейсов — источник срабатывания, источник кадров, инспектор, хранилище, сигнализация
-        status: todo
-        evidence: null
+        status: done
+        evidence: docs/11-interfaces.md — five contracts, seven rules, implementation matrix
       - id: E0.4
         text_en: Data model — dataset layout, inspection record schema, config-as-contract
         text_ru: Модель данных — структура датасета, схема записи контроля, конфигурация как контракт
-        status: todo
-        evidence: null
+        status: done
+        evidence: docs/12-data-model.md — datasets, append-only evidence schema, config as contract
       - id: E0.5
         text_en: Evaluation protocol — recall@FAR, confidence intervals, unit-level sampling, restated gates
         text_ru: Протокол оценки качества — полнота при заданном уровне ложных срабатываний, доверительные интервалы, выборка по изделиям, переформулированные рубежи
@@ -481,7 +481,7 @@ gates:
     due: 2026-10-13
     status: pending
     blocks: [S4]
-    definition_ref: docs/12-data-model.md
+    definition_ref: docs/10-architecture.md
     statement_en: >
       End-to-end trigger-to-verdict at or under 700 ms at the 95th percentile, measured
       on CPU as the Intel N100 proxy, with persistence off the critical path.

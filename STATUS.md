@@ -4,7 +4,7 @@
 **Automated visual quality inspection for a food production line**  
 Owner: Ali, Volgograd · Rendered 2026-09-17
 
-Overall: **2/49 tasks** `█·······················` 4%
+Overall: **4/49 tasks** `██······················` 8%
 
 > Verbal intent to pay. No signed contract, no money moved.  
 > Acceptance criterion: **up to 95% (Q28, client verbatim)**
@@ -51,16 +51,16 @@ Overall: **2/49 tasks** `█·······················` 4%
 
 | | Stage | Window | Progress | Status |
 |---|---|---|---|---|
-| `[~]` | **E0** Design spine and runnable skeleton | 17.09 – 24.09 | `███·········` 2/9 | in_progress |
+| `[~]` | **E0** Design spine and runnable skeleton | 17.09 – 24.09 | `█████·······` 4/9 | in_progress |
 
 ## Task detail
 
-**E0 · Design spine and runnable skeleton** — 2/9
+**E0 · Design spine and runnable skeleton** — 4/9
 
 - [x] `E0.1` Machine-readable project state, renderer and validator  ↳ `project.yml + tools/render.py + tests/test_project_state.py (19 tests)`
 - [x] `E0.2` System architecture document with diagrams (context, line, dataflow, modules, deployment)  ↳ `docs/10-architecture.md — 5 diagrams, all verified rendering`
-- [ ] `E0.3` Interface contracts — TriggerSource, FrameSource, Inspector, Sink, Annunciator
-- [ ] `E0.4` Data model — dataset layout, inspection record schema, config-as-contract
+- [x] `E0.3` Interface contracts — TriggerSource, FrameSource, Inspector, Sink, Annunciator  ↳ `docs/11-interfaces.md — five contracts, seven rules, implementation matrix`
+- [x] `E0.4` Data model — dataset layout, inspection record schema, config-as-contract  ↳ `docs/12-data-model.md — datasets, append-only evidence schema, config as contract`
 - [ ] `E0.5` Evaluation protocol — recall@FAR, confidence intervals, unit-level sampling, restated gates
 - [ ] `E0.6` Failure model — station state machine, fault handling, fail-to-no-verdict, reference patch
 - [ ] `E0.7` Architecture decision records for decisions already taken, and for the new ones
