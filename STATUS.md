@@ -4,7 +4,7 @@
 **Automated visual quality inspection for a food production line**  
 Owner: Ali, Volgograd · Rendered 2026-09-17
 
-Overall: **1/49 tasks** `························` 2%
+Overall: **2/49 tasks** `█·······················` 4%
 
 > Verbal intent to pay. No signed contract, no money moved.  
 > Acceptance criterion: **up to 95% (Q28, client verbatim)**
@@ -51,14 +51,14 @@ Overall: **1/49 tasks** `························` 2%
 
 | | Stage | Window | Progress | Status |
 |---|---|---|---|---|
-| `[~]` | **E0** Design spine and runnable skeleton | 17.09 – 24.09 | `█···········` 1/9 | in_progress |
+| `[~]` | **E0** Design spine and runnable skeleton | 17.09 – 24.09 | `███·········` 2/9 | in_progress |
 
 ## Task detail
 
-**E0 · Design spine and runnable skeleton** — 1/9
+**E0 · Design spine and runnable skeleton** — 2/9
 
 - [x] `E0.1` Machine-readable project state, renderer and validator  ↳ `project.yml + tools/render.py + tests/test_project_state.py (19 tests)`
-- [ ] `E0.2` System architecture document with diagrams (context, line, dataflow, modules, deployment)
+- [x] `E0.2` System architecture document with diagrams (context, line, dataflow, modules, deployment)  ↳ `docs/10-architecture.md — 5 diagrams, all verified rendering`
 - [ ] `E0.3` Interface contracts — TriggerSource, FrameSource, Inspector, Sink, Annunciator
 - [ ] `E0.4` Data model — dataset layout, inspection record schema, config-as-contract
 - [ ] `E0.5` Evaluation protocol — recall@FAR, confidence intervals, unit-level sampling, restated gates

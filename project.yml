@@ -102,8 +102,8 @@ stages:
       - id: E0.2
         text_en: System architecture document with diagrams (context, line, dataflow, modules, deployment)
         text_ru: Документ системной архитектуры со схемами (контекст, линия, потоки данных, модули, развёртывание)
-        status: todo
-        evidence: null
+        status: done
+        evidence: docs/10-architecture.md — 5 diagrams, all verified rendering
       - id: E0.3
         text_en: Interface contracts — TriggerSource, FrameSource, Inspector, Sink, Annunciator
         text_ru: Контракты интерфейсов — источник срабатывания, источник кадров, инспектор, хранилище, сигнализация
