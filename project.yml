@@ -1,0 +1,642 @@
+# QS — single source of truth for project state.
+#
+# NOTHING about status, dates, progress or gates is hand-written anywhere else.
+# STATUS.md, reports/status/*.md and docs/diagrams/timeline.mmd are GENERATED from
+# this file by `python3 tools/render.py`. Edit here, then re-render, then commit both.
+#
+# status values ..... not_started | in_progress | blocked | done | dropped
+# task status ....... todo | doing | done | blocked | dropped
+# gate status ....... pending | passed | failed | retired
+# question status ... open | answered | dropped
+#
+# Language policy (2026-09-17): engineering docs, code and commits in English.
+# Anything that reaches the supervisor or the client is Russian, so every field
+# that surfaces in the Russian report carries a *_ru twin. The validator fails
+# the build if one is missing.
+#
+# Rule: a task may only be `done` if it has an `evidence:` value — a path, a
+# commit hash, or a filename. The validator fails the build otherwise.
+
+meta:
+  name: QS
+  title_en: Automated visual quality inspection for a food production line
+  title_ru: Автоматический визуальный контроль качества на пищевой линии
+  owner: Ali
+  owner_ru: Али
+  location: Volgograd
+  location_ru: Волгоград
+  repo: /home/marxel/PROJECTS/QS
+  updated: 2026-09-17
+
+client:
+  label_en: Food producer, Volgograd (one client)
+  label_ru: Пищевое производство, Волгоград (один заказчик)
+  commercial_status_en: Verbal intent to pay. No signed contract, no money moved.
+  commercial_status_ru: Устное намерение оплатить. Договор не подписан, оплаты не было.
+  acceptance_criterion_en: "up to 95% (Q28, client verbatim)"
+  acceptance_criterion_ru: "до 95% (вопрос 28, дословно со слов заказчика)"
+  commercial_model_en: hardware + updatable SaaS + annual calibration, priced by us, no competing bid
+  commercial_model_ru: оборудование + обновляемое ПО по подписке + ежегодная калибровка, цену назначаем мы, конкурирующих предложений нет
+  timeline_demanded_en: ASAP (Q27)
+  timeline_demanded_ru: как можно скорее (вопрос 27)
+
+tracks:
+  - id: appearance
+    name_en: Appearance station
+    name_ru: Станция контроля внешнего вида
+    role_en: The R&D. What the client asked for. Gated on data from their line.
+    role_ru: >
+      Исследовательская часть. Именно это заказчик и просил. Зависит от данных
+      с его линии, которых пока нет.
+  - id: marking
+    name_en: Marking station
+    name_ru: Станция контроля маркировки
+    role_en: >
+      The product. Deterministic, no training data, proven pain (a batch was returned),
+      identical at every future customer. First thing that ships.
+    role_ru: >
+      Продуктовая часть. Детерминированные алгоритмы, обучающие данные не нужны,
+      боль подтверждена (партия была возвращена из-за маркировки), решение одинаково
+      для любого следующего заказчика. Внедряется первым.
+  - id: engineering
+    name_en: Engineering foundation
+    name_ru: Инженерная основа
+    role_en: >
+      Contracts, evidence store, evaluation harness, docs. Shared by both stations
+      and written once. Unblocked by anything the factory has or has not told us.
+    role_ru: >
+      Интерфейсы, хранилище доказательств, стенд оценки качества, документация.
+      Общая часть для обеих станций, пишется один раз. Не зависит от того, что
+      производство уже сообщило или ещё нет.
+
+# --------------------------------------------------------------------------------
+# STAGES
+# --------------------------------------------------------------------------------
+# Dates re-planned 2026-09-17. The original plan (docs/04-build-plan.md, written
+# 2026-09-02) put Stage 0 on 2026-09-02..09-07 and Gate A on 2026-09-22. Nothing
+# was started in the 15 days that followed, so those dates are retired. ADR-0006.
+
+stages:
+
+  - id: E0
+    track: engineering
+    name_en: Design spine and runnable skeleton
+    name_ru: Проектная основа и исполняемый каркас
+    planned_start: 2026-09-17
+    planned_end: 2026-09-24
+    status: in_progress
+    goal_en: >
+      Every decision that can be made without seeing the factory, made and written down;
+      the interfaces exist as running code with tests, so the architecture is verifiable
+      rather than aspirational.
+    goal_ru: >
+      Принять и зафиксировать все решения, которые можно принять, не побывав на
+      производстве; интерфейсы существуют как работающий код с тестами, поэтому
+      архитектура проверяема, а не декларативна.
+    tasks:
+      - id: E0.1
+        text_en: Machine-readable project state, renderer and validator
+        text_ru: Машиночитаемое состояние проекта, генератор отчётов и валидатор
+        status: done
+        evidence: project.yml + tools/render.py + tests/test_project_state.py (19 tests)
+      - id: E0.2
+        text_en: System architecture document with diagrams (context, line, dataflow, modules, deployment)
+        text_ru: Документ системной архитектуры со схемами (контекст, линия, потоки данных, модули, развёртывание)
+        status: todo
+        evidence: null
+      - id: E0.3
+        text_en: Interface contracts — TriggerSource, FrameSource, Inspector, Sink, Annunciator
+        text_ru: Контракты интерфейсов — источник срабатывания, источник кадров, инспектор, хранилище, сигнализация
+        status: todo
+        evidence: null
+      - id: E0.4
+        text_en: Data model — dataset layout, inspection record schema, config-as-contract
+        text_ru: Модель данных — структура датасета, схема записи контроля, конфигурация как контракт
+        status: todo
+        evidence: null
+      - id: E0.5
+        text_en: Evaluation protocol — recall@FAR, confidence intervals, unit-level sampling, restated gates
+        text_ru: Протокол оценки качества — полнота при заданном уровне ложных срабатываний, доверительные интервалы, выборка по изделиям, переформулированные рубежи
+        status: todo
+        evidence: null
+      - id: E0.6
+        text_en: Failure model — station state machine, fault handling, fail-to-no-verdict, reference patch
+        text_ru: Модель отказов — конечный автомат станции, обработка неисправностей, отказ в сторону «нет решения», эталонная пластина освещения
+        status: todo
+        evidence: null
+      - id: E0.7
+        text_en: Architecture decision records for decisions already taken, and for the new ones
+        text_ru: Журнал архитектурных решений — уже принятые решения и новые
+        status: todo
+        evidence: null
+      - id: E0.8
+        text_en: Runnable skeleton in src/ — contracts, replay source, SQLite sink, stub inspector, tests green
+        text_ru: Исполняемый каркас в src/ — интерфейсы, воспроизведение с диска, хранилище SQLite, заглушка инспектора, тесты проходят
+        status: todo
+        evidence: null
+      - id: E0.9
+        text_en: Risk register and Russian/English glossary
+        text_ru: Реестр рисков и русско-английский глоссарий
+        status: todo
+        evidence: null
+
+  - id: S0
+    track: appearance
+    name_en: Environment and stand-in product
+    name_ru: Окружение и учебный продукт
+    planned_start: 2026-09-17
+    planned_end: 2026-09-22
+    status: not_started
+    goal_en: A working GPU training environment and the groceries on the desk.
+    goal_ru: Рабочее окружение для обучения на видеокарте и закупленный учебный продукт на столе.
+    budget_rub: 3000
+    tasks:
+      - id: S0.1
+        text_en: Python 3.11 virtualenv in the repo
+        text_ru: Виртуальное окружение Python 3.11 в репозитории
+        status: todo
+        evidence: null
+      - id: S0.2
+        text_en: "PyTorch with CUDA — verify torch.cuda.is_available() is True and the device is the RTX 3060"
+        text_ru: "PyTorch с поддержкой CUDA — убедиться, что torch.cuda.is_available() возвращает True и видеокарта определяется как RTX 3060"
+        status: todo
+        evidence: null
+      - id: S0.3
+        text_en: Install anomalib and opencv-python
+        text_ru: Установить anomalib и opencv-python
+        status: todo
+        evidence: null
+      - id: S0.4
+        text_en: "Check the licence of every Anomalib model that could ship (Anomalib itself is Apache-2.0; per-model terms differ)"
+        text_ru: "Проверить лицензию каждой модели Anomalib, которая может попасть в поставку (сам Anomalib под Apache-2.0, но условия отдельных моделей различаются)"
+        status: todo
+        evidence: null
+      - id: S0.5
+        text_en: "Buy ~100 flat identical units (пряники) — enough to damage 60 and still hold out 40 good"
+        text_ru: "Закупить ~100 одинаковых плоских изделий (пряники) — чтобы повредить 60 и всё ещё оставить 40 годных для контрольной выборки"
+        status: todo
+        evidence: null
+      - id: S0.6
+        text_en: "Buy ~30 tall units (булки) — the three-dimensional height case"
+        text_ru: "Закупить ~30 высоких изделий (булки) — проверка объёмного случая с высотой"
+        status: todo
+        evidence: null
+      - id: S0.7
+        text_en: Create the Anomalib folder layout under data/datasets/
+        text_ru: Создать структуру каталогов Anomalib в data/datasets/
+        status: todo
+        evidence: null
+
+  - id: S1
+    track: appearance
+    name_en: Prove the pipeline on public data
+    name_ru: Проверка пайплайна на публичных данных
+    planned_start: 2026-09-23
+    planned_end: 2026-09-25
+    status: not_started
+    goal_en: Know the installation is correct before our own data can be blamed.
+    goal_ru: Убедиться, что окружение установлено правильно, до того как в ошибках можно будет винить наши собственные данные.
+    tasks:
+      - id: S1.1
+        text_en: Download MVTec AD (CC BY-NC-SA 4.0 — validation only, never ships)
+        text_ru: Загрузить MVTec AD (лицензия CC BY-NC-SA 4.0 — только для проверки окружения, никогда не входит в поставку)
+        status: todo
+        evidence: null
+      - id: S1.2
+        text_en: Run PatchCore on one category and reproduce roughly the published numbers
+        text_ru: Запустить PatchCore на одной категории и примерно воспроизвести опубликованные показатели
+        status: todo
+        evidence: null
+      - id: S1.3
+        text_en: Record baseline inference latency on the RTX 3060 and on CPU
+        text_ru: Замерить базовое время вывода на RTX 3060 и на центральном процессоре
+        status: todo
+        evidence: null
+
+  - id: S2
+    track: appearance
+    name_en: Build the rig and shoot
+    name_ru: Сборка стенда и съёмка
+    planned_start: 2026-09-26
+    planned_end: 2026-10-06
+    status: not_started
+    goal_en: >
+      A dataset large enough to measure against, and an answer to which lighting
+      geometry reveals which defect. This is the real work.
+    goal_ru: >
+      Датасет достаточного объёма, чтобы по нему можно было измерять, и ответ на
+      вопрос, какая схема освещения выявляет какой дефект. Это основная работа этапа.
+    tasks:
+      - id: S2.1
+        text_en: "Rig — matte-black box interior, camera fixed and marked, object filling ~80% of frame"
+        text_ru: "Стенд — матово-чёрный короб изнутри, камера жёстко закреплена и отмечена, объект занимает ~80% кадра"
+        status: todo
+        evidence: null
+      - id: S2.2
+        text_en: "Add the fixed grey/white reference patch inside the field of view (lighting drift self-check)"
+        text_ru: "Разместить в поле зрения неподвижную серо-белую эталонную пластину (самоконтроль дрейфа освещения)"
+        status: todo
+        evidence: null
+      - id: S2.3
+        text_en: "Lock camera settings — manual exposure, manual white balance, manual focus"
+        text_ru: "Зафиксировать настройки камеры — ручная выдержка, ручной баланс белого, ручная фокусировка"
+        status: todo
+        evidence: null
+      - id: S2.4
+        text_en: "Shoot 40 good units × 3 lighting geometries × 3 rotations (low-angle, diffuse, backlight)"
+        text_ru: "Отснять 40 годных изделий × 3 схемы освещения × 3 поворота (скользящее, рассеянное, контровое)"
+        status: todo
+        evidence: null
+      - id: S2.5
+        text_en: "Damage 60 units — 20 dents · 20 chips/breaks · 20 deformed. The count per class is what makes the gate measurable"
+        text_ru: "Повредить 60 изделий — 20 вмятин · 20 сколов · 20 деформаций. Именно количество на класс делает рубеж измеримым"
+        status: todo
+        evidence: null
+      - id: S2.6
+        text_en: Shoot every damaged unit under all 3 geometries × 3 rotations
+        text_ru: Отснять каждое повреждённое изделие во всех 3 схемах освещения × 3 поворота
+        status: todo
+        evidence: null
+      - id: S2.7
+        text_en: "Split by UNIT, not by image — no unit may appear in both train and test"
+        text_ru: "Разделять выборку по ИЗДЕЛИЯМ, а не по снимкам — одно изделие не может быть одновременно в обучении и в контроле"
+        status: todo
+        evidence: null
+      - id: S2.8
+        text_en: Close-up record photo of each damaged unit's defect
+        text_ru: Макроснимок дефекта каждого повреждённого изделия для протокола
+        status: todo
+        evidence: null
+      - id: S2.9
+        text_en: "Write the one sentence — which lighting shows a dent best, and why"
+        text_ru: "Сформулировать вывод одним предложением — какое освещение лучше всего показывает вмятину и почему"
+        status: todo
+        evidence: null
+
+  - id: S3
+    track: appearance
+    name_en: Train and measure
+    name_ru: Обучение и измерение
+    planned_start: 2026-10-07
+    planned_end: 2026-10-13
+    status: not_started
+    goal_en: The gate numbers, with confidence intervals, per lighting geometry and defect class.
+    goal_ru: Получить показатели для контрольных рубежей с доверительными интервалами, по каждой схеме освещения и каждому классу дефектов.
+    tasks:
+      - id: S3.1
+        text_en: "PatchCore with a WideResNet-50 backbone, trained on train/good only — one model per lighting geometry"
+        text_ru: "PatchCore на базе WideResNet-50, обучение только на годных изделиях — отдельная модель на каждую схему освещения"
+        status: todo
+        evidence: null
+      - id: S3.2
+        text_en: "Evaluate per docs/14-eval-protocol.md — recall at 1/5/10% false-alarm rates, unit-level, with Clopper-Pearson bounds"
+        text_ru: "Оценить по docs/14-eval-protocol.md — полнота при 1/5/10% ложных срабатываний, по изделиям, с границами Клоппера — Пирсона"
+        status: todo
+        evidence: null
+      - id: S3.3
+        text_en: "Measure inference latency against the budget on CPU as the Intel N100 proxy — not only on the 3060"
+        text_ru: "Замерить время вывода относительно бюджета на центральном процессоре как приближении к Intel N100, а не только на RTX 3060"
+        status: todo
+        evidence: null
+      - id: S3.4
+        text_en: Freeze the golden replay set so every future claim is reproducible by one command
+        text_ru: Зафиксировать эталонный набор для воспроизведения, чтобы любое дальнейшее утверждение проверялось одной командой
+        status: todo
+        evidence: null
+
+  - id: S4
+    track: appearance
+    name_en: Wrap it as a demo
+    name_ru: Оформление демонстрации
+    planned_start: 2026-10-14
+    planned_end: 2026-10-23
+    status: not_started
+    blocked_by_gate: A
+    goal_en: Something you can carry into a factory and hand to a stranger.
+    goal_ru: Работающая вещь, которую можно принести на производство и дать в руки постороннему человеку.
+    tasks:
+      - id: S4.1
+        text_en: Live camera view, trigger to capture to verdict
+        text_ru: Живое изображение с камеры, цепочка «срабатывание — съёмка — решение»
+        status: todo
+        evidence: null
+      - id: S4.2
+        text_en: "Big green OK / red DEFECT, readable across a room"
+        text_ru: "Крупное зелёное «ГОДЕН» / красное «ДЕФЕКТ», читаемое через всё помещение"
+        status: todo
+        evidence: null
+      - id: S4.3
+        text_en: "Heatmap overlay on the defect — the moment that convinces people"
+        text_ru: "Тепловая карта поверх дефекта — именно это убеждает людей"
+        status: todo
+        evidence: null
+      - id: S4.4
+        text_en: Every check written to the evidence store, session list visible
+        text_ru: Каждая проверка записывается в хранилище доказательств, список за сессию виден на экране
+        status: todo
+        evidence: null
+      - id: S4.5
+        text_en: "Starts with one command, runs fully offline, a stranger uses it without help"
+        text_ru: "Запускается одной командой, работает полностью автономно, посторонний человек пользуется без подсказок"
+        status: todo
+        evidence: null
+
+  - id: S5
+    track: appearance
+    name_en: Site visit with the demo in hand
+    name_ru: Выезд на производство с демонстрацией
+    planned_start: 2026-10-26
+    planned_end: null
+    status: blocked
+    blocked_on: client scheduling
+    blocked_on_ru: согласование даты с заказчиком
+    goal_en: >
+      Physical evidence. This is the scarcest resource in the project and no amount of
+      documentation substitutes for it.
+    goal_ru: >
+      Физические свидетельства. Это самый дефицитный ресурс проекта, и никакой объём
+      документации его не заменяет.
+    tasks:
+      - id: S5.1
+        text_en: Answers to the six follow-up questions, above all metrology versus pass/fail
+        text_ru: Ответы на шесть уточняющих вопросов, прежде всего — миллиметры с допуском или «годен / не годен»
+        status: todo
+        evidence: null
+      - id: S5.2
+        text_en: "5+ minutes of video from the camera mounting point, plus slow motion"
+        text_ru: "Не менее 5 минут видео с точки предполагаемой установки камеры, плюс замедленная съёмка"
+        status: todo
+        evidence: null
+      - id: S5.3
+        text_en: 30+ good units photographed at the inspection point
+        text_ru: Не менее 30 годных изделий, отснятых в точке контроля
+        status: todo
+        evidence: null
+      - id: S5.4
+        text_en: Every defective unit they have — physical samples if allowed
+        text_ru: Все имеющиеся у них бракованные изделия — физические образцы, если разрешат вывезти
+        status: todo
+        evidence: null
+      - id: S5.5
+        text_en: Mounting space measured with a tape measure in frame
+        text_ru: Место установки, снятое с рулеткой в кадре
+        status: todo
+        evidence: null
+      - id: S5.6
+        text_en: One escape priced in rubles
+        text_ru: Стоимость одного пропущенного дефекта в рублях
+        status: todo
+        evidence: null
+      - id: S5.7
+        text_en: Name of whoever signs off food safety over open product
+        text_ru: Имя человека, согласующего пищевую безопасность при работе над открытым продуктом
+        status: todo
+        evidence: null
+      - id: S5.8
+        text_en: "Marking conveyor — printer type, failure modes, the returned-batch story in their words"
+        text_ru: "Конвейер маркировки — тип принтера, характер сбоев, история возврата партии их собственными словами"
+        status: todo
+        evidence: null
+
+  - id: S6
+    track: appearance
+    name_en: Retrain on their product
+    name_ru: Переобучение на продукте заказчика
+    planned_start: null
+    planned_end: null
+    status: blocked
+    blocked_on: S5
+    blocked_on_ru: этап S5
+    goal_en: Same code, their images, their defects. The real MVP, and the first honest price.
+    goal_ru: Тот же код, их снимки, их дефекты. Настоящий минимально жизнеспособный продукт и первая честная цена.
+    tasks: []
+
+  - id: M0
+    track: marking
+    name_en: Marking station discovery
+    name_ru: Обследование станции маркировки
+    planned_start: null
+    planned_end: null
+    status: blocked
+    blocked_on: client answers about the printer and its failure modes
+    blocked_on_ru: ответы заказчика о принтере и характере сбоев
+    goal_en: Enough detail to specify a deterministic checker and quote it.
+    goal_ru: Достаточно сведений, чтобы описать детерминированный алгоритм проверки и назначить за него цену.
+    tasks:
+      - id: M0.1
+        text_en: "Printer type — inkjet, laser or thermal transfer"
+        text_ru: "Тип принтера — каплеструйный, лазерный или термотрансферный"
+        status: todo
+        evidence: null
+      - id: M0.2
+        text_en: What actually goes wrong with the print
+        text_ru: Что именно происходит с печатью, когда она портится
+        status: todo
+        evidence: null
+      - id: M0.3
+        text_en: Photographs of good and bad date codes on real packaging
+        text_ru: Снимки хорошей и плохой даты на реальной упаковке
+        status: todo
+        evidence: null
+      - id: M0.4
+        text_en: The returned-batch story in their own words
+        text_ru: История возврата партии их собственными словами
+        status: todo
+        evidence: null
+
+# --------------------------------------------------------------------------------
+# GATES — go / no-go. Definitions live in docs, status lives here.
+# --------------------------------------------------------------------------------
+
+gates:
+  - id: A
+    name_en: Bench detection gate
+    name_ru: Рубеж обнаружения на стенде
+    due: 2026-10-13
+    status: pending
+    blocks: [S4, S5]
+    definition_ref: docs/14-eval-protocol.md
+    statement_en: >
+      On the flat product, under the best lighting geometry: dent recall at or above 90%
+      with a 95% one-sided lower confidence bound at or above 75%, measured at a
+      false-alarm rate at or below 5% on at least 40 held-out good UNITS.
+    statement_ru: >
+      На плоском изделии, при лучшей схеме освещения: полнота обнаружения вмятин
+      не ниже 90% при нижней односторонней 95%-й доверительной границе не ниже 75%,
+      измеренная при доле ложных срабатываний не выше 5% на не менее чем 40
+      отложенных годных ИЗДЕЛИЯХ.
+    on_fail_en: >
+      The problem is the lighting, not the model. Return to S2 and re-shoot. Do not retrain,
+      do not tune hyperparameters, do not add features.
+    on_fail_ru: >
+      Проблема в освещении, а не в модели. Вернуться к этапу S2 и переснять. Не переобучать,
+      не подбирать гиперпараметры, не добавлять функциональность.
+    supersedes_en: >
+      The 2026-09-02 formulation (90% of dents at 5% false alarms, on 5 dents and
+      10 good units) was not measurable. See ADR-0005.
+
+  - id: B
+    name_en: Latency gate
+    name_ru: Рубеж быстродействия
+    due: 2026-10-13
+    status: pending
+    blocks: [S4]
+    definition_ref: docs/12-data-model.md
+    statement_en: >
+      End-to-end trigger-to-verdict at or under 700 ms at the 95th percentile, measured
+      on CPU as the Intel N100 proxy, with persistence off the critical path.
+    statement_ru: >
+      Полный цикл от срабатывания до решения не более 700 мс по 95-му процентилю,
+      измеренный на центральном процессоре как приближении к Intel N100, при этом
+      запись в хранилище вынесена из критического пути.
+
+  - id: C
+    name_en: Hardware spend gate
+    name_ru: Рубеж закупки оборудования
+    due: null
+    status: pending
+    blocks: []
+    statement_en: >
+      No hardware is purchased beyond groceries until Gate A has passed, AND the site visit
+      has produced video and defective samples, AND the metrology question (OQ-1) is answered.
+    statement_ru: >
+      Никакое оборудование, кроме учебных продуктов, не закупается, пока не пройден
+      рубеж A, И выезд на производство не дал видео и бракованные образцы, И не получен
+      ответ на вопрос о метрологии (OQ-1).
+
+# --------------------------------------------------------------------------------
+# OPEN QUESTIONS — each blocks something concrete. `owner` says who can answer.
+# --------------------------------------------------------------------------------
+
+open_questions:
+  - id: OQ-1
+    owner: client
+    status: open
+    asked_on: null
+    text_en: Millimetres with a stated tolerance, or pass/fail against a golden reference?
+    text_ru: Нужны ли вам миллиметры с допуском, или достаточно «годен / не годен» по эталонному образцу?
+    blocks_en: The entire camera and hardware budget. Do not spec a camera until this is answered.
+    blocks_ru: Весь бюджет на камеру и оборудование. До ответа камеру не выбирать.
+
+  - id: OQ-2
+    owner: client
+    status: open
+    asked_on: null
+    text_en: Does product move continuously at the inspection point, or stop and index?
+    text_ru: Продукт в точке контроля движется непрерывно или останавливается / индексируется?
+    blocks_en: Shutter type. Continuous motion forces a global shutter, a strobe and a hardware trigger.
+    blocks_ru: Тип затвора. Непрерывное движение требует глобального затвора, импульсного света и аппаратного запуска.
+
+  - id: OQ-3
+    owner: client
+    status: open
+    asked_on: null
+    text_en: What is the product height, does it vary, and must height itself be checked?
+    text_ru: Какая высота продукта на этой линии, меняется ли она, и нужно ли контролировать высоту?
+    blocks_en: One camera or two. A top camera cannot see height at all.
+    blocks_ru: Одна камера или две. Камера сверху высоту не видит в принципе.
+
+  - id: OQ-4
+    owner: client
+    status: open
+    asked_on: null
+    text_en: What is meant by "foreign objects"? What is already on the line — metal detector, X-ray?
+    text_ru: Что вы понимаете под «посторонними предметами»? Что уже стоит на линии — металлодетектор, рентген?
+    blocks_en: Liability scope. Never accept foreign-object detection inside a 95% acceptance clause.
+    blocks_ru: Границы ответственности. Не принимать обнаружение посторонних предметов внутрь условия о 95%.
+
+  - id: OQ-5
+    owner: client
+    status: open
+    asked_on: null
+    text_en: Units per shift, shifts per day, and what one return costs in rubles?
+    text_ru: Сколько единиц за смену, сколько смен? Во сколько рублей обходится один возврат?
+    blocks_en: Pricing and the entire business case. "2% per day" of an unknown base is not a number.
+    blocks_ru: Ценообразование и всё экономическое обоснование. «2% в день» от неизвестной базы — это не число.
+
+  - id: OQ-6
+    owner: client
+    status: open
+    asked_on: null
+    text_en: Who signs off food safety, and what must they approve to allow equipment over open product?
+    text_ru: Кто у вас отвечает за пищевую безопасность, и что он должен одобрить, чтобы разрешить установку оборудования над открытым продуктом?
+    blocks_en: This person can veto the installation after the hardware has been bought.
+    blocks_ru: Этот человек может запретить установку уже после закупки оборудования.
+
+  - id: OQ-7
+    owner: us
+    status: open
+    text_en: Which Anomalib models are licence-clean for a commercial deliverable?
+    text_ru: Какие модели Anomalib юридически чисты для коммерческой поставки?
+    blocks_en: Model selection for anything that ships. Anomalib is Apache-2.0; per-model terms differ.
+    blocks_ru: Выбор модели для поставки. Сам Anomalib под Apache-2.0, но условия отдельных моделей различаются.
+
+# --------------------------------------------------------------------------------
+# RISKS
+# --------------------------------------------------------------------------------
+
+risks:
+  - id: R1
+    severity: high
+    text_en: No physical evidence exists — no video, no photographs, no defective samples.
+    text_ru: Физических свидетельств нет — ни видео, ни фотографий, ни бракованных образцов.
+    signal_en: Still true. Identified 2026-09-02, unchanged 15 days later.
+    signal_ru: Положение не изменилось. Зафиксировано 02.09.2026, спустя 15 дней без движения.
+    response_en: Stage S5. Nothing about hardware or price can be settled without it.
+    response_ru: Этап S5. Без этого невозможно определить ни оборудование, ни цену.
+  - id: R2
+    severity: high
+    text_en: Natural food variation swamps the defect signal, producing constant false alarms.
+    text_ru: Естественная изменчивость пищевого продукта перекрывает признак дефекта, вызывая постоянные ложные срабатывания.
+    signal_en: A high false-alarm rate on good units at S3.
+    signal_ru: Высокая доля ложных срабатываний на годных изделиях на этапе S3.
+    response_en: More training data, tighter lighting control, or narrow the scope to one SKU. The central risk of the appearance station.
+    response_ru: Больше обучающих данных, жёстче контроль освещения или сужение до одной позиции ассортимента. Главный риск станции внешнего вида.
+  - id: R3
+    severity: high
+    text_en: "\"Foreign objects\" inside a 95% acceptance clause promises safety-critical detection that optics cannot deliver."
+    text_ru: "«Посторонние предметы» внутри условия о 95% обещают критичное для безопасности обнаружение, которое оптика обеспечить не может."
+    signal_en: Present in the defect list and the acceptance criterion simultaneously.
+    signal_ru: Присутствует одновременно в перечне дефектов и в критерии приёмки.
+    response_en: "Scope it out in writing — surface-visible contrasting objects, best effort, not a substitute for metal detection or X-ray."
+    response_ru: "Письменно ограничить формулировкой — видимые на поверхности контрастные предметы, по мере возможности, не заменяет металлодетектор или рентген."
+  - id: R4
+    severity: medium
+    text_en: Camera automatic settings destroy the dataset by re-exposing for the defect.
+    text_ru: Автоматические настройки камеры портят датасет, подстраивая экспозицию под дефект.
+    signal_en: Images inconsistent between sessions.
+    signal_ru: Снимки несогласованы между сессиями съёмки.
+    response_en: Lock exposure, white balance and focus. The most common failure in this whole plan. The reference patch detects it.
+    response_ru: Зафиксировать выдержку, баланс белого и фокус. Самая частая ошибка во всём плане. Эталонная пластина её выявляет.
+  - id: R5
+    severity: medium
+    text_en: PatchCore is too slow for one unit per second on an Intel N100.
+    text_ru: PatchCore слишком медленный для одного изделия в секунду на Intel N100.
+    signal_en: Gate B fails at S3.
+    signal_ru: Рубеж B не пройден на этапе S3.
+    response_en: A smaller coreset, lower input resolution, or switch to PaDiM or FastFlow.
+    response_ru: Уменьшить опорное множество, снизить разрешение входа или перейти на PaDiM либо FastFlow.
+  - id: R6
+    severity: medium
+    text_en: Real factory defects are subtler than our deliberate damage.
+    text_ru: Реальные производственные дефекты тоньше, чем наши намеренные повреждения.
+    signal_en: Only visible at S6.
+    signal_ru: Проявится только на этапе S6.
+    response_en: This is why defective samples matter more than any questionnaire answer.
+    response_ru: Именно поэтому бракованные образцы важнее любого ответа в анкете.
+  - id: R7
+    severity: medium
+    text_en: The food-safety officer vetoes the installation after hardware has been bought.
+    text_ru: Ответственный за пищевую безопасность запрещает установку уже после закупки оборудования.
+    signal_en: OQ-6 unanswered.
+    signal_ru: Вопрос OQ-6 остаётся без ответа.
+    response_en: Gate C. Ask before spending.
+    response_ru: Рубеж C. Спросить до того, как тратить.
+  - id: R8
+    severity: low
+    text_en: Something trained on MVTec AD ends up in a deliverable — the licence is non-commercial.
+    text_ru: Что-то обученное на MVTec AD попадает в поставку — лицензия запрещает коммерческое использование.
+    signal_en: —
+    signal_ru: —
+    response_en: MVTec is S1 validation only. It is never trained into anything that ships.
+    response_ru: MVTec используется только для проверки окружения на этапе S1 и никогда не обучается в поставляемое решение.
