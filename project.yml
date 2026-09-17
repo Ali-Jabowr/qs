@@ -117,8 +117,8 @@ stages:
       - id: E0.5
         text_en: Evaluation protocol — recall@FAR, confidence intervals, unit-level sampling, restated gates
         text_ru: Протокол оценки качества — полнота при заданном уровне ложных срабатываний, доверительные интервалы, выборка по изделиям, переформулированные рубежи
-        status: todo
-        evidence: null
+        status: done
+        evidence: docs/14-eval-protocol.md + tools/bounds.py (generates its tables)
       - id: E0.6
         text_en: Failure model — station state machine, fault handling, fail-to-no-verdict, reference patch
         text_ru: Модель отказов — конечный автомат станции, обработка неисправностей, отказ в сторону «нет решения», эталонная пластина освещения
@@ -149,7 +149,7 @@ stages:
     status: not_started
     goal_en: A working GPU training environment and the groceries on the desk.
     goal_ru: Рабочее окружение для обучения на видеокарте и закупленный учебный продукт на столе.
-    budget_rub: 3000
+    budget_rub: 4000
     tasks:
       - id: S0.1
         text_en: Python 3.11 virtualenv in the repo
@@ -172,8 +172,8 @@ stages:
         status: todo
         evidence: null
       - id: S0.5
-        text_en: "Buy ~100 flat identical units (пряники) — enough to damage 60 and still hold out 40 good"
-        text_ru: "Закупить ~100 одинаковых плоских изделий (пряники) — чтобы повредить 60 и всё ещё оставить 40 годных для контрольной выборки"
+        text_en: "Buy ~170 flat identical units (пряники) — 100 kept good (30 train / 30 calibrate / 40 validate) and 70 to damage. See 14-eval-protocol.md §3"
+        text_ru: "Закупить ~170 одинаковых плоских изделий (пряники) — 100 остаются годными (30 обучение / 30 калибровка / 40 контроль) и 70 под повреждение. См. 14-eval-protocol.md §3"
         status: todo
         evidence: null
       - id: S0.6
@@ -243,13 +243,13 @@ stages:
         status: todo
         evidence: null
       - id: S2.4
-        text_en: "Shoot 40 good units × 3 lighting geometries × 3 rotations (low-angle, diffuse, backlight)"
-        text_ru: "Отснять 40 годных изделий × 3 схемы освещения × 3 поворота (скользящее, рассеянное, контровое)"
+        text_en: "Shoot 100 good units × 3 lighting geometries × 3 rotations (low-angle, diffuse, backlight) — one session per geometry, ~1530 frames in total across good and damaged"
+        text_ru: "Отснять 100 годных изделий × 3 схемы освещения × 3 поворота (скользящее, рассеянное, контровое) — по одной сессии на схему, всего около 1530 кадров вместе с повреждёнными"
         status: todo
         evidence: null
       - id: S2.5
-        text_en: "Damage 60 units — 20 dents · 20 chips/breaks · 20 deformed. The count per class is what makes the gate measurable"
-        text_ru: "Повредить 60 изделий — 20 вмятин · 20 сколов · 20 деформаций. Именно количество на класс делает рубеж измеримым"
+        text_en: "Damage 70 units — 30 dents (the Gate A class), 20 chips/breaks, 20 deformed. 30 is the smallest n at which an observed 90% clears a 75% lower bound"
+        text_ru: "Повредить 70 изделий — 30 вмятин (класс рубежа A), 20 сколов, 20 деформаций. 30 — минимальный объём, при котором наблюдаемые 90% проходят нижнюю границу 75%"
         status: todo
         evidence: null
       - id: S2.6
@@ -258,8 +258,8 @@ stages:
         status: todo
         evidence: null
       - id: S2.7
-        text_en: "Split by UNIT, not by image — no unit may appear in both train and test"
-        text_ru: "Разделять выборку по ИЗДЕЛИЯМ, а не по снимкам — одно изделие не может быть одновременно в обучении и в контроле"
+        text_en: "Split good units by UNIT into train/good 30, calib/good 30, test/good 40 — the threshold is chosen on calib and the false-alarm rate measured on test, and no unit crosses a split"
+        text_ru: "Разделить годные изделия ПО ИЗДЕЛИЯМ: 30 обучение, 30 калибровка, 40 контроль — порог выбирается на калибровочной выборке, доля ложных срабатываний измеряется на контрольной, ни одно изделие не попадает в две выборки"
         status: todo
         evidence: null
       - id: S2.8
@@ -268,6 +268,11 @@ stages:
         status: todo
         evidence: null
       - id: S2.9
+        text_en: "Record the reference patch reading for every session and confirm sessions are comparable before merging any sets (guard E7)"
+        text_ru: "Записать показание эталонной пластины для каждой сессии и убедиться в сопоставимости сессий до объединения выборок (защита E7)"
+        status: todo
+        evidence: null
+      - id: S2.10
         text_en: "Write the one sentence — which lighting shows a dent best, and why"
         text_ru: "Сформулировать вывод одним предложением — какое освещение лучше всего показывает вмятину и почему"
         status: todo
@@ -457,14 +462,20 @@ gates:
     blocks: [S4, S5]
     definition_ref: docs/14-eval-protocol.md
     statement_en: >
-      On the flat product, under the best lighting geometry: dent recall at or above 90%
-      with a 95% one-sided lower confidence bound at or above 75%, measured at a
-      false-alarm rate at or below 5% on at least 40 held-out good UNITS.
+      On the flat product, under the lighting geometry selected on calibration data, with
+      the threshold set to a 5% false-alarm target on 30 calibration units: dent recall at
+      or above 90% on 30 held-out dented UNITS (at least 27 of 30), whose 95% one-sided
+      lower bound therefore clears 75%; false-alarm rate on 40 held-out good units at or
+      below 10% as a point estimate, reported with its upper bound; and the whole result
+      regenerated from the frozen golden set by one command.
     statement_ru: >
-      На плоском изделии, при лучшей схеме освещения: полнота обнаружения вмятин
-      не ниже 90% при нижней односторонней 95%-й доверительной границе не ниже 75%,
-      измеренная при доле ложных срабатываний не выше 5% на не менее чем 40
-      отложенных годных ИЗДЕЛИЯХ.
+      На плоском изделии, при схеме освещения, выбранной по калибровочной выборке, и пороге,
+      установленном на целевую долю ложных срабатываний 5% по 30 калибровочным изделиям:
+      полнота обнаружения вмятин не ниже 90% на 30 отложенных повреждённых ИЗДЕЛИЯХ
+      (не менее 27 из 30), что даёт нижнюю одностороннюю 95%-ю границу выше 75%; доля ложных
+      срабатываний на 40 отложенных годных изделиях не выше 10% как точечная оценка, с
+      указанием верхней границы; и весь результат воспроизводится из замороженного эталонного
+      набора одной командой.
     on_fail_en: >
       The problem is the lighting, not the model. Return to S2 and re-shoot. Do not retrain,
       do not tune hyperparameters, do not add features.
@@ -472,8 +483,9 @@ gates:
       Проблема в освещении, а не в модели. Вернуться к этапу S2 и переснять. Не переобучать,
       не подбирать гиперпараметры, не добавлять функциональность.
     supersedes_en: >
-      The 2026-09-02 formulation (90% of dents at 5% false alarms, on 5 dents and
-      10 good units) was not measurable. See ADR-0005.
+      The 2026-09-02 formulation (90% of dents at 5% false alarms, on 5 dents and 10 good
+      units) was not measurable: 5 of 5 dents caught is consistent with a true catch rate of
+      54.9%, and a 5% false-alarm rate cannot be resolved at all on 10 units. See ADR-0005.
 
   - id: B
     name_en: Latency gate

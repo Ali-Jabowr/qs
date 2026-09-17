@@ -4,7 +4,7 @@
 **Automated visual quality inspection for a food production line**  
 Owner: Ali, Volgograd · Rendered 2026-09-17
 
-Overall: **4/49 tasks** `██······················` 8%
+Overall: **5/50 tasks** `██······················` 10%
 
 > Verbal intent to pay. No signed contract, no money moved.  
 > Acceptance criterion: **up to 95% (Q28, client verbatim)**
@@ -17,7 +17,7 @@ Overall: **4/49 tasks** `██······················` 8%
 
 | Gate | Due | Status | Blocks | Statement |
 |---|---|---|---|---|
-| **A** — Bench detection gate | 2026-10-13 | `pending` | S4, S5 | On the flat product, under the best lighting geometry: dent recall at or above 90% with a 95% one-sided lower confidence bound at or above 75%, measured at a false-alarm rate at or below 5% on at least 40 held-out good UNITS. |
+| **A** — Bench detection gate | 2026-10-13 | `pending` | S4, S5 | On the flat product, under the lighting geometry selected on calibration data, with the threshold set to a 5% false-alarm target on 30 calibration units: dent recall at or above 90% on 30 held-out dented UNITS (at least 27 of 30), whose 95% one-sided lower bound therefore clears 75%; false-alarm rate on 40 held-out good units at or below 10% as a point estimate, reported with its upper bound; and the whole result regenerated from the frozen golden set by one command. |
 | **B** — Latency gate | 2026-10-13 | `pending` | S4 | End-to-end trigger-to-verdict at or under 700 ms at the 95th percentile, measured on CPU as the Intel N100 proxy, with persistence off the critical path. |
 | **C** — Hardware spend gate | — | `pending` | — | No hardware is purchased beyond groceries until Gate A has passed, AND the site visit has produced video and defective samples, AND the metrology question (OQ-1) is answered. |
 
@@ -31,7 +31,7 @@ Overall: **4/49 tasks** `██······················` 8%
 |---|---|---|---|---|
 | `[ ]` | **S0** Environment and stand-in product | 17.09 – 22.09 | `············` 0/7 | not_started |
 | `[ ]` | **S1** Prove the pipeline on public data | 23.09 – 25.09 | `············` 0/3 | not_started |
-| `[ ]` | **S2** Build the rig and shoot | 26.09 – 06.10 | `············` 0/9 | not_started |
+| `[ ]` | **S2** Build the rig and shoot | 26.09 – 06.10 | `············` 0/10 | not_started |
 | `[ ]` | **S3** Train and measure | 07.10 – 13.10 | `············` 0/4 | not_started |
 | `[ ]` | **S4** Wrap it as a demo | 14.10 – 23.10 | `············` 0/5 | not_started — needs Gate A |
 | `[!]` | **S5** Site visit with the demo in hand | 26.10 – ? | `············` 0/8 | blocked — blocked on client scheduling |
@@ -51,17 +51,17 @@ Overall: **4/49 tasks** `██······················` 8%
 
 | | Stage | Window | Progress | Status |
 |---|---|---|---|---|
-| `[~]` | **E0** Design spine and runnable skeleton | 17.09 – 24.09 | `█████·······` 4/9 | in_progress |
+| `[~]` | **E0** Design spine and runnable skeleton | 17.09 – 24.09 | `███████·····` 5/9 | in_progress |
 
 ## Task detail
 
-**E0 · Design spine and runnable skeleton** — 4/9
+**E0 · Design spine and runnable skeleton** — 5/9
 
 - [x] `E0.1` Machine-readable project state, renderer and validator  ↳ `project.yml + tools/render.py + tests/test_project_state.py (19 tests)`
 - [x] `E0.2` System architecture document with diagrams (context, line, dataflow, modules, deployment)  ↳ `docs/10-architecture.md — 5 diagrams, all verified rendering`
 - [x] `E0.3` Interface contracts — TriggerSource, FrameSource, Inspector, Sink, Annunciator  ↳ `docs/11-interfaces.md — five contracts, seven rules, implementation matrix`
 - [x] `E0.4` Data model — dataset layout, inspection record schema, config-as-contract  ↳ `docs/12-data-model.md — datasets, append-only evidence schema, config as contract`
-- [ ] `E0.5` Evaluation protocol — recall@FAR, confidence intervals, unit-level sampling, restated gates
+- [x] `E0.5` Evaluation protocol — recall@FAR, confidence intervals, unit-level sampling, restated gates  ↳ `docs/14-eval-protocol.md + tools/bounds.py (generates its tables)`
 - [ ] `E0.6` Failure model — station state machine, fault handling, fail-to-no-verdict, reference patch
 - [ ] `E0.7` Architecture decision records for decisions already taken, and for the new ones
 - [ ] `E0.8` Runnable skeleton in src/ — contracts, replay source, SQLite sink, stub inspector, tests green
@@ -73,7 +73,7 @@ Overall: **4/49 tasks** `██······················` 8%
 - [ ] `S0.2` PyTorch with CUDA — verify torch.cuda.is_available() is True and the device is the RTX 3060
 - [ ] `S0.3` Install anomalib and opencv-python
 - [ ] `S0.4` Check the licence of every Anomalib model that could ship (Anomalib itself is Apache-2.0; per-model terms differ)
-- [ ] `S0.5` Buy ~100 flat identical units (пряники) — enough to damage 60 and still hold out 40 good
+- [ ] `S0.5` Buy ~170 flat identical units (пряники) — 100 kept good (30 train / 30 calibrate / 40 validate) and 70 to damage. See 14-eval-protocol.md §3
 - [ ] `S0.6` Buy ~30 tall units (булки) — the three-dimensional height case
 - [ ] `S0.7` Create the Anomalib folder layout under data/datasets/
 
@@ -83,17 +83,18 @@ Overall: **4/49 tasks** `██······················` 8%
 - [ ] `S1.2` Run PatchCore on one category and reproduce roughly the published numbers
 - [ ] `S1.3` Record baseline inference latency on the RTX 3060 and on CPU
 
-**S2 · Build the rig and shoot** — 0/9
+**S2 · Build the rig and shoot** — 0/10
 
 - [ ] `S2.1` Rig — matte-black box interior, camera fixed and marked, object filling ~80% of frame
 - [ ] `S2.2` Add the fixed grey/white reference patch inside the field of view (lighting drift self-check)
 - [ ] `S2.3` Lock camera settings — manual exposure, manual white balance, manual focus
-- [ ] `S2.4` Shoot 40 good units × 3 lighting geometries × 3 rotations (low-angle, diffuse, backlight)
-- [ ] `S2.5` Damage 60 units — 20 dents · 20 chips/breaks · 20 deformed. The count per class is what makes the gate measurable
+- [ ] `S2.4` Shoot 100 good units × 3 lighting geometries × 3 rotations (low-angle, diffuse, backlight) — one session per geometry, ~1530 frames in total across good and damaged
+- [ ] `S2.5` Damage 70 units — 30 dents (the Gate A class), 20 chips/breaks, 20 deformed. 30 is the smallest n at which an observed 90% clears a 75% lower bound
 - [ ] `S2.6` Shoot every damaged unit under all 3 geometries × 3 rotations
-- [ ] `S2.7` Split by UNIT, not by image — no unit may appear in both train and test
+- [ ] `S2.7` Split good units by UNIT into train/good 30, calib/good 30, test/good 40 — the threshold is chosen on calib and the false-alarm rate measured on test, and no unit crosses a split
 - [ ] `S2.8` Close-up record photo of each damaged unit's defect
-- [ ] `S2.9` Write the one sentence — which lighting shows a dent best, and why
+- [ ] `S2.9` Record the reference patch reading for every session and confirm sessions are comparable before merging any sets (guard E7)
+- [ ] `S2.10` Write the one sentence — which lighting shows a dent best, and why
 
 **S3 · Train and measure** — 0/4
 
