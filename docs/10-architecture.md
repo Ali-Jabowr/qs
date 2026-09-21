@@ -1,7 +1,10 @@
 # System architecture
 
 **Audience:** engineering. English, per the language policy.
-**Status:** design. No code depends on this yet; `src/` implements it from E0.8 onward.
+**Status:** design, revised 2026-09-21 for моти and the bench MVP (design Step 3). No code
+depends on this yet; `src/` implements it from E0.8 onward.
+**Requirements:** [`06-requirements.md`](06-requirements.md) — every choice below traces to an
+FR or NFR there. Decisions: `decisions/ADR-0008` to `ADR-0011`.
 **Companions:** [`11-interfaces.md`](11-interfaces.md) (the contracts) ·
 [`12-data-model.md`](12-data-model.md) (what is stored) ·
 [`14-eval-protocol.md`](14-eval-protocol.md) (how it is measured) ·
@@ -32,7 +35,7 @@ the *appearance* demo. Both are right, because they are answering different ques
 
 - **What ships first** is Station M. Deterministic, no training data, and a batch has
   already been returned over marking.
-- **What gets prototyped first** is Station A's detection method, on supermarket food,
+- **What gets prototyped first** is Station A's detection method, on store-bought моти,
   because it is the only thing that can start today and it answers the project's central
   technical question without the factory.
 
@@ -125,6 +128,24 @@ It costs a piece of card. It gives us an automatic daily health check, a defensi
 for the annual calibration visit, and — during the bench work at S2 — a way to prove that
 two shooting sessions a week apart are actually comparable.
 
+### The same layout on the bench (MVP)
+
+The MVP rig is this diagram built from household parts. It keeps every element that matters:
+
+| Factory | Bench | Why it has to be there |
+|---|---|---|
+| Shrouded enclosure | Cardboard box, matte black inside | Ambient light blocked (I5) |
+| Controlled light | One desk lamp, placed to the geometry the pilot picks | The lighting is the experiment |
+| Grey reference patch | A grey card in a corner of the frame | Lighting drift measured on every frame (FR-14) |
+| Unit on the conveyor | A marked placement area on the matte black floor | Units land roughly centred; the Localizer handles the rest (FR-25) |
+| Camera over the belt | USB webcam fixed to the lid, pointing straight down, height marked | Pixel tolerances hold only at a fixed height (ADR-0008) |
+
+**Sizing.** A моти is about 4–6 cm across. The camera sits at the lowest height at which it still
+focuses sharply, with the whole placement area in view. At 1080p a unit then spans roughly
+250–700 px, enough for a 256 px model input. The unit does **not** fill 80% of the frame as
+`04-build-plan.md` suggested for flat product: the geometry check needs background all the way
+round the silhouette.
+
 ## 4. Components
 
 This is the flow of data, not the call graph — the Pipeline orchestrates every step.
@@ -180,6 +201,37 @@ offline, deterministically, against a frozen set of images. Every quality claim 
 becomes a command someone else can run. Without it, "we measured 92% recall" is a memory
 of a good afternoon.
 
+### Inside Station A's Inspector
+
+```mermaid
+flowchart LR
+    f["Frame"] --> loc["Localize<br/>segment the unit from<br/>the black background"]
+    loc -->|"no unit, or touches the edge"| nv["NO_VERDICT<br/>placement"]
+    loc -->|"mask + contour"| geo["Geometry check<br/>area · diameter · roundness<br/>against tolerances"]
+    loc -->|"centre"| crop["Fixed window<br/>centred on the unit<br/>one resize factor for all"]
+    crop --> pc["PatchCore<br/>score map"]
+    pc --> msk["Mask the map to the<br/>silhouette plus a margin<br/>take the maximum"]
+    geo --> comb["Combine<br/>DEFECT if either fails"]
+    msk --> comb
+    comb --> v["Verdict<br/>with per-check results"]
+```
+
+Three choices, recorded in ADR-0009, each with the alternative it beat:
+
+- **Localization lives inside the Inspector, not the Pipeline.** Where the thing is depends on
+  what the thing is — a моти here, a date code at Station M. In the Pipeline it would put product
+  knowledge into the shared core.
+- **PatchCore sees a fixed window centred on the unit, resized by one factor for every unit.**
+  The full frame turns position and background dust into anomalies. Cropping to each unit's own
+  bounding box rescales every unit differently and erases size — the thing the geometry check
+  (ADR-0008) needs to see.
+- **The score map is masked to the unit before the maximum is taken.** Starch dust on the floor
+  is real and constant; unmasked, it generates false alarms. The mask is dilated by a margin so a
+  tear at the edge still counts.
+
+The consequence is deliberate: a crumb lying next to the unit is outside the mask and ignored.
+That is the foreign-object scope of I7 — surface-visible, on the unit, best effort.
+
 ## 5. One unit, end to end
 
 ```mermaid
@@ -206,6 +258,33 @@ sequenceDiagram
     Note over P,S: If the Sink is slow or the disk is full,<br/>the operator still gets a verdict on time.<br/>The station degrades, it does not stall.
 ```
 
+### Three threads, because of one rule
+
+```mermaid
+flowchart LR
+    subgraph camT["Camera thread"]
+        grab["grab continuously<br/>keep only the newest frame<br/>and its timestamp"]
+    end
+    subgraph mainT["Main thread — owns the window"]
+        prev["live preview<br/>and keyboard"]
+        run["on a key press: event at t0<br/>wait for a frame after t0<br/>lighting · inspect · show"]
+    end
+    subgraph sinkT["Sink thread"]
+        wr["drain the queue<br/>SQLite + JPEG"]
+    end
+    grab -->|"newest"| prev
+    grab -->|"first frame after t0"| run
+    prev -->|"key press"| run
+    run -->|"record"| wr
+```
+
+The rule is C4: never a stale frame. OpenCV's capture buffer holds several frames, so a naive
+read after a key press returns a frame from *before* it — the previous placement, judged as this
+unit. The camera thread timestamps every frame and `capture(event)` waits for the first one
+stamped after `t0`, with a timeout that raises `CaptureError`. The main thread owns the window,
+the keyboard and the inspection; one unit a second needs nothing more. The sink thread keeps
+persistence off the critical path (I9).
+
 ### Latency budget
 
 The client's stated ceiling is one unit per second. The budget below is what Gate B
@@ -226,6 +305,21 @@ looks fast and nothing is learned.
 If inference will not fit, the answers are in order: a smaller PatchCore coreset, a lower
 input resolution, then PaDiM or FastFlow. That ordering matters — coreset size costs the
 least accuracy per millisecond bought. This gets settled at S3, not at deployment.
+
+**Bench budget (MVP).** NFR-01 allows 1.0 s at p95 on the laptop; the target leaves room to spare.
+
+| Step | Target | Note |
+|---|---:|---|
+| Key press to first fresh frame | 70 ms | two frame periods at 30 fps |
+| Reference patch | 2 ms | |
+| Localize and geometry | 20 ms | threshold, largest contour, moments |
+| PatchCore on the RTX 3060 | 100 ms | measured at S1 |
+| Draw and show | 50 ms | Pillow text onto the frame (ADR-0011) |
+| **Total** | **~250 ms** | four times inside NFR-01 |
+
+For NFR-02, the same run with the GPU hidden and PyTorch pinned to 4 threads. The laptop CPU is
+still faster per core than an N100, so the number is a lower bound on the factory figure, and is
+reported as one.
 
 ## 6. Deployment
 
@@ -271,6 +365,36 @@ Sizing, carried over from `02-hardware.md` and unchanged: ~500 KB per image, ~5,
 per shift is ~2.5 GB per shift, roughly 75 GB per month. A 1–2 TB SSD holds about a year
 of full traceability. The archive is part of what is being sold, not a by-product.
 
+### The bench deployment (MVP)
+
+```mermaid
+flowchart LR
+    subgraph rig["Rig — cardboard box, matte black inside"]
+        direction TB
+        cam["USB webcam<br/>fixed height, locked settings"]
+        lamp["Desk lamp<br/>geometry from the pilot"]
+        card["Grey card<br/>in a corner of the frame"]
+        spot["Marked placement area"]
+    end
+    subgraph lap["Laptop — RTX 3060, offline"]
+        direction TB
+        station["Station<br/>live, or replay"]
+        tools["Offline tools<br/>train · calibrate · evaluate"]
+        data[("data/<br/>raw · datasets · golden")]
+        ev[("evidence/<br/>SQLite + JPEG")]
+    end
+    cam -->|"USB"| station
+    station --> ev
+    station -.->|"shoot mode"| data
+    data --> tools
+    tools -->|"model bundle + threshold"| station
+```
+
+One machine does everything, and it is the machine that goes to the site visit. The shape is the
+factory's with three substitutions — keyboard for the photoelectric trigger, webcam for GigE,
+PyTorch on the GPU for OpenVINO on the N100 — each one a different implementation behind an
+unchanged contract ([`11-interfaces.md`](11-interfaces.md) §4).
+
 ## 7. Invariants
 
 These hold regardless of what any survey answer turns out to say. Each one is either a
@@ -278,7 +402,7 @@ legal constraint, a safety constraint, or a lesson already paid for.
 
 | | Invariant | Why |
 |---|---|---|
-| I1 | **On-prem. No image leaves the building.** | 152-ФЗ, trade secret, and it closes the security objection before it opens |
+| I1 | **On-prem. No image leaves the building.** | 152-ФЗ, trade secret, and it closes the security objection before it opens. At runtime the only connection is to the station's own camera (NFR-07) |
 | I2 | **Every unit inspected writes an immutable record** with its image, verdict and full provenance | ХАССП traceability has value on its own, and it is the training data for every future retrain |
 | I3 | **Advisory only.** Operator alert, never automatic rejection | No PLC, no actuator, no line-safety sign-off. Prove detection before touching their machinery |
 | I4 | **Hardware trigger, one image per unit.** Never free-running video | Free-running gives doubles, partials and misses |
@@ -291,7 +415,8 @@ legal constraint, a safety constraint, or a lesson already paid for.
 ## 8. What this architecture deliberately does not have
 
 No Docker. No web framework. No REST API. No user accounts. No cloud. No message broker.
-No PLC integration. No rejection actuator.
+No PLC integration. No rejection actuator. No GUI toolkit: the operator screen is one OpenCV
+window with text drawn by Pillow (ADR-0011).
 
 Every one of those is a reasonable thing to want later and a certain way to not have a
 demo in October. They are listed here so that adding one is a visible decision with an
