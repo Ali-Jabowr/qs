@@ -268,11 +268,12 @@ they do not decide.
 
 | Raised by | Exception | Pipeline does |
 |---|---|---|
-| `FrameSource` | `CaptureError` — no frame after `t0` within the timeout | `NO_VERDICT(reason="capture")`, increments the fault counter, stays armed |
-| `FrameSource` | `CameraLost` | `NO_VERDICT`, transitions to `FAULT`, attempts reconnect with backoff |
-| Pipeline | `LightingFault` | `NO_VERDICT(reason="lighting")`, transitions to `DEGRADED`, keeps running and keeps recording |
+| `FrameSource` | `CaptureError` — no frame after `t0` within the timeout | `NO_VERDICT(reason="capture")`, increments the fault counter, stays armed; three in a row is `FAULT` |
+| `FrameSource` | `CameraLost` | `NO_VERDICT(reason="camera")`, transitions to `FAULT`, reconnects with backoff ([`16-failure-model.md`](16-failure-model.md) §3) |
+| Pipeline | `LightingFault` | `NO_VERDICT(reason="lighting")`, raises the `LIGHTING` warning, keeps running and keeps recording |
 | `Inspector` | `PlacementFault` — no unit, or not wholly in the inspection area | `NO_VERDICT(reason="placement")`, stays armed. Not a fault count: a misplaced unit is an operator event, not a station fault |
-| `Inspector` | `InferenceError` | `NO_VERDICT(reason="inference")`, fault counter, stays armed |
+| `Inspector` | `InferenceError` | `NO_VERDICT(reason="inference")`, fault counter, stays armed; three in a row is `FAULT` |
+| Pipeline | A trigger while inspecting or starting | `NO_VERDICT(reason="busy")`, no image — the unit is accounted for, not checked |
 | `Inspector` | exceeds its latency budget | verdict is still used; a budget breach is counted and reported, not discarded |
 | `Sink` | anything | swallowed, counted, surfaced through `health()`. Never reaches the operator path |
 | `Annunciator` | anything | logged; the record is still written |

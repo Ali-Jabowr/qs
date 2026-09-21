@@ -75,8 +75,10 @@ erDiagram
         text run_id PK
         text station_id
         text started_utc
+        text ended_utc "NULL if the process died"
         text config_hash FK
         text qs_version
+        text counters "JSON, at a clean stop"
     }
     INSPECTION {
         int  id PK
@@ -89,6 +91,7 @@ erDiagram
         text model_id FK
         text threshold_id FK
         text config_hash FK
+        text image_status "stored | shed | none"
         text image_path
         text image_sha256
         int  camera_verified
@@ -127,6 +130,16 @@ stream is the label stream**: every disagreement is a human-labelled example, ga
 free, which is what the annual retrain is trained on.
 
 ```sql
+CREATE TABLE run (
+    run_id            TEXT    PRIMARY KEY,
+    station_id        TEXT    NOT NULL,
+    started_utc       TEXT    NOT NULL,
+    ended_utc         TEXT,                    -- NULL if the process died
+    config_hash       TEXT    NOT NULL,
+    qs_version        TEXT    NOT NULL,
+    counters          TEXT                     -- JSON, written at a clean stop
+);
+
 CREATE TABLE inspection (
     id                INTEGER PRIMARY KEY,
     run_id            TEXT    NOT NULL REFERENCES run(run_id),
@@ -141,8 +154,9 @@ CREATE TABLE inspection (
     threshold_id      TEXT    NOT NULL,
     config_hash       TEXT    NOT NULL,
 
-    image_path        TEXT    NOT NULL,
-    image_sha256      TEXT    NOT NULL,
+    image_status      TEXT    NOT NULL CHECK (image_status IN ('stored','shed','none')),
+    image_path        TEXT,                    -- set only when stored
+    image_sha256      TEXT,
     heatmap_path      TEXT,
     unit_x INTEGER, unit_y INTEGER, unit_w INTEGER, unit_h INTEGER,
 
@@ -158,7 +172,9 @@ CREATE TABLE inspection (
     total_ms          REAL,
 
     UNIQUE (run_id, seq),
-    CHECK (label <> 'no_verdict' OR reason IS NOT NULL)
+    CHECK (label <> 'no_verdict' OR reason IS NOT NULL),
+    CHECK ((image_status = 'stored') = (image_path IS NOT NULL AND image_sha256 IS NOT NULL)),
+    CHECK (image_status <> 'none' OR label = 'no_verdict')
 );
 
 CREATE TABLE inspection_check (
@@ -188,7 +204,9 @@ CREATE INDEX idx_check_failed     ON inspection_check(name, passed);
 
 The two `CHECK` constraints are invariants I6 and C7 written where they cannot be argued
 with: a verdict is one of three values, and a `no_verdict` without a stated reason cannot
-be inserted at all. The four triggers do the same for FR-42: append-only is not a coding
+be inserted at all. The image constraints say the same for the archive: an image is `stored`
+with a path and a hash, `shed` under storage failure (ADR-0012), or `none` because no frame was
+ever captured — and only a NO_VERDICT can have none. The four triggers do the same for FR-42: append-only is not a coding
 convention the application promises to keep, it is a property of the file.
 
 **Why a child table for checks.** One row per check that ran, keyed by inspection and check
