@@ -17,5 +17,7 @@ Numbers are never reused. A superseded ADR stays, with its status changed and a 
 | [0010](ADR-0010-bench-camera-usb-webcam.md) | Bench camera: USB webcam over V4L2; phone as fallback | Proposed — lock test | 2026-09-21 |
 | [0011](ADR-0011-operator-screen-opencv-pillow.md) | Operator screen: one OpenCV window, text by Pillow | Accepted | 2026-09-21 |
 | [0012](ADR-0012-storage-failure-verdict-wins.md) | When storage fails, the verdict wins and the record outlives the image | Accepted | 2026-09-21 |
+| [0013](ADR-0013-pilot-geometries-one-frame.md) | One frame serves both checks; the pilot compares three front-lit geometries | Accepted — winner after the pilot | 2026-09-21 |
+| [0014](ADR-0014-paired-shooting.md) | Test units shot good, then damaged, minutes apart, in random order | Accepted | 2026-09-21 |
 
 New decisions take the next free number.

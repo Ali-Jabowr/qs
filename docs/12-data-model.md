@@ -274,7 +274,7 @@ camera:
   device: /dev/video0
   width: 1920
   height: 1080
-  exposure_us: 8000            # manual; the read-back goes into every record
+  exposure_us: 10000           # manual, a multiple of 10 ms against 100 Hz lamp flicker
   wb_kelvin: 4500
   focus: 30
   capture_timeout_ms: 500      # no frame after t0 in this time: CaptureError

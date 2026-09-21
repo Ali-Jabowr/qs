@@ -1,8 +1,10 @@
 # Evaluation protocol
 
 **Audience:** engineering, and whoever has to defend a number to the client.
-**Status:** design. `src/qs/eval/` implements it; `tools/bounds.py` already computes the
-tables in §5.
+**Status:** design, revised 2026-09-21 (design Step 6) for моти, the geometry check, paired
+shooting (ADR-0014) and the demo-grade MVP protocol (§9, ADR-0007). `src/qs/eval/` implements
+it; `tools/bounds.py` computes every bound quoted here. How the images are taken:
+[`13-data-collection.md`](13-data-collection.md).
 **This document owns the definition of Gates A and B.** `project.yml` owns whether they
 have been passed. Nothing else states a gate criterion.
 
@@ -25,9 +27,9 @@ produce a quotable number.
 
 ## 2. The unit is the sample, not the image
 
-S2 shoots each unit under 3 lighting geometries in 3 rotations. That is 9 images of **one**
-cookie. They are 9 views of one sample, not 9 samples: they share the same batter, the same
-bake, the same edge chips and the same dent.
+Each unit is shot in 3 rotations — and in the lighting pilot, under 3 geometries as well. That is
+up to 9 images of **one** моти. They are views of one sample, not samples: they share the same
+dough, the same dusting and the same dent.
 
 `04-build-plan.md` described the S2 output as "~360 good images" and this is the
 single easiest place in the project to accidentally multiply our own sample size by nine.
@@ -45,21 +47,20 @@ Per-image numbers may be computed for diagnosis. They are never reported as the 
 
 ```mermaid
 flowchart LR
-    buy["~170 flat units<br/>bought at S0"] --> good["100 kept good"]
-    buy --> dmg["70 deliberately damaged"]
+    buy["133 моти, one flavour<br/>bought on the day"] --> tr["train/good · 30<br/>the PatchCore memory bank"]
+    buy --> cal["calib/good · 30<br/>threshold and tolerances set here"]
+    buy --> tst["test · 70 units<br/>shot good, then damaged"]
+    buy --> ctl["control · 3<br/>start, middle, end"]
 
-    good --> tr["train/good · 30<br/>the PatchCore memory bank"]
-    good --> cal["calib/good · 30<br/>choose the threshold here"]
-    good --> val["test/good · 40<br/>measure the false-alarm rate here"]
-
-    dmg --> dent["test/dent · 30<br/>the Gate A class"]
-    dmg --> chip["test/chip · 20"]
-    dmg --> def2["test/deformed · 20"]
+    tst --> val["test/good · 70<br/>the false-alarm rate"]
+    tst --> dent["test/dent · 30<br/>the Gate A class"]
+    tst --> tear["test/tear · 20"]
+    tst --> def2["test/deformed · 20"]
 
     classDef pick fill:#fff8c5,stroke:#9a6700,color:#4d2d00
     classDef meas fill:#dafbe1,stroke:#1a7f37,color:#0a3622
     class cal pick
-    class val,dent,chip,def2 meas
+    class val,dent,tear,def2 meas
 ```
 
 The threshold is **chosen** on `calib/good` and the false-alarm rate is **measured** on
@@ -70,26 +71,37 @@ rate you then report, you will report 5% — by construction, every time, whatev
 does. That is not a measurement, it is arithmetic restating its own input. The number only
 becomes evidence when the units it is measured on had no say in where the cut-off went.
 
-The same logic applies one level up. Three lighting geometries are compared, so the winner
-is **selected on `calib/good` plus a held-out slice of the defects**, and the gate is then
-evaluated **once**, on the untouched validation units, with the geometry already fixed.
-Picking the best of nine geometry × defect-class combinations and quoting it is how a 70%
-system gets reported as 90%.
+The same logic applies one level up. The lighting geometry is **selected in the pilot, on
+units that are then thrown away** ([`13-data-collection.md`](13-data-collection.md) §5), and the
+gate is evaluated **once**, on untouched units, with the geometry already fixed. Picking the best
+of nine geometry × defect-class combinations and quoting it is how a 70% system gets reported
+as 90%.
+
+**Paired shooting** (ADR-0014). Each test unit is shot good, damaged by a standard recipe, and
+shot again minutes later. Its good images measure false alarms; its damaged images measure recall.
+This removes the confound that sinks soft food: if every damaged image is taken an hour after
+every good one, the model can tell them apart by *when* — and reports the clock as recall. It also
+makes each test unit serve twice: 133 units instead of 170, and 70 good test units instead of 40,
+which tightens the false-alarm bound from 7.2% to 4.2%.
 
 ## 4. The procedure
 
 For each lighting geometry, in order, with nothing skipped:
 
 1. **Train** PatchCore on `train/good` only. Anomaly detection never sees a defect in
-   training — that is the whole point of choosing it (ADR-0002).
+   training — that is the whole point of choosing it (ADR-0002). **Derive the geometry
+   tolerances** from the same units (method in `15-model.md`).
 2. **Score** every image in `calib/good`, `test/good` and every defect class.
 3. **Aggregate to units**: each unit's score is the maximum over its rotations.
-4. **Choose the threshold** at the target false-alarm rate on `calib/good`. For a 5% target
-   on 30 calibration units, that is the cut-off leaving at most 1 unit flagged. Record it
-   as a `threshold_id` ([`12-data-model.md`](12-data-model.md) §4).
+4. **Choose the threshold** so that the **combined** verdict — geometry or appearance — meets
+   the target false-alarm rate on `calib/good`. For a 5% target on 30 calibration units, that is
+   the cut-off leaving at most 1 unit flagged by either check. Record it, with the tolerances,
+   as one `threshold_id` ([`12-data-model.md`](12-data-model.md) §4).
 5. **Measure**, on units that had no part in steps 1 or 4:
-   - recall per defect class, on `test/dent`, `test/chip`, `test/deformed`
-   - the false-alarm rate on `test/good`
+   - recall per defect class, on `test/dent`, `test/tear`, `test/deformed`, for the combined
+     verdict — and, as a diagnostic, which check caught each unit
+   - the false-alarm rate on `test/good`, combined and per check
+   - per test unit, the paired score difference, damaged minus good
 6. **Attach a confidence bound to every rate** — §5. A rate without one is not a result.
 7. **Repeat at 1%, 5% and 10% targets**, so the operating curve is visible rather than a
    single point chosen to look good.
@@ -154,19 +166,20 @@ scarcest resource in the project.
 
 ### Gate A — bench detection · due 2026-10-13
 
-On the flat product, under the lighting geometry selected on calibration data:
+On one flavour of моти, under the lighting geometry selected in the pilot:
 
 | | Requirement |
 |---|---|
 | A1 | Threshold set to a **5% false-alarm target on `calib/good`** (30 units), recorded as a `threshold_id` |
 | A2 | **Dent recall ≥ 90%** on `test/dent`, **n = 30**, aggregated per unit |
 | A3 | That recall's **95% one-sided lower bound ≥ 75%** — i.e. at least 27 of 30 |
-| A4 | False-alarm rate on `test/good` (40 units) **≤ 10% as a point estimate**, reported with its upper bound |
+| A4 | Combined false-alarm rate on `test/good` (70 units) **≤ 10% as a point estimate**, reported with its upper bound |
 | A5 | The whole result **regenerated from the frozen golden set by one command** |
 
 A4 is a sanity check, not a confidence claim, and it is labelled as one. §5 shows why a
-5% claim is not available at n = 40, and a gate that requires an unprovable thing is a
-gate that will be quietly reinterpreted.
+5% claim at n = 70 holds only if not one good unit is flagged (bound 4.2%); a single false alarm
+puts it out of reach (6.6%). A gate that hinges on zero is fragile, and a fragile gate is one that
+gets quietly reinterpreted. Tear and deformed recall are reported, not gated.
 
 **If Gate A fails: the problem is the lighting, not the model.** Go back to S2 and
 re-shoot. Do not retrain, do not tune hyperparameters, do not add features. The single
@@ -190,8 +203,10 @@ generated, never hand-written. It contains:
 - the invocation that regenerates it, and the golden-set hash
 - `model_id`, `threshold_id`, `config_hash`
 - unit counts per split, and the assertion that no unit crosses splits
+- the control units' scores at start, middle and end of each session (E9)
 - the operating table: for targets 1%, 5%, 10% — threshold, recall per defect class with
-  lower bounds, false-alarm rate with upper bound
+  lower bounds, false-alarm rate with upper bound, and which check caught what
+- **INDICATIVE** in the title of every MVP report (ADR-0007)
 - latency p50 / p95 / p99
 - every unit that changed verdict since the previous run on the same golden set
 
@@ -210,8 +225,47 @@ is not "the numbers look similar" — it is a list of exactly which units moved 
 | E6 | Deliberate damage is more obvious than real damage | Unfixable at the bench. It is why S5 collects real defective samples, and why Gate A is a bench gate and not a product claim |
 | E7 | Two shooting sessions are not comparable | The reference patch reading is recorded per session and checked before the sets are merged |
 | E8 | Latency measured on the training GPU | Gate B specifies CPU explicitly |
+| E9 | Damaged units shot at a different time from good ones — the model learns the clock | Paired shooting, random order, control units at start, middle and end (ADR-0014) |
+| E10 | Handling creates the anomaly — fingerprints in the starch, condensation on a chilled unit | Gloves, a spatula, 30 minutes to room temperature in the packaging ([`13-data-collection.md`](13-data-collection.md) §2) |
 
 E6 is the one that no amount of statistical care fixes, and it should be said out loud
-whenever a bench number is shown to anyone: **this measures cookies we broke on purpose.**
+whenever a bench number is shown to anyone: **this measures моти we broke on purpose.**
 It establishes that the method works and that the lighting reveals the defect. It does not
 establish the client's 95%, and no bench result ever will.
+
+## 9. The MVP protocol — demo-grade
+
+ADR-0007. The same procedure as §4, on fewer units, and every result stamped **INDICATIVE**.
+Shooting is in [`13-data-collection.md`](13-data-collection.md) §6.
+
+| Split | Units | Lean |
+|---|---:|---:|
+| `train/good` | 20 | 18 |
+| `calib/good` | 15 | 10 |
+| test, paired — `test/good` | 30 | 24 |
+| of which `test/dent` · `test/tear` · `test/deformed` | 12 · 9 · 9 | 10 · 7 · 7 |
+| control | 3 | 3 |
+
+**What it can show** (`tools/bounds.py`, one-sided 95%):
+
+| | Observed | Bound |
+|---|---|---:|
+| Dent recall, n = 12 | 12 of 12 | ≥ 77.9% |
+| | 11 of 12 | ≥ 66.1% |
+| Tear or deformed recall, n = 9 | 9 of 9 | ≥ 71.7% |
+| False alarms, n = 30 | 0 of 30 | ≤ 9.5% |
+| | 1 of 30 | ≤ 14.9% |
+
+So the MVP can show that the method works and that the lighting reveals the defect. It cannot
+show the client's 95%, nor Gate A. The threshold on 15 calibration units cannot resolve a 5%
+target — one unit is 6.7% — so the MVP cut-off is the highest calibration score, reported as such.
+
+**Placement set.** Ten frames with no unit or a unit touching the edge go into the golden set.
+Every one must come back NO_VERDICT(`placement`) — a functional check, not a statistic.
+
+**Early warning** (`06-requirements.md` §4). Dent recall under 70% at the 5% target — fewer than
+9 of 12 — means stop and fix the lighting before building more of the demo. The same rule as
+Gate A, applied early.
+
+**Golden set.** `data/golden/mvp-<date>/`, frozen with a content hash. The MVP report is
+regenerated from it by one command (FR-56).
