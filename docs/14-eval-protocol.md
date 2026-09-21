@@ -36,7 +36,7 @@ single easiest place in the project to accidentally multiply our own sample size
 Two rules follow, and both are enforced in code rather than remembered:
 
 - **Split by unit.** No unit may have one rotation in `train/` and another in `test/`.
-  The filename convention `u007_r2.jpg` ([`12-data-model.md`](12-data-model.md) §2) makes
+  The filename convention `u007_r2.png` ([`12-data-model.md`](12-data-model.md) §2) makes
   the check mechanical.
 - **Aggregate by unit.** A unit is *caught* if any of its rotations scores above the
   threshold. The denominator of every rate reported is units.

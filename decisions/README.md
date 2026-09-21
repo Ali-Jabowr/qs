@@ -20,5 +20,6 @@ Numbers are never reused. A superseded ADR stays, with its status changed and a 
 | [0013](ADR-0013-pilot-geometries-one-frame.md) | One frame serves both checks; the pilot compares three front-lit geometries | Accepted — winner after the pilot | 2026-09-21 |
 | [0014](ADR-0014-paired-shooting.md) | Test units shot good, then damaged, minutes apart, in random order | Accepted | 2026-09-21 |
 | [0015](ADR-0015-patchcore-from-anomalib-torch-level.md) | PatchCore from Anomalib 2.6.2, pinned, torch-model level only | Accepted | 2026-09-21 |
+| [0016](ADR-0016-station-runs-only-what-it-was-given.md) | The station runs only what it was given: offline, hashed, never validation-only models | Accepted | 2026-09-21 |
 
 New decisions take the next free number.

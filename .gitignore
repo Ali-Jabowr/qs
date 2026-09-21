@@ -1,5 +1,10 @@
 data/*
 !data/.gitkeep
+evidence/
+models/
+wheelhouse/
+.torch/
 __pycache__/
 *.pyc
+.pytest_cache/
 .venv/

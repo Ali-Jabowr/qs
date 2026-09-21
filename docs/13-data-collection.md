@@ -116,6 +116,8 @@ ADR-0014. One session, under two hours (A-08).
 
 **Before the first frame**
 
+- **A backup drive exists** — an external drive or USB stick, 32 GB is plenty (PNG frames run
+  ~3 MB; the MVP shoot is ~1.5 GB). None yet as of 2026-09-21: arrange it before the first shoot.
 - The splitter assigns unit numbers to splits by seed **before** shooting. Every unit's split is
   known in advance, so the shooting order can be random.
 - Each unit sits in a numbered cell of a tray — an egg box, a muffin tray. Units cannot be labelled;
@@ -137,7 +139,8 @@ ADR-0014. One session, under two hours (A-08).
 
 **After**
 
-- `raw/<session>/` is copied untouched and never edited again.
+- `raw/<session>/` is copied untouched and never edited again — **and copied to the backup drive
+  before anything else happens** (`17-security.md` T11).
 - The splitter builds `datasets/mochi-<flavour>/<geometry>/`; it refuses to run if any unit falls
   in two splits.
 - The evaluation set is frozen as `golden/mvp-<date>/`, with a content hash (FR-56).

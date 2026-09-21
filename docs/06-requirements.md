@@ -92,7 +92,7 @@ code, not in the model.
 
 | ID | Requirement | Scope | Basis | Check |
 |---|---|---|---|---|
-| FR-51 | A **shoot mode** saves each frame as `u<unit>_r<rotation>.jpg`, with a per-session `session.yml`: camera values read back, lighting geometry, reference patch reading, product and flavour, purchase date, shoot start and end time. | MVP | design 12 §2 · A-08 | T, I |
+| FR-51 | A **shoot mode** saves each frame losslessly as `u<unit>_r<rotation>.png`, with a per-session `session.yml`: camera values read back, lighting geometry, reference patch reading, product and flavour, purchase date, shoot start and end time. | MVP | design 12 §2 · A-08 | T, I |
 | FR-52 | The splitter assigns **units, never images**, to train / calib / test, deterministically from a seed, and refuses to run if any unit falls in two splits. | MVP | design E1 | T |
 | FR-53 | One command trains PatchCore on `train/good` only and writes a model bundle whose `model_id` includes a hash of the weights. | MVP | design 14 §4 | T, R |
 | FR-54 | One command sets the threshold at a target false-alarm rate on `calib/good` and writes a new `threshold_id`. Geometry tolerances (FR-26) are derived from good units in the same step; the method is fixed in `15-model.md`. | MVP | design 12 §4 · 14 §4 | T |

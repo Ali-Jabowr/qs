@@ -24,7 +24,7 @@ data/
   raw/<session-id>/                  untouched originals, exactly as shot
     session.yml                      camera read-back, lighting geometry, patch reading,
                                      product, flavour, purchase date, start and end time
-    u007_r2.jpg
+    u007_r2.png                      lossless — see below
   datasets/<product>/<geometry>/     one dataset per lighting geometry
     train/good/                      good units only — all the model ever trains on
     calib/good/                      good units that set the threshold and the tolerances
@@ -40,8 +40,14 @@ trained and measured under identical conditions.
 ### The filename is the unit identity
 
 ```
-u007_r2.jpg     unit 7, rotation 2
+u007_r2.png     unit 7, rotation 2
 ```
+
+**Dataset frames are PNG, never JPEG.** The camera delivers uncompressed frames precisely because
+compression artifacts are the kind of fine texture PatchCore scores (ADR-0010); saving the
+dataset as JPEG would put them back. The evidence store keeps JPEG q85 for size. If the archive is
+one day to become training data (§3), the Inspector must see the same compression it was trained
+on — decided before S6, not discovered after.
 
 This is not cosmetic. `04-build-plan.md` plans 40 good units × 3 geometries × 3 rotations
 and calls the result "~360 good images". The statistical sample size is **40**, not 360 —
