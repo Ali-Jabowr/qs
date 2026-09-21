@@ -1,7 +1,9 @@
 # Data model
 
 **Audience:** engineering. English, per the language policy.
-**Status:** design. `src/qs/store.py` implements the schema at E0.8.
+**Status:** design, revised 2026-09-21 (design Step 4): the calibration split, per-check
+results, camera read-back, append-only enforced by the schema, and the bench config.
+`src/qs/store.py` implements the schema at E0.8.
 **Scope:** what is stored on disk — the training datasets, the evidence record, and the
 station configuration that ties a verdict to the conditions that produced it.
 
@@ -12,7 +14,7 @@ station configuration that ties a verdict to the conditions that produced it.
 | | Lives at | Written by | Read by | Lifetime |
 |---|---|---|---|---|
 | **Datasets** | `data/` (git-ignored) | the S2 shoot, and later the factory | training and evaluation | as long as the product exists |
-| **Evidence** | `/var/lib/qs` on the edge box | the running station | the operator, QA, us at calibration | records forever, images by retention |
+| **Evidence** | `/var/lib/qs` on the edge box; `evidence/` (git-ignored) on the bench | the running station | the operator, QA, us at calibration | records forever, images by retention |
 | **Config** | `config/station-*.yml`, in git | us, at install and at each calibration | the station at startup | versioned, never deleted |
 
 ## 2. Datasets
@@ -20,14 +22,14 @@ station configuration that ties a verdict to the conditions that produced it.
 ```
 data/
   raw/<session-id>/                  untouched originals, exactly as shot
-    session.yml                      camera settings, lighting geometry, patch reading, date
+    session.yml                      camera read-back, lighting geometry, patch reading,
+                                     product, flavour, purchase date, start and end time
     u007_r2.jpg
   datasets/<product>/<geometry>/     one dataset per lighting geometry
     train/good/                      good units only — all the model ever trains on
+    calib/good/                      good units that set the threshold and the tolerances
     test/good/                       held-out good units, for the false-alarm rate
-    test/dent/
-    test/chip/
-    test/deformed/
+    test/<defect-class>/             one folder per class; classes fixed in 14-eval-protocol.md
   golden/<name>/                     frozen replay sets. Never edited, only added to
 ```
 
@@ -43,11 +45,11 @@ u007_r2.jpg     unit 7, rotation 2
 
 This is not cosmetic. `04-build-plan.md` plans 40 good units × 3 geometries × 3 rotations
 and calls the result "~360 good images". The statistical sample size is **40**, not 360 —
-three rotations of the same cookie are three views of one sample, not three samples. The
+three rotations of the same unit are three views of one sample, not three samples. The
 filename convention makes that visible and makes two rules enforceable in code:
 
 - **Split by unit, never by image.** No unit may appear in both `train/` and `test/`. A
-  rotation of a training cookie sitting in the test set inflates every number we quote.
+  rotation of a training unit sitting in the test set inflates every number we quote.
 - **Aggregate by unit at evaluation.** A unit counts as caught if any of its rotations is
   flagged; the denominator is units. [`14-eval-protocol.md`](14-eval-protocol.md) §3.
 
@@ -63,6 +65,7 @@ own; the archive also happens to be the training data for every future retrain.
 ```mermaid
 erDiagram
     RUN ||--o{ INSPECTION : produces
+    INSPECTION ||--|{ INSPECTION_CHECK : "judged by"
     INSPECTION ||--o| OVERRIDE : "may be corrected by"
     CONFIG_VERSION ||--o{ RUN : "started under"
     MODEL_VERSION ||--o{ INSPECTION : decided
@@ -79,19 +82,27 @@ erDiagram
         int  id PK
         int  seq "gapless within the run"
         text run_id FK
-        text batch_id
+        text batch_id "the run on the bench"
         text ts_utc
         text label "pass | defect | no_verdict"
         text reason "required when no_verdict"
-        real score
-        real threshold
         text model_id FK
         text threshold_id FK
         text config_hash FK
         text image_path
         text image_sha256
+        int  camera_verified
         real reference_patch
         real total_ms
+    }
+    INSPECTION_CHECK {
+        int  inspection_id FK
+        text name "geometry | appearance"
+        int  passed
+        real value
+        real limit_value
+        text failed_on
+        text measures "JSON"
     }
     OVERRIDE {
         int  id PK
@@ -117,44 +128,75 @@ free, which is what the annual retrain is trained on.
 
 ```sql
 CREATE TABLE inspection (
-    id              INTEGER PRIMARY KEY,
-    run_id          TEXT    NOT NULL REFERENCES run(run_id),
-    seq             INTEGER NOT NULL,
-    batch_id        TEXT,
-    ts_utc          TEXT    NOT NULL,
+    id                INTEGER PRIMARY KEY,
+    run_id            TEXT    NOT NULL REFERENCES run(run_id),
+    seq               INTEGER NOT NULL,
+    batch_id          TEXT    NOT NULL,        -- the run_id on the bench (FR-43)
+    ts_utc            TEXT    NOT NULL,
 
-    label           TEXT    NOT NULL CHECK (label IN ('pass','defect','no_verdict')),
-    reason          TEXT,
-    score           REAL,
-    threshold       REAL,
+    label             TEXT    NOT NULL CHECK (label IN ('pass','defect','no_verdict')),
+    reason            TEXT,
 
-    model_id        TEXT    NOT NULL,
-    threshold_id    TEXT    NOT NULL,
-    config_hash     TEXT    NOT NULL,
+    model_id          TEXT    NOT NULL,
+    threshold_id      TEXT    NOT NULL,
+    config_hash       TEXT    NOT NULL,
 
-    image_path      TEXT    NOT NULL,
-    image_sha256    TEXT    NOT NULL,
-    heatmap_path    TEXT,
+    image_path        TEXT    NOT NULL,
+    image_sha256      TEXT    NOT NULL,
+    heatmap_path      TEXT,
+    unit_x INTEGER, unit_y INTEGER, unit_w INTEGER, unit_h INTEGER,
 
-    exposure_us     INTEGER,
-    gain_db         REAL,
-    reference_patch REAL,
+    exposure_us       INTEGER,
+    gain_db           REAL,
+    wb_kelvin         INTEGER,
+    focus             INTEGER,
+    camera_verified   INTEGER NOT NULL CHECK (camera_verified IN (0, 1)),
+    reference_patch   REAL,
 
-    capture_ms      REAL,
-    inspect_ms      REAL,
-    total_ms        REAL,
+    capture_ms        REAL,
+    inspect_ms        REAL,
+    total_ms          REAL,
 
     UNIQUE (run_id, seq),
     CHECK (label <> 'no_verdict' OR reason IS NOT NULL)
 );
 
+CREATE TABLE inspection_check (
+    inspection_id     INTEGER NOT NULL REFERENCES inspection(id),
+    name              TEXT    NOT NULL,        -- 'geometry' | 'appearance'
+    passed            INTEGER NOT NULL CHECK (passed IN (0, 1)),
+    value             REAL,                    -- the anomaly score
+    limit_value       REAL,                    -- the threshold ("limit" is reserved in SQL)
+    failed_on         TEXT,                    -- e.g. 'diameter_px<min'
+    measures          TEXT    NOT NULL DEFAULT '{}',  -- JSON, e.g. {"diameter_px": 412.0}
+    PRIMARY KEY (inspection_id, name)
+);
+
+CREATE TRIGGER inspection_append_only_u  BEFORE UPDATE ON inspection
+    BEGIN SELECT RAISE(ABORT, 'inspection is append-only'); END;
+CREATE TRIGGER inspection_append_only_d  BEFORE DELETE ON inspection
+    BEGIN SELECT RAISE(ABORT, 'inspection is append-only'); END;
+CREATE TRIGGER check_append_only_u       BEFORE UPDATE ON inspection_check
+    BEGIN SELECT RAISE(ABORT, 'inspection_check is append-only'); END;
+CREATE TRIGGER check_append_only_d       BEFORE DELETE ON inspection_check
+    BEGIN SELECT RAISE(ABORT, 'inspection_check is append-only'); END;
+
 CREATE INDEX idx_inspection_batch ON inspection(batch_id, ts_utc);
 CREATE INDEX idx_inspection_label ON inspection(label, ts_utc);
+CREATE INDEX idx_check_failed     ON inspection_check(name, passed);
 ```
 
 The two `CHECK` constraints are invariants I6 and C7 written where they cannot be argued
 with: a verdict is one of three values, and a `no_verdict` without a stated reason cannot
-be inserted at all.
+be inserted at all. The four triggers do the same for FR-42: append-only is not a coding
+convention the application promises to keep, it is a property of the file.
+
+**Why a child table for checks.** One row per check that ran, keyed by inspection and check
+name. The alternatives were a column per check (every new check or station is a schema change)
+and a JSON blob on the inspection row ("every geometry failure last week" becomes a JSON scan
+of every row). The child table is indexable, station-agnostic, and holds Station M's checks
+later without a migration. What SQLite cannot check across two tables — rule C8, that the label
+agrees with the checks — the Sink asserts before writing, and a verification query re-checks.
 
 ### The provenance triple
 
@@ -203,30 +245,57 @@ One versioned file per station. The station loads it at startup and records its 
 every single verdict.
 
 ```yaml
-version: 3
-station_id: A
-product: pryanik-v1
+# config/station-A-bench.yml — illustrative values; the pilot and calibration set the real ones
+version: 1
+station_id: A-bench
+product: mochi-<flavour>-v1
 
-trigger:   { type: photoelectric, debounce_ms: 20 }
-camera:    { type: gige, serial: "…", exposure_us: 8000, gain_db: 0.0, roi: [0, 0, 2448, 2048] }
+trigger:   { type: keyboard, key: space }
+camera:
+  type: webcam                 # ADR-0010
+  device: /dev/video0
+  width: 1920
+  height: 1080
+  exposure_us: 8000            # manual; the read-back goes into every record
+  wb_kelvin: 4500
+  focus: 30
+  capture_timeout_ms: 500      # no frame after t0 in this time: CaptureError
 
 lighting:
-  geometry: low_angle
+  geometry: low_angle          # chosen by the pilot
   reference_patch:
-    roi:    [2200, 1900, 120, 120]
+    roi:    [1780, 40, 100, 100]
     expect: 0.62
-    band:   0.05          # outside this, the station raises a lighting fault
+    band:   0.05               # outside this: NO_VERDICT(lighting)
 
-inspector: { type: anomaly, model: patchcore-pryanik-v4, backend: openvino }
+inspector:
+  type: appearance             # ADR-0008, ADR-0009
+  localize:  { roi: [360, 0, 1200, 1080], min_area_px: 20000, border_margin_px: 10 }
+  window_px: 800               # fixed window centred on the unit
+  input_px:  256               # one resize factor for every unit: 800 to 256
+  mask_dilate_px: 12
+  model:     patchcore-mochi-v1
+  backend:   torch-cuda        # torch-cpu, 4 threads, for the NFR-02 run
 
-threshold:
-  id:     thr-2026-10-13-far5
+threshold:                     # one calibration: the appearance threshold AND the tolerances
+  id:     cal-2026-09-25-far5
   value:  1.83
-  policy: far_5pct_on_holdout
+  policy: far_5pct_on_calib
+  geometry:
+    area_px:       [98000, 131000]
+    diameter_px:   [353, 408]
+    roundness_min: 0.86
 
-evidence:  { root: /var/lib/qs, retention_days: 400 }
-latency:   { budget_ms: 700, breach_action: record_and_continue }
+display:
+  labels: { pass: ГОДЕН, defect: БРАК, no_verdict: НЕТ РЕШЕНИЯ }
+  font:   assets/DejaVuSans.ttf
+
+evidence:  { root: evidence/, retention_days: 400 }
+latency:   { budget_ms: 1000, breach_action: record_and_continue }
 ```
+
+The factory config has the same shape. It differs in trigger, camera, backend, evidence root and
+batch source — the blue boxes of `10-architecture.md` §4 and nothing else.
 
 `config_hash` is the SHA-256 of the file in canonical form. Rule C6 in
 [`11-interfaces.md`](11-interfaces.md) says every implementation is constructed from this
@@ -243,7 +312,7 @@ different times, and they version independently:
 
 | Event | What changes | What does not |
 |---|---|---|
-| Retrain on new data | `model_id` | threshold is re-derived, config otherwise stable |
+| Retrain on new data | `model_id` | threshold and tolerances are re-derived, config otherwise stable |
 | **Annual calibration visit** | `threshold_id`, maybe `lighting.reference_patch.expect` | `model_id` |
 | Lamp replaced | `reference_patch.expect`, `config_hash` | model and threshold |
 | Operator says "too many false alarms" | `threshold_id` | `model_id` |
