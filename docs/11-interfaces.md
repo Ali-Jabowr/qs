@@ -2,7 +2,7 @@
 
 **Audience:** engineering. English, per the language policy.
 **Status:** design, revised 2026-09-21 (design Step 4): per-check verdicts (ADR-0008), capture
-that never returns a pre-trigger frame, and a polled trigger fed by the screen (ADR-0011).
+that never returns a pre-trigger frame, and a polled trigger fed by the screen (ADR-0018).
 `src/qs/contracts.py` implements this verbatim at E0.8.
 **Why this document exists:** `04-build-plan.md` claims that going from cookies to the
 client's product "means changing the training images and swapping the camera — it does
@@ -200,7 +200,7 @@ class Sink(Protocol):
 ### Why the trigger is polled
 
 An iterator suits replay and nothing else. On the bench the key press arrives through the
-screen's event loop (ADR-0011); at the factory the photoelectric line is a pin read on each tick.
+screen's event loop (ADR-0018); at the factory the photoelectric line is a pin read on each tick.
 `poll()` fits all three, and the main loop stays the one place where time passes:
 
 ```text
@@ -210,13 +210,13 @@ while not trigger.exhausted:
     if event: pipeline.handle(event)            # capture → lighting → inspect → show → sink
 ```
 
-`Screen` is not a contract. It is the one object that owns the OpenCV window; `KeyboardTrigger`
+`Screen` is not a contract. It is the one object that owns the Tk window (ADR-0018); `KeyboardTrigger`
 and `ScreenAnnunciator` are both constructed with it. Replay runs with no screen, as fast as the
 disk allows.
 
 **Key presses during an inspection.** The loop is single-threaded, so presses made while a unit is
 being inspected wait in the window's queue and arrive on the ticks right after. `KeyboardTrigger`
-accepts a press only if it comes at least 300 ms after the previous event finished; anything
+accepts a press only if its Tk event timestamp is at least 300 ms after the previous event finished; anything
 earlier is discarded and counted. That also absorbs auto-repeat from a held key. A key press is not
 a unit, so a discarded press makes no record. NO_VERDICT(`busy`) exists for triggers that do stand
 for a unit — the factory's photoelectric sensor.
@@ -245,7 +245,7 @@ system are the same program.
 | `TriggerSource` | `KeyboardTrigger` — spacebar, read through the Screen | `PhotoelectricTrigger` — GPIO / camera line in | `ReplayTrigger` — one event per image on disk |
 | `FrameSource` | `WebcamSource` — V4L2, grab thread (ADR-0010) · `PhoneSnapshotSource` — fallback | `GigEVisionSource` — Hikrobot SDK | `ReplaySource` — reads images and their recorded metadata |
 | `Inspector` | `AppearanceInspector` — localize, geometry, PatchCore on PyTorch (ADR-0008, 0009) | same, OpenVINO backend · `MarkingInspector` — deterministic | `StubInspector` — scripted checks, no model |
-| `Annunciator` | `ScreenAnnunciator` — verdict, heatmap, session panel, via the Screen (ADR-0011) | same, plus `LampAnnunciator` | `NullAnnunciator` — records calls |
+| `Annunciator` | `ScreenAnnunciator` — verdict, heatmap, session panel, via the Screen (ADR-0018) | same, plus `LampAnnunciator` | `NullAnnunciator` — records calls |
 | `Sink` | `SqliteSink` + JPEG store | same, plus batch ID | `SqliteSink` on a temp directory |
 
 Two things follow from reading the table across:

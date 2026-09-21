@@ -1,5 +1,10 @@
 # Hardware — Decision Tree, Not a Shopping List
 
+> **Superseded in part — 2026-09-21.** Written before the product was known to be моти (~3–5 cm,
+> not 400 mm) and before the design day. The training machine is the laptop's RTX 3050 (4 GB), not an
+> RTX 3060. The decision tree still frames the factory hardware; read it with `05-concept.md` §0 and
+> `10-architecture.md` before using any number here.
+
 **Rule: buy nothing until the site survey is done.** Camera, lens, lighting and enclosure are all determined by numbers you can only measure standing at the line. The one thing you can do beforehand is prototype on video and photos from the visit, on the RTX 3060 you already own.
 
 ---

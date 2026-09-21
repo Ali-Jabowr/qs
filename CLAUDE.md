@@ -3,7 +3,7 @@
 **Project:** QS — automated visual quality inspection for a food production line.
 **Owner:** Ali (Volgograd). A student friend handles all grant/legal/document work; Ali's job with Claude is **building the MVP**.
 **Repo:** `/home/marxel/PROJECTS/QS` · **Planning vault:** `~/Documents/Obsidian Vaults/Second Brain/20 - AREAS/STARTUP/`
-**Last updated:** 2026-09-02
+**Last updated:** 2026-09-21 — the design day: Gates 0, 1 and 2 passed.
 
 ---
 
@@ -11,123 +11,102 @@
 
 One factory client in Volgograd, food producer, **verbal intent to pay**. They want every unit checked on the line before packing. There is no signed contract and no money has moved.
 
-There is a parallel, **parked** track: a "QC Vision Box" for Wildberries/Ozon marketplace sellers. It is not being built. See §7.
+**The product is моти (mochi)** — soft rice-dough rounds, dusted with starch, with a filling. The owner said so on a call on 2026-09-20; it is the first product fact that did not come from our own survey text.
+
+There is a parallel, **parked** track: a "QC Vision Box" for Wildberries/Ozon marketplace sellers. It is not being built (ADR-0003).
 
 ## 2. Where everything lives
 
 ```
 QS/
   CLAUDE.md              ← this file. The cold-start anchor.
-  README.md              architecture, invariants, repo layout
-  docs/01-site-survey.md the 28-question factory visit kit (sent to client)
-  docs/02-hardware.md    conditional decision tree — NOT a shopping list
-  docs/03-survey-answers.md   the returned answers + what they actually mean
-  docs/04-build-plan.md  ← THE PLAN. Six stages to a demo. Follow it in order.
-  data/                  git-ignored. site media, samples, datasets
-  src/                   empty. Nothing written until there is real data.
+  project.yml            THE state: stages, tasks, gates, questions, risks. STATUS.md is rendered from it.
+  AGENTS.md · STEPS.md   the executor's rules · the plan → execute → review loop
+  docs/05-concept.md     Phase 0 — PR/FAQ, the MVP, Gate 0
+  docs/06-requirements.md Phase 1 — numbered FR/NFR with checks, Gate 1
+  docs/10–17             Phase 2 — architecture, contracts, data model, data collection,
+                         evaluation, model, failure model, security
+  docs/01–04             history (survey kit, hardware tree, survey answers, old build plan)
+  decisions/             ADR-0001 … ADR-0018; README.md is the index
+  reviews/GATE-2.md      the design review, with the requirement → design → check matrix
+  plans/ROADMAP.md       nine executor plans and the week; plans/Pxx-*/ one folder per plan
+  src/ · tests/ · tools/ code (from P02) · tests · state renderer, bounds, diagram checker
+  data/                  git-ignored. Raw shoots, datasets, golden sets
 ```
 
-Vault: `20 - AREAS/STARTUP/00 QS — Master Plan.md` is the single planning document —
-phases, gates, research, agent/skill usage. `Site Survey - Factory Visit Kit.md` there
-holds the client's returned answers.
-
-Superseded and closed: **SmartBot Industrial** (PPE/safety CV) under `20 - AREAS/Side projects/`.
-Ali closed it 2026-09-01 — "we close it and it didn't work". Do not revive it, do not
-cite its gates. What survived is listed in §6.
-
-## 3. Status as of 2026-09-02
+## 3. Status as of 2026-09-21
 
 | | |
 |---|---|
-| Hardware bought | **None.** Correct. Do not buy anything yet. |
-| Code written | **None.** |
-| Site visit | **Has not happened.** The questionnaire came back filled mostly with our own assumptions, not observations. |
-| Physical evidence | **None.** No video, no photos, no defective samples. This is the #1 blocker. |
+| Design | **Complete.** Gate 0 (concept), Gate 1 (requirements), Gate 2 (independent design review, 26 findings fixed) — all GO |
+| Code | Tools and 44 tests only. `src/qs` starts with plan P02 |
+| Hardware bought | **None.** Correct. |
+| Site visit | Has not happened. Client work is **deferred by decision for the MVP week** (21–27.09) |
+| Physical evidence | None from the factory. The bench will use store-bought моти |
 | Acceptance number | **95%** (client, verbatim, Q28) |
 | Commercial model | hardware + updatable SaaS + annual calibration, **priced by us**, no competing bid (Q26) |
-| Timeline demanded | ASAP (Q27) |
+| This week | **The bench MVP** — `plans/ROADMAP.md`. Shoot on Fri 25.09 |
 
 ## 4. What the client actually told us
 
-Only ~10 of 28 answers are real customer facts. These are they:
-
+- **Product: моти** (owner, call of 2026-09-20). Chilled or room temperature is Ali's best knowledge, not confirmed (A-01).
 - Inspection point: **before the packing zone**, on **open product**. Green light = OK to pack.
 - Defects wanted: **dents · shape deviation · dimension deviation · foreign objects**
 - **One person** does this inspection today. One more person checks marking.
 - Escapes cause **refunds**. Rate quoted as "2%–10%, consider 2% per day". **No ruble figure given.**
-- Marking / date code is on a **different conveyor** — not this station.
-- **A batch was returned because of marking** (Q21 = yes). This is the proven pain event.
-- Ethernet and 220 V are available at the point. Photo archive per batch: yes.
+- Marking / date code is on a **different conveyor**. **A batch was returned because of marking** (Q21).
+- Ethernet and 220 V at the point. Photo archive per batch: yes.
 
-Everything else in that sheet — line speed, field of view, product sizes, unit separation,
-environment, lighting — is **our own specification written into the customer's form**. Treat
-it as intent, never as fact.
+Everything else in the survey sheet — line speed, field of view, sizes, environment, lighting — is **our own text in the customer's form**. The "up to 400 mm" height was ours.
 
 ## 5. The three technical facts that drive every decision
 
-1. **Product height up to 400 mm, and they want "deviation from dimensions".**
-   A single overhead camera cannot measure height at all, and its footprint measurement
-   scales with object height (at 1 m working distance a 400 mm object reads ~1.67× oversize).
-   Telecentric lenses would fix it but do not exist affordably at a 500 mm field.
-   → **Unresolved and decisive: do they need millimetres with a tolerance, or pass/fail
-   against a golden reference?** Pass/fail = one camera. Millimetres = depth hardware
-   (Orbbec-class) or a second side camera. Different product, different price.
+1. **Size and shape are measured, not learned** (ADR-0008). A моти is ~3–5 cm tall, so the old 400 mm perspective problem is gone. Two of the four defect types — shape and dimension — are global properties a patch-level anomaly model cannot see, so a deterministic geometry check (area, axis ratio, solidity, against good units, in pixels) runs beside PatchCore. Millimetres with a tolerance stay **OQ-1**.
 
-2. **Open product before packing.** Anything mounted over open food enters their ХАССП
-   plan — food-grade materials, shatter-protected lamps, cleanable surfaces, and sign-off
-   by their food-safety officer. That person has not been consulted. Their positive-pressure
-   air purge idea for the enclosure is sound and standard; it does not remove the sign-off.
+2. **Open product before packing.** Anything over open food enters their ХАССП plan — food-grade materials, shatter-protected lamps, cleanable surfaces, sign-off by their food-safety officer (OQ-6). Starch dust in the air makes the positive-pressure air purge more important, not less.
 
-3. **"Foreign objects" is the dangerous line item.** A camera sees the top surface only —
-   not inside product, not underneath, not transparent or same-colour items. Industry uses
-   metal detectors and X-ray for exactly this. **Never accept FOD inside a 95% acceptance
-   clause.** Scope it out in writing: "surface-visible contrasting objects, best effort,
-   not a substitute for metal detection or X-ray."
+3. **"Foreign objects" is the dangerous line item.** A camera sees the top surface only. **Never accept FOD inside a 95% acceptance clause.** Scope it: "surface-visible contrasting objects, best effort, not a substitute for metal detection or X-ray." The anomaly map is masked to the unit (ADR-0009), so a crumb beside it is ignored by design.
 
 ## 6. Standing rules — do not violate
 
-- **Nothing gets bought before the site visit produces video and samples.**
+- **Nothing gets bought before the site visit produces video and samples** — except the product being inspected. On 2026-09-21 Ali approved no other purchase, not even a backup stick: raw images back up to the phone over USB.
 - **Never itemize hardware in a quote.** Price the outcome.
-- **Never suggest identifying individuals.** No face recognition, no re-identification.
-  Hard constraint — 152-ФЗ biometric exposure, and it is also a sales line.
-- **On-prem only. No image leaves the building.** 152-ФЗ plus trade-secret protection.
-- **Advisory first.** Operator alert, never automatic rejection in the MVP. No PLC, no
-  actuator, no line-safety sign-off.
-- **Never build on hardware that cannot be reliably re-ordered.** Rules out NVIDIA Jetson,
-  Basler, IDS — parallel import only. **Hikrobot and Intel are the sourceable choices.**
-- **Legal answers are shape, not advice.** Point at the lawyer budget line.
-- **A camera sees surfaces only.** See §5.3.
+- **Never suggest identifying individuals.** No face recognition, no re-identification. Hard constraint — 152-ФЗ, and a sales line.
+- **On-prem only. No image leaves the building.** At runtime the station connects to its own camera and nothing else (NFR-07, ADR-0016). Images, models and evidence are git-ignored and never pushed.
+- **Advisory first.** Operator alert, never automatic rejection. No PLC, no actuator.
+- **Never build on hardware that cannot be reliably re-ordered.** Rules out Jetson, Basler, IDS. **Hikrobot and Intel are the sourceable choices.**
+- **Legal answers are shape, not advice.** The backbone-weight licence and hands-in-frame under 152-ФЗ are **OQ-10**, for the lawyer line.
+- **A camera sees surfaces only.**
+- **Fail to НЕТ РЕШЕНИЯ, never to ГОДЕН.** A PASS needs every configured check to have run and passed (C8).
 - Ali's email is for attribution only; never send it to an unrelated service.
 
-## 7. Decisions already made — do not re-open without new facts
+## 7. Decisions
 
-| Decision | Date | Reason |
-|---|---|---|
-| SmartBot Industrial closed | 2026-09-01 | Zero customers, Gate 1 missed, empty pipeline |
-| Dimensioning rejected as V1 | 2026-09-01 | Solved commodity abroad; under the client's own answers it has no user. Activate only if the WB/Ozon seller track becomes active. |
-| Anomaly detection, not supervised YOLO | 2026-09-01 | Thousands of good units, almost no defective ones; defect classes open-ended. Anomalib / PatchCore. ⚠️ verify per-model licences before commercial use. |
-| Marking station sold alongside, built first | 2026-09-02 | Deterministic, no training data, proven pain (Q21), identical for every future customer. Appearance is the R&D. |
+The log is `decisions/README.md` — ADR-0001 to ADR-0018, each with context, alternatives and consequences. Do not re-open one without new facts; supersede it with a new ADR. The ones that shape this week:
+
+| ADR | Decision |
+|---|---|
+| 0007 | The MVP is demo-grade; its numbers are INDICATIVE. Gate A (13.10) is a separate claim on fresh units |
+| 0008 | Size and shape measured in code, beside PatchCore |
+| 0009 | The Inspector finds the unit, then judges a fixed window centred on it, with the heatmap masked to it |
+| 0010 | Bench camera: USB webcam over V4L2, settings read back — pending the lock test |
+| 0014 | Paired shooting: each test unit shot good, damaged, shot again, in random order |
+| 0015 | PatchCore from Anomalib 2.6.2, pinned, torch model only |
+| 0017 | Gate B judged on a conservative N100 estimate until an N100 exists |
+| 0018 | Operator screen is a Tk window; OpenCV headless everywhere |
 
 ## 8. Stack
 
-Anomalib (PatchCore/PaDiM/FastFlow) for appearance · OpenCV + deterministic checks for
-marking · ONNX → **OpenVINO** on an **Intel N100/N150** mini-PC · training on the local
-RTX 3060 · MVTec AD for pipeline bring-up before real data exists.
+PatchCore from **Anomalib 2.6.2** (torch model only, our own preprocessing) · deterministic geometry and localisation with **headless OpenCV** · **Tk + Pillow** operator screen · SQLite evidence store, append-only by trigger · training and demo on the laptop — **RTX 3050, 4 GB**, i5-11400H, Python 3.12 · later **ONNX → OpenVINO on an Intel N100** · MVTec AD for bring-up only, never shipped.
 
-## 9. Useful agents and skills
+## 9. How work is done
 
-`ai-engineer` — model/deployment architecture. `web-search-agent` / WebSearch — supplier
-availability, Честный ЗНАК deadlines, ФСИ windows; **re-verify regulation dates, they move**.
-`context7` — Anomalib / OpenVINO / ultralytics docs. `claude-in-chrome` — supplier pages.
-Ali's global `/graphify` skill must be invoked via the Skill tool the moment he types it.
+**Planner → Executor → Reviewer.** Claude Code writes plans (`plans/Pxx-*/`: PLAN, CONTEXT, CONTRACTS, ACCEPTANCE) and reviews the result (`reviews/REVIEW-Pxx.md`); **OpenCode** (a strong model) implements one plan at a time on a branch and writes STATUS.md; Ali approves every gate. Docs and ADRs come from Claude directly; only code goes through the executor. Plans are written one ahead of execution.
+
+Research freely for accuracy — web search, context7, agents — and cite sources. `ai-engineer` for model/deployment questions; `web-search-agent` for suppliers and regulation dates (**re-verify dates, they move**). Ali's global `/graphify` skill must be invoked via the Skill tool the moment he types it.
 
 ## 10. The next three things
 
-**Follow `docs/04-build-plan.md`.** It fixes the whole sequence; these three are its head.
-
-1. **Bench prototype on supermarket food** — unblocked, start now. 40 identical items,
-   a lighting rig, deliberately damage 10, train PatchCore, measure. Answers the central
-   technical question and produces a demo without touching the factory.
-2. **Get the visit done** — 6 focused follow-up questions (in `docs/03-survey-answers.md`),
-   plus video and **defective samples**. Samples are the scarcest resource in the project.
-3. **Price and pitch the marking station** on the other conveyor.
+1. **Execute P01 (environment), then P02 (contracts and config)** — `plans/ROADMAP.md`. Review each into `reviews/`.
+2. **Ali, at the bench:** `sudo apt install v4l-utils`, build the rig (`docs/13-data-collection.md` §3), plug in the webcam; the lock test comes with P05.
+3. **Before the shoot, walk through `docs/13-data-collection.md` together** — Ali asked for this. Settle standard or lean (OQ-8) at the shop.

@@ -15,12 +15,13 @@ Numbers are never reused. A superseded ADR stays, with its status changed and a 
 | [0008](ADR-0008-geometry-check-in-code.md) | Size and shape are measured in code, not left to the anomaly model | Accepted | 2026-09-21 |
 | [0009](ADR-0009-inspector-localizes-then-judges.md) | Station A's Inspector localizes the unit, then judges the unit — never the frame | Accepted | 2026-09-21 |
 | [0010](ADR-0010-bench-camera-usb-webcam.md) | Bench camera: USB webcam over V4L2; phone as fallback | Proposed — lock test | 2026-09-21 |
-| [0011](ADR-0011-operator-screen-opencv-pillow.md) | Operator screen: one OpenCV window, text by Pillow | Accepted | 2026-09-21 |
+| [0011](ADR-0011-operator-screen-opencv-pillow.md) | Operator screen: one OpenCV window, text by Pillow | Superseded in part by 0018 | 2026-09-21 |
 | [0012](ADR-0012-storage-failure-verdict-wins.md) | When storage fails, the verdict wins and the record outlives the image | Accepted | 2026-09-21 |
 | [0013](ADR-0013-pilot-geometries-one-frame.md) | One frame serves both checks; the pilot compares three front-lit geometries | Accepted — winner after the pilot | 2026-09-21 |
 | [0014](ADR-0014-paired-shooting.md) | Test units shot good, then damaged, minutes apart, in random order | Accepted | 2026-09-21 |
 | [0015](ADR-0015-patchcore-from-anomalib-torch-level.md) | PatchCore from Anomalib 2.6.2, pinned, torch-model level only | Accepted | 2026-09-21 |
 | [0016](ADR-0016-station-runs-only-what-it-was-given.md) | The station runs only what it was given: offline, hashed, never validation-only models | Accepted | 2026-09-21 |
 | [0017](ADR-0017-gate-b-proxy.md) | Gate B judged on a conservative N100 estimate until an N100 exists | Accepted | 2026-09-21 |
+| [0018](ADR-0018-operator-screen-tk.md) | Operator screen is a Tk window; OpenCV headless everywhere | Accepted | 2026-09-21 |
 
 New decisions take the next free number.

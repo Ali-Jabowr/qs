@@ -4,7 +4,7 @@
 **Status:** design, revised 2026-09-21 for моти and the bench MVP (design Step 3). No code
 depends on this yet; `src/` implements it from E0.8 onward.
 **Requirements:** [`06-requirements.md`](06-requirements.md) — every choice below traces to an
-FR or NFR there. Decisions: `decisions/ADR-0008` to `ADR-0011`.
+FR or NFR there. Decisions: `decisions/ADR-0008` to `ADR-0018`.
 **Companions:** [`11-interfaces.md`](11-interfaces.md) (the contracts) ·
 [`12-data-model.md`](12-data-model.md) (what is stored) ·
 [`14-eval-protocol.md`](14-eval-protocol.md) (how it is measured) ·
@@ -314,7 +314,7 @@ ordering matters — coreset size costs the least accuracy per millisecond bough
 | Reference patch | 2 ms | |
 | Localize and geometry | 20 ms | threshold, largest contour, moments |
 | PatchCore on the RTX 3050 | 100 ms | measured at S1 |
-| Draw and show | 50 ms | Pillow text onto the frame (ADR-0011) |
+| Draw and show | 50 ms | Pillow composes, Tk shows (ADR-0011, ADR-0018) |
 | **Total** | **~430 ms** | more than twice inside NFR-01 |
 
 For NFR-02, the same run with the GPU hidden and PyTorch pinned to 4 threads. The laptop CPU is
@@ -415,8 +415,8 @@ legal constraint, a safety constraint, or a lesson already paid for.
 ## 8. What this architecture deliberately does not have
 
 No Docker. No web framework. No REST API. No user accounts. No cloud. No message broker.
-No PLC integration. No rejection actuator. No GUI toolkit: the operator screen is one OpenCV
-window with text drawn by Pillow (ADR-0011).
+No PLC integration. No rejection actuator. No GUI framework beyond Python's own Tk: the operator
+screen is one Tk window with everything drawn by Pillow (ADR-0018).
 
 Every one of those is a reasonable thing to want later and a certain way to not have a
 demo in October. They are listed here so that adding one is a visible decision with an

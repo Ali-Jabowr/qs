@@ -1,5 +1,9 @@
 # Survey answers — returned 2026-09-02, and what they actually mean
 
+> **Read with `05-concept.md` §0 (2026-09-21).** On a call on 2026-09-20 the owner said the product is
+> моти. The "up to 400 mm" height analysed below was our own assumption; the six follow-up
+> questions stand, deferred for the MVP week, and are OQ-1…OQ-6 in `project.yml`.
+
 Source: `~/Documents/Obsidian Vaults/Second Brain/20 - AREAS/STARTUP/Site Survey - Factory Visit Kit.md`
 
 ---

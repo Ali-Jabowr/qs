@@ -1,91 +1,67 @@
 # QS — Food Production Line Visual Inspection
 
-Automated visual quality inspection for a food factory production line. One client, in Volgograd, with verbal intent to pay if it works.
+Automated visual quality inspection for a food factory production line. One client, in Volgograd, with verbal intent to pay if it works. **The product is моти.**
 
-**Status:** survey returned 2026-09-02, but **the site visit never happened** — most answers are our own assumptions and no video, photos or defective samples were collected. No hardware bought, no code written.
+**Status (2026-09-21):** the design is complete — Gates 0, 1 and 2 passed. This week builds the **bench MVP** on store-bought моти (`plans/ROADMAP.md`). No hardware bought, no site visit yet; client work is deferred for the week by decision.
 
-👉 **Start every session at [`CLAUDE.md`](CLAUDE.md).** Survey analysis: [`docs/03-survey-answers.md`](docs/03-survey-answers.md).
+👉 **Start every session at [`CLAUDE.md`](CLAUDE.md).** Live state: [`STATUS.md`](STATUS.md), rendered from [`project.yml`](project.yml).
 
 ---
 
 ## What we're building
 
-An inspection station on the client's production line that photographs every unit before shipping, checks it, and signals pass/fail — while keeping an image of every unit as a traceability record.
+An inspection station on the client's production line that photographs every unit before packing, checks it, and signals **ГОДЕН / БРАК / НЕТ РЕШЕНИЯ** — while keeping an image of every unit as a traceability record.
 
-**Two layers, deliberately sequenced:**
+**Two stations, one program** (ADR-0004):
 
-| Layer | What it checks | Why this order |
+| Station | What it checks | Status |
 |---|---|---|
-| **1 — Packaging & marking** | Date code present, legible, correct · label present and straight · seal integrity | Near-deterministic. Low natural variation, binary ground truth, little training data needed. A missing date code gets a **whole pallet rejected** — the sharpest, most provable pain. |
-| **2 — Appearance** | Shape, colour, burn level, breakage | Genuine ML. Huge natural variation, fuzzy ground truth, needs real data from their line. Built once layer 1 is running and generating that data. |
+| **M — marking** | Date code present, legible, correct — on the other conveyor | Ships first. Waits on the client's printer and code format |
+| **A — appearance** | Dents, tears, deformation and size of each моти, from above | Prototyped first — this week's bench MVP |
 
-Layer 1 is the product. Layer 2 is the R&D. Shipping them in this order means there's something sellable before the hard problem is solved.
+Station A runs two checks on every unit: **geometry** in deterministic code (area, axis ratio, solidity, against good units — ADR-0008) and **appearance** by PatchCore anomaly detection, trained on good units only (ADR-0002, 0015).
 
 ## Architecture
 
 ```
-   photoelectric trigger (or operator button)
+   key press on the bench · photoelectric trigger at the factory
               ↓
-   [ camera + shrouded controlled lighting ]
+   [ camera + shrouded controlled lighting + grey reference card ]
               ↓
-   [ edge box — Intel N100, on-prem ]
-     capture → preprocess → checks → verdict
+   [ laptop on the bench · Intel N100 edge box at the factory — on-prem ]
+     capture → lighting check → find the unit → geometry + PatchCore → verdict
               ↓
    ┌──────────┴──────────┐
    ↓                     ↓
-[ operator signal ]   [ evidence store ]
- green / red light     every image + verdict + timestamp
- buzzer, screen        indexed by batch — local disk
-                              ↓
-                       [ reports / traceability ]
+[ operator screen ]   [ evidence store ]
+ ГОДЕН / БРАК /        every image + verdict + provenance,
+ НЕТ РЕШЕНИЯ, heatmap  append-only SQLite + files, by batch
 ```
 
-**Invariants — true regardless of what the survey says:**
+Full design: `docs/10-architecture.md` to `docs/17-security.md`. Every decision: `decisions/`.
 
-- **On-prem. No image leaves the building.** Legally cleaner under 152-ФЗ, and in a food factory it's also trade-secret protection. Closes the security objection before it opens.
-- **Every image is kept, with its verdict, indexed by batch and timestamp.** Traceability is a legal requirement under ХАССП — the archive has value independent of catching defects, and it's nearly free to build. It also becomes the training data for layer 2.
-- **Advisory first.** Operator alert, not automatic rejection. No PLC, no actuator, no line-safety sign-off. Prove detection works before touching their machinery.
-- **Hardware trigger, not free-running video.** One image per unit, or you get doubles, partials and misses.
-- **Ambient light gets blocked out.** Shift changes and daylight silently degrade models that tested fine.
+**Invariants** (`docs/10-architecture.md` §7): on-prem, no image leaves the building · every unit writes an immutable record · advisory only, no actuator · one inspected image per trigger · ambient light blocked and drift measured · fail to НЕТ РЕШЕНИЯ, never to ГОДЕН · a camera sees surfaces only · only re-orderable hardware · persistence never blocks a verdict.
 
 ## Repo
 
 ```
-docs/    01-site-survey.md    the visit kit (answers returned 2026-09-02)
-         02-hardware.md       decision tree, not a shopping list
-         03-survey-answers.md what came back, and what it actually means
-         04-build-plan.md     ← the plan. Six stages to a demo.
-data/    site visit media, samples, datasets
-src/     (empty — nothing written until there's data)
-notes/   working notes
+CLAUDE.md · AGENTS.md · STEPS.md    session anchor · executor rules · the plan/execute/review loop
+project.yml → STATUS.md             the single source of project state, and its rendering
+docs/05–06                          concept (Gate 0) and requirements (Gate 1)
+docs/10–17                          architecture, contracts, data model, data collection,
+                                    evaluation, model, failure model, security
+docs/01–04                          history: survey kit, hardware tree, survey answers, first plan
+decisions/                          ADR-0001 … ADR-0018
+reviews/                            gate reviews and plan reviews
+plans/                              ROADMAP.md and one folder per executor plan
+src/ tests/ tools/                  code · tests · renderer, bounds, diagram checker
+data/                               git-ignored: raw shoots, datasets, golden sets
 ```
 
-## Next actions
-
-1. **Bench prototype — unblocked, start now.** 40 identical supermarket items, an improvised
-   rig (phone + cardboard box + desk lamp, spend zero), damage 10 deliberately, train PatchCore,
-   test three lighting geometries. Answers the central technical question without the factory.
-2. **Send six follow-up questions, not the 28-question sheet again** — see
-   `docs/03-survey-answers.md`. The first one, *millimetres with a tolerance or pass/fail against
-   a golden reference*, sets the whole hardware budget.
-3. **Do the visit and bring back defective samples.** Scarcest resource in the project.
-4. **Get one escape priced in rubles.** "2% per day" of an unknown base is not a number.
-5. **Price and pitch the marking station** on the other conveyor — deterministic, no training
-   data, and a batch has already been returned because of it.
-6. Spec and buy hardware only after Gate A. Nothing before.
-
-## Open questions
-
-- **Millimetres or pass/fail?** A top camera cannot see height and its footprint scales ~1.67×
-  on a 400 mm object at 1 m working distance. This blocks the camera spec.
-- Does product move continuously or index/stop at the point? Blocks the shutter decision.
-- Is height itself a checked dimension? Decides one camera or two.
-- What is one escape worth in rubles? Blocks pricing.
-- Who signs off food safety over open product, and what do they require? Can veto the install.
-- Which printer on the marking conveyor, and what goes wrong with it? Blocks station A.
+`make check` validates project state, runs the tests and renders every diagram.
 
 ## Constraints carried over
 
-- **Never build on hardware you can't reliably re-order.** Rules out NVIDIA Jetson and Basler/IDS cameras — parallel import only. Hikrobot and Intel are the sourceable choices.
+- **Never build on hardware you can't reliably re-order.** Hikrobot and Intel are the sourceable choices.
 - **Never itemize hardware in a quote.** Price the outcome.
 - **A camera sees surfaces only.** Foreign objects inside opaque product need X-ray or metal detection. Do not promise it.

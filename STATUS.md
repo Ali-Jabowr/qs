@@ -2,24 +2,24 @@
 # QS — status
 
 **Automated visual quality inspection for a food production line**  
-Owner: Ali, Volgograd · Rendered 2026-09-17
+Owner: Ali, Volgograd · Rendered 2026-09-21
 
-Overall: **5/50 tasks** `██······················` 10%
+Overall: **15/60 tasks** `██████··················` 25%
 
 > Verbal intent to pay. No signed contract, no money moved.  
 > Acceptance criterion: **up to 95% (Q28, client verbatim)**
 
 ## ⚠ Attention
 
-- 6 client question(s) are open but have never been sent: OQ-1, OQ-2, OQ-3, OQ-4, OQ-5, OQ-6. Every one of them blocks a decision.
+- 7 client question(s) are open but have never been sent: OQ-1, OQ-2, OQ-3, OQ-4, OQ-5, OQ-6, OQ-9. Every one of them blocks a decision.
 
 ## Gates
 
 | Gate | Due | Status | Blocks | Statement |
 |---|---|---|---|---|
-| **A** — Bench detection gate | 2026-10-13 | `pending` | S4, S5 | On the flat product, under the lighting geometry selected on calibration data, with the threshold set to a 5% false-alarm target on 30 calibration units: dent recall at or above 90% on 30 held-out dented UNITS (at least 27 of 30), whose 95% one-sided lower bound therefore clears 75%; false-alarm rate on 40 held-out good units at or below 10% as a point estimate, reported with its upper bound; and the whole result regenerated from the frozen golden set by one command. |
-| **B** — Latency gate | 2026-10-13 | `pending` | S4 | End-to-end trigger-to-verdict at or under 700 ms at the 95th percentile, measured on CPU as the Intel N100 proxy, with persistence off the critical path. |
-| **C** — Hardware spend gate | — | `pending` | — | No hardware is purchased beyond groceries until Gate A has passed, AND the site visit has produced video and defective samples, AND the metrology question (OQ-1) is answered. |
+| **A** — Bench detection gate | 2026-10-13 | `pending` | S5 | On one flavour of моти, under the lighting geometry selected in the pilot, with the threshold set on the combined verdict to a 5% false-alarm target on 30 calibration units: dent recall at or above 90% on 30 held-out dented UNITS (at least 27 of 30), whose 95% one-sided lower bound therefore clears 75%; combined false-alarm rate on 70 held-out good units at or below 10% as a point estimate, reported with its upper bound; and the whole result regenerated from the frozen golden set by one command. |
+| **B** — Latency gate | 2026-10-13 | `pending` | S5 | Until an N100 exists (ADR-0017): on replay, camera excluded, laptop CPU pinned to 4 threads, at least 200 consecutive inspections — p95 inspection time × 3 at or under 400 ms. The real gate, trigger to verdict at or under 700 ms at p95 on an N100 with the factory camera, persistence off the critical path, runs after Gate C. |
+| **C** — Hardware spend gate | — | `pending` | — | No hardware is purchased beyond the product being inspected (моти) until Gate A has passed, AND the site visit has produced video and defective samples, AND the metrology question (OQ-1) is answered. |
 
 ## Stages
 
@@ -29,12 +29,13 @@ Overall: **5/50 tasks** `██······················` 10%
 
 | | Stage | Window | Progress | Status |
 |---|---|---|---|---|
-| `[ ]` | **S0** Environment and stand-in product | 17.09 – 22.09 | `············` 0/7 | not_started |
-| `[ ]` | **S1** Prove the pipeline on public data | 23.09 – 25.09 | `············` 0/3 | not_started |
-| `[ ]` | **S2** Build the rig and shoot | 26.09 – 06.10 | `············` 0/10 | not_started |
-| `[ ]` | **S3** Train and measure | 07.10 – 13.10 | `············` 0/4 | not_started |
-| `[ ]` | **S4** Wrap it as a demo | 14.10 – 23.10 | `············` 0/5 | not_started — needs Gate A |
-| `[!]` | **S5** Site visit with the demo in hand | 26.10 – ? | `············` 0/8 | blocked — blocked on client scheduling |
+| `[~]` | **S0** Environment and моти | 21.09 – 25.09 | `██··········` 1/7 | in_progress |
+| `[ ]` | **S1** Prove the pipeline on public data | 24.09 – 24.09 | `············` 0/3 | not_started |
+| `[ ]` | **S2** Rig, pilot and MVP shoot | 22.09 – 25.09 | `············` 0/9 | not_started |
+| `[ ]` | **S3** Train and measure — INDICATIVE | 25.09 – 26.09 | `············` 0/5 | not_started |
+| `[ ]` | **S4** Wrap it as a demo | 26.09 – 27.09 | `············` 0/5 | not_started |
+| `[ ]` | **GA** Gate A — the full protocol on fresh моти | 28.09 – 13.10 | `············` 0/3 | not_started |
+| `[!]` | **S5** Site visit with the demo in hand | 26.10 – ? | `············` 0/8 | blocked — blocked on client scheduling — and deferred by decision for the MVP week (2026-09-21) |
 | `[!]` | **S6** Retrain on their product | — | `············` 0/0 | blocked — blocked on S5 |
 
 ### Marking station
@@ -51,65 +52,78 @@ Overall: **5/50 tasks** `██······················` 10%
 
 | | Stage | Window | Progress | Status |
 |---|---|---|---|---|
-| `[~]` | **E0** Design spine and runnable skeleton | 17.09 – 24.09 | `███████·····` 5/9 | in_progress |
+| `[~]` | **E0** Design spine and runnable skeleton | 17.09 – 26.09 | `██████████··` 14/16 | in_progress |
 
 ## Task detail
 
-**E0 · Design spine and runnable skeleton** — 5/9
+**E0 · Design spine and runnable skeleton** — 14/16
 
 - [x] `E0.1` Machine-readable project state, renderer and validator  ↳ `project.yml + tools/render.py + tests/test_project_state.py (19 tests)`
-- [x] `E0.2` System architecture document with diagrams (context, line, dataflow, modules, deployment)  ↳ `docs/10-architecture.md — 5 diagrams, all verified rendering`
-- [x] `E0.3` Interface contracts — TriggerSource, FrameSource, Inspector, Sink, Annunciator  ↳ `docs/11-interfaces.md — five contracts, seven rules, implementation matrix`
-- [x] `E0.4` Data model — dataset layout, inspection record schema, config-as-contract  ↳ `docs/12-data-model.md — datasets, append-only evidence schema, config as contract`
+- [x] `E0.2` System architecture document with diagrams (context, line, dataflow, modules, deployment)  ↳ `docs/10-architecture.md — revised 2026-09-21 for моти and the bench MVP`
+- [x] `E0.3` Interface contracts — TriggerSource, FrameSource, Inspector, Sink, Annunciator  ↳ `docs/11-interfaces.md — revised 2026-09-21, per-check verdicts, rules C1–C9`
+- [x] `E0.4` Data model — dataset layout, inspection record schema, config-as-contract  ↳ `docs/12-data-model.md — schema executed in SQLite, append-only by trigger`
 - [x] `E0.5` Evaluation protocol — recall@FAR, confidence intervals, unit-level sampling, restated gates  ↳ `docs/14-eval-protocol.md + tools/bounds.py (generates its tables)`
-- [ ] `E0.6` Failure model — station state machine, fault handling, fail-to-no-verdict, reference patch
-- [ ] `E0.7` Architecture decision records for decisions already taken, and for the new ones
-- [ ] `E0.8` Runnable skeleton in src/ — contracts, replay source, SQLite sink, stub inspector, tests green
-- [ ] `E0.9` Risk register and Russian/English glossary
+- [x] `E0.6` Failure model — station state machine, fault handling, fail-to-no-verdict, reference patch  ↳ `docs/16-failure-model.md + ADR-0012`
+- [x] `E0.7` Architecture decision records for decisions already taken, and for the new ones  ↳ `decisions/ADR-0001 … ADR-0018 + decisions/README.md`
+- [ ] `E0.8` Runnable skeleton in src/ — contracts and config (P02), evidence store (P03), pipeline with replay and fault injection (P04)
+- [ ] `E0.9` Russian/English glossary (the risk register lives in this file)
+- [x] `E0.10` Concept and MVP scope — PR/FAQ, the product is моти, Gate 0 passed  ↳ `docs/05-concept.md + ADR-0007`
+- [x] `E0.11` Requirements — numbered FR and NFR with checks, Gate 1 passed  ↳ `docs/06-requirements.md + ADR-0008`
+- [x] `E0.12` Data collection — rig, lighting pilot, paired shooting, damage recipes  ↳ `docs/13-data-collection.md + ADR-0013, ADR-0014`
+- [x] `E0.13` Model and training — the Inspector's chain, PatchCore via Anomalib, licences, latency  ↳ `docs/15-model.md + ADR-0015`
+- [x] `E0.14` Security and data handling — threats, 152-ФЗ, what may leave the laptop  ↳ `docs/17-security.md + ADR-0016`
+- [x] `E0.15` Gate 2 design review — an independent reviewer, 26 findings fixed, GO  ↳ `reviews/GATE-2.md + ADR-0017, ADR-0018`
+- [x] `E0.16` Executor plans — the roadmap and the first two plans  ↳ `plans/ROADMAP.md, plans/P01-environment/, plans/P02-contracts-config/`
 
-**S0 · Environment and stand-in product** — 0/7
+**S0 · Environment and моти** — 1/7
 
-- [ ] `S0.1` Python 3.11 virtualenv in the repo
-- [ ] `S0.2` PyTorch with CUDA — verify torch.cuda.is_available() is True and the device is the RTX 3060
-- [ ] `S0.3` Install anomalib and opencv-python
-- [ ] `S0.4` Check the licence of every Anomalib model that could ship (Anomalib itself is Apache-2.0; per-model terms differ)
-- [ ] `S0.5` Buy ~170 flat identical units (пряники) — 100 kept good (30 train / 30 calibrate / 40 validate) and 70 to damage. See 14-eval-protocol.md §3
-- [ ] `S0.6` Buy ~30 tall units (булки) — the three-dimensional height case
-- [ ] `S0.7` Create the Anomalib folder layout under data/datasets/
+- [ ] `S0.1` Python 3.12 virtualenv, every dependency pinned with a hash, an offline wheelhouse — plan P01
+- [ ] `S0.2` PyTorch with CUDA — torch.cuda.is_available() is True on the laptop's RTX 3050 (4 GB) — plan P01
+- [ ] `S0.3` Anomalib 2.6.2 pinned, headless OpenCV, Tk; the backbone cached and loaded with the network off — plan P01
+- [x] `S0.4` Check the licence of every Anomalib model that could ship (Anomalib itself is Apache-2.0; per-model terms differ)  ↳ `docs/15-model.md §11 — closes OQ-7; the backbone weights are OQ-10`
+- [ ] `S0.5` Buy моти — one pale flavour, one batch, on the morning of the shoot; standard 83 or lean 64 units (OQ-8)
+- [-] `S0.6` Buy ~30 tall units (булки) — dropped: the product is моти, the height case is gone  ↳ `docs/05-concept.md §0`
+- [ ] `S0.7` Folder layout under data/ as in 12-data-model.md §2 — created by the tools, never by hand
 
 **S1 · Prove the pipeline on public data** — 0/3
 
 - [ ] `S1.1` Download MVTec AD (CC BY-NC-SA 4.0 — validation only, never ships)
-- [ ] `S1.2` Run PatchCore on one category and reproduce roughly the published numbers
-- [ ] `S1.3` Record baseline inference latency on the RTX 3060 and on CPU
+- [ ] `S1.2` Run our PatchCore code path on one MVTec AD category and land near Anomalib's published number — plan P07
+- [ ] `S1.3` Record inference latency on the RTX 3050 and on the CPU pinned to 4 threads — plan P07
 
-**S2 · Build the rig and shoot** — 0/10
+**S2 · Rig, pilot and MVP shoot** — 0/9
 
-- [ ] `S2.1` Rig — matte-black box interior, camera fixed and marked, object filling ~80% of frame
-- [ ] `S2.2` Add the fixed grey/white reference patch inside the field of view (lighting drift self-check)
-- [ ] `S2.3` Lock camera settings — manual exposure, manual white balance, manual focus
-- [ ] `S2.4` Shoot 100 good units × 3 lighting geometries × 3 rotations (low-angle, diffuse, backlight) — one session per geometry, ~1530 frames in total across good and damaged
-- [ ] `S2.5` Damage 70 units — 30 dents (the Gate A class), 20 chips/breaks, 20 deformed. 30 is the smallest n at which an observed 90% clears a 75% lower bound
-- [ ] `S2.6` Shoot every damaged unit under all 3 geometries × 3 rotations
-- [ ] `S2.7` Split good units by UNIT into train/good 30, calib/good 30, test/good 40 — the threshold is chosen on calib and the false-alarm rate measured on test, and no unit crosses a split
+- [ ] `S2.1` Rig — matte-black box, webcam fixed at the lowest sharp height, placement marks outside the inspection area (13 §3)
+- [ ] `S2.2` Grey reference card in view, outside the placement area
+- [ ] `S2.3` Camera lock test — exposure, gain, white balance, focus manual and read back; grey card within 1%; no banding (13 §4, ADR-0010) — needs P05
+- [ ] `S2.4` Lighting pilot — G1, G2, G3 (G1 and G3 with one lamp); choose by silhouette, then separation; pilot units discarded (13 §5, ADR-0013) — needs P06, P07
+- [ ] `S2.5` Split plan by seed before the first frame — every unit's split known in advance (13 §6)
+- [ ] `S2.6` MVP dataset shoot — controls at start, middle and end; random order; test units shot good, damaged by recipe, shot again; placement frames (13 §6, ADR-0014)
+- [ ] `S2.7` Copy data/raw to the phone over USB before anything else touches it
 - [ ] `S2.8` Close-up record photo of each damaged unit's defect
-- [ ] `S2.9` Record the reference patch reading for every session and confirm sessions are comparable before merging any sets (guard E7)
-- [ ] `S2.10` Write the one sentence — which lighting shows a dent best, and why
+- [ ] `S2.9` Write the one sentence — which lighting shows a dent best, and why
 
-**S3 · Train and measure** — 0/4
+**S3 · Train and measure — INDICATIVE** — 0/5
 
-- [ ] `S3.1` PatchCore with a WideResNet-50 backbone, trained on train/good only — one model per lighting geometry
-- [ ] `S3.2` Evaluate per docs/14-eval-protocol.md — recall at 1/5/10% false-alarm rates, unit-level, with Clopper-Pearson bounds
-- [ ] `S3.3` Measure inference latency against the budget on CPU as the Intel N100 proxy — not only on the 3060
+- [ ] `S3.1` PatchCore, WideResNet-50, trained on train/good only, seeded; one bundle whose model_id carries its hash — plan P07
+- [ ] `S3.2` Calibrate — geometry tolerances and the threshold on the combined verdict, under one threshold_id — plan P08
+- [ ] `S3.3` Evaluate — the INDICATIVE report per 14 §9, and the early-warning check on dent recall — plan P08
 - [ ] `S3.4` Freeze the golden replay set so every future claim is reproducible by one command
+- [ ] `S3.5` Gate B proxy — laptop CPU, 4 threads, p95 inspection time × 3 ≤ 400 ms (ADR-0017) — plan P07
 
 **S4 · Wrap it as a demo** — 0/5
 
 - [ ] `S4.1` Live camera view, trigger to capture to verdict
-- [ ] `S4.2` Big green OK / red DEFECT, readable across a room
-- [ ] `S4.3` Heatmap overlay on the defect — the moment that convinces people
+- [ ] `S4.2` Big ГОДЕН / БРАК / НЕТ РЕШЕНИЯ — green, red, amber — readable across a room
+- [ ] `S4.3` Heatmap over the defect, or the failed measurement for a geometry БРАК
 - [ ] `S4.4` Every check written to the evidence store, session list visible
 - [ ] `S4.5` Starts with one command, runs fully offline, a stranger uses it without help
+
+**GA · Gate A — the full protocol on fresh моти** — 0/3
+
+- [ ] `GA.1` Buy 133 fresh моти of the same flavour
+- [ ] `GA.2` Shoot per 13 §9 — 30 train, 30 calib, 70 test paired (30 dent, 20 tear, 20 deformed), 3 controls
+- [ ] `GA.3` Evaluate Gate A with the same commands as the MVP
 
 **S5 · Site visit with the demo in hand** — 0/8
 
@@ -139,7 +153,9 @@ Overall: **5/50 tasks** `██······················` 10%
 | `OQ-4` | client | **never** | What is meant by "foreign objects"? What is already on the line — metal detector, X-ray? | Liability scope. Never accept foreign-object detection inside a 95% acceptance clause. |
 | `OQ-5` | client | **never** | Units per shift, shifts per day, and what one return costs in rubles? | Pricing and the entire business case. "2% per day" of an unknown base is not a number. |
 | `OQ-6` | client | **never** | Who signs off food safety, and what must they approve to allow equipment over open product? | This person can veto the installation after the hardware has been bought. |
-| `OQ-7` | us | **never** | Which Anomalib models are licence-clean for a commercial deliverable? | Model selection for anything that ships. Anomalib is Apache-2.0; per-model terms differ. |
+| `OQ-8` | us | **never** | Standard (83 units) or lean (64 units) for the MVP shoot? Ali leans lean, deciding at the shop. | The purchase (S0.5) and the width of every indicative bound (14 §9). |
+| `OQ-9` | client | **never** | Is your моти chilled, room-temperature or frozen; what sizes and flavours; which defects actually occur? | Assumptions A-01 and A-07 — the shoot protocol and the defect classes. Deferred for the MVP week. |
+| `OQ-10` | us | **never** | Are ImageNet-pretrained backbone weights usable in a commercial deliverable, and are incidental images of hands personal data under 152-ФЗ? | Shipping anything to the client. A question for the lawyer budget line, not for us to answer. |
 
 ## Risks
 
@@ -148,11 +164,15 @@ Overall: **5/50 tasks** `██······················` 10%
 | `R1` | high | No physical evidence exists — no video, no photographs, no defective samples. | Still true. Identified 2026-09-02, unchanged 15 days later. | Stage S5. Nothing about hardware or price can be settled without it. |
 | `R2` | high | Natural food variation swamps the defect signal, producing constant false alarms. | A high false-alarm rate on good units at S3. | More training data, tighter lighting control, or narrow the scope to one SKU. The central risk of the appearance station. |
 | `R3` | high | "Foreign objects" inside a 95% acceptance clause promises safety-critical detection that optics cannot deliver. | Present in the defect list and the acceptance criterion simultaneously. | Scope it out in writing — surface-visible contrasting objects, best effort, not a substitute for metal detection or X-ray. |
-| `R4` | medium | Camera automatic settings destroy the dataset by re-exposing for the defect. | Images inconsistent between sessions. | Lock exposure, white balance and focus. The most common failure in this whole plan. The reference patch detects it. |
-| `R5` | medium | PatchCore is too slow for one unit per second on an Intel N100. | Gate B fails at S3. | A smaller coreset, lower input resolution, or switch to PaDiM or FastFlow. |
+| `R4` | medium | Camera automatic settings destroy the dataset by re-exposing for the defect. | Images inconsistent between sessions. | Lock exposure, gain, white balance and focus, and read them back; the lock test and the grey card prove the sensor applies them (ADR-0010). |
+| `R5` | medium | PatchCore is too slow for one unit per second on an Intel N100. | Gate B fails at S3. | In this order, each measured on the golden set: a 1% coreset, 224 px input, a ResNet-18 backbone, then PaDiM (15-model.md §10). |
 | `R6` | medium | Real factory defects are subtler than our deliberate damage. | Only visible at S6. | This is why defective samples matter more than any questionnaire answer. |
 | `R7` | medium | The food-safety officer vetoes the installation after hardware has been bought. | OQ-6 unanswered. | Gate C. Ask before spending. |
-| `R8` | low | Something trained on MVTec AD ends up in a deliverable — the licence is non-commercial. | — | MVTec is S1 validation only. It is never trained into anything that ships. |
+| `R8` | low | Something trained on MVTec AD ends up in a deliverable — the licence is non-commercial. | — | MVTec is S1 validation only. A bundle trained on it is tagged validation-only and the station refuses to run it (ADR-0016). |
+| `R9` | high | The client questions stay unsent while build work continues, so the product is designed on assumptions. | OQ-1 … OQ-6 and OQ-9 have never been sent. | Deferred by decision for the MVP week (2026-09-21). Revisit on 2026-09-28; the MVP demo is the reason for the next conversation. |
+| `R10` | medium | моти change during a session — drying, softening, condensation — and the model learns time instead of damage. | The control units' scores drift between the start and the end of a session. | Paired shooting in random order, controls at start, middle and end, 30 minutes to room temperature in the packaging (ADR-0014, 13 §2). |
+| `R11` | high | The ImageNet-pretrained backbone weights carry no explicit licence; their commercial use is unresolved. | Every PatchCore variant depends on them. | The lawyer budget line before anything ships (OQ-10). Fallbacks — a commercially licensed pretraining, or self-supervised pretraining on the line's own images (15-model.md §11). |
+| `R12` | medium | The week is tight — nine executor plans and a shoot in six days. | A plan fails review, or the shoot moves past 2026-09-25. | The order protects the shoot — tools first, then the shoot, then the report. P09's polish slips first (plans/ROADMAP.md). |
 
 ---
 

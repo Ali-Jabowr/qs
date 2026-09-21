@@ -26,7 +26,7 @@ meta:
   location: Volgograd
   location_ru: Волгоград
   repo: /home/marxel/PROJECTS/QS
-  updated: 2026-09-17
+  updated: 2026-09-21
 
 client:
   label_en: Food producer, Volgograd (one client)
@@ -72,9 +72,9 @@ tracks:
 # --------------------------------------------------------------------------------
 # STAGES
 # --------------------------------------------------------------------------------
-# Dates re-planned 2026-09-17. The original plan (docs/04-build-plan.md, written
-# 2026-09-02) put Stage 0 on 2026-09-02..09-07 and Gate A on 2026-09-22. Nothing
-# was started in the 15 days that followed, so those dates are retired. ADR-0006.
+# Dates re-planned 2026-09-17 (ADR-0006) and again 2026-09-21, the design day: the
+# MVP week runs 21.09–27.09 (ADR-0007, plans/ROADMAP.md). Gate A keeps 13.10 on
+# fresh units, as stage GA. Each code task names the executor plan that builds it.
 
 stages:
 
@@ -83,7 +83,7 @@ stages:
     name_en: Design spine and runnable skeleton
     name_ru: Проектная основа и исполняемый каркас
     planned_start: 2026-09-17
-    planned_end: 2026-09-24
+    planned_end: 2026-09-26
     status: in_progress
     goal_en: >
       Every decision that can be made without seeing the factory, made and written down;
@@ -103,17 +103,17 @@ stages:
         text_en: System architecture document with diagrams (context, line, dataflow, modules, deployment)
         text_ru: Документ системной архитектуры со схемами (контекст, линия, потоки данных, модули, развёртывание)
         status: done
-        evidence: docs/10-architecture.md — 5 diagrams, all verified rendering
+        evidence: docs/10-architecture.md — revised 2026-09-21 for моти and the bench MVP
       - id: E0.3
         text_en: Interface contracts — TriggerSource, FrameSource, Inspector, Sink, Annunciator
         text_ru: Контракты интерфейсов — источник срабатывания, источник кадров, инспектор, хранилище, сигнализация
         status: done
-        evidence: docs/11-interfaces.md — five contracts, seven rules, implementation matrix
+        evidence: docs/11-interfaces.md — revised 2026-09-21, per-check verdicts, rules C1–C9
       - id: E0.4
         text_en: Data model — dataset layout, inspection record schema, config-as-contract
         text_ru: Модель данных — структура датасета, схема записи контроля, конфигурация как контракт
         status: done
-        evidence: docs/12-data-model.md — datasets, append-only evidence schema, config as contract
+        evidence: docs/12-data-model.md — schema executed in SQLite, append-only by trigger
       - id: E0.5
         text_en: Evaluation protocol — recall@FAR, confidence intervals, unit-level sampling, restated gates
         text_ru: Протокол оценки качества — полнота при заданном уровне ложных срабатываний, доверительные интервалы, выборка по изделиям, переформулированные рубежи
@@ -122,68 +122,107 @@ stages:
       - id: E0.6
         text_en: Failure model — station state machine, fault handling, fail-to-no-verdict, reference patch
         text_ru: Модель отказов — конечный автомат станции, обработка неисправностей, отказ в сторону «нет решения», эталонная пластина освещения
-        status: todo
-        evidence: null
+        status: done
+        evidence: docs/16-failure-model.md + ADR-0012
       - id: E0.7
         text_en: Architecture decision records for decisions already taken, and for the new ones
         text_ru: Журнал архитектурных решений — уже принятые решения и новые
-        status: todo
-        evidence: null
+        status: done
+        evidence: decisions/ADR-0001 … ADR-0018 + decisions/README.md
       - id: E0.8
-        text_en: Runnable skeleton in src/ — contracts, replay source, SQLite sink, stub inspector, tests green
-        text_ru: Исполняемый каркас в src/ — интерфейсы, воспроизведение с диска, хранилище SQLite, заглушка инспектора, тесты проходят
+        text_en: "Runnable skeleton in src/ — contracts and config (P02), evidence store (P03), pipeline with replay and fault injection (P04)"
+        text_ru: "Исполняемый каркас в src/ — интерфейсы и конфигурация (P02), хранилище доказательств (P03), конвейер с воспроизведением и внедрением отказов (P04)"
+        plan: [P02, P03, P04]
         status: todo
         evidence: null
       - id: E0.9
-        text_en: Risk register and Russian/English glossary
-        text_ru: Реестр рисков и русско-английский глоссарий
+        text_en: Russian/English glossary (the risk register lives in this file)
+        text_ru: Русско-английский глоссарий (реестр рисков ведётся в этом файле)
         status: todo
         evidence: null
+      - id: E0.10
+        text_en: "Concept and MVP scope — PR/FAQ, the product is моти, Gate 0 passed"
+        text_ru: "Концепция и границы MVP — пресс-релиз и вопросы-ответы, продукт — моти, рубеж 0 пройден"
+        status: done
+        evidence: docs/05-concept.md + ADR-0007
+      - id: E0.11
+        text_en: "Requirements — numbered FR and NFR with checks, Gate 1 passed"
+        text_ru: "Требования — пронумерованные функциональные и нефункциональные требования со способами проверки, рубеж 1 пройден"
+        status: done
+        evidence: docs/06-requirements.md + ADR-0008
+      - id: E0.12
+        text_en: "Data collection — rig, lighting pilot, paired shooting, damage recipes"
+        text_ru: "Сбор данных — стенд, пробная съёмка освещения, парная съёмка, методики повреждения"
+        status: done
+        evidence: docs/13-data-collection.md + ADR-0013, ADR-0014
+      - id: E0.13
+        text_en: "Model and training — the Inspector's chain, PatchCore via Anomalib, licences, latency"
+        text_ru: "Модель и обучение — цепочка инспектора, PatchCore через Anomalib, лицензии, быстродействие"
+        status: done
+        evidence: docs/15-model.md + ADR-0015
+      - id: E0.14
+        text_en: "Security and data handling — threats, 152-ФЗ, what may leave the laptop"
+        text_ru: "Безопасность и обращение с данными — угрозы, 152-ФЗ, что может покидать ноутбук"
+        status: done
+        evidence: docs/17-security.md + ADR-0016
+      - id: E0.15
+        text_en: "Gate 2 design review — an independent reviewer, 26 findings fixed, GO"
+        text_ru: "Рубеж 2, проверка проекта — независимый рецензент, 26 замечаний устранены, решение продолжать"
+        status: done
+        evidence: reviews/GATE-2.md + ADR-0017, ADR-0018
+      - id: E0.16
+        text_en: "Executor plans — the roadmap and the first two plans"
+        text_ru: "Планы для исполнителя — дорожная карта и первые два плана"
+        status: done
+        evidence: plans/ROADMAP.md, plans/P01-environment/, plans/P02-contracts-config/
 
   - id: S0
     track: appearance
-    name_en: Environment and stand-in product
-    name_ru: Окружение и учебный продукт
-    planned_start: 2026-09-17
-    planned_end: 2026-09-22
-    status: not_started
-    goal_en: A working GPU training environment and the groceries on the desk.
-    goal_ru: Рабочее окружение для обучения на видеокарте и закупленный учебный продукт на столе.
-    budget_rub: 4000
+    name_en: Environment and моти
+    name_ru: Окружение и учебный продукт — моти
+    planned_start: 2026-09-21
+    planned_end: 2026-09-25
+    status: in_progress
+    goal_en: A pinned training environment on the laptop that runs without the network, and the моти on the desk on the morning of the shoot.
+    goal_ru: Закреплённое окружение для обучения на ноутбуке, работающее без сети, и моти на столе утром в день съёмки.
     tasks:
       - id: S0.1
-        text_en: Python 3.11 virtualenv in the repo
-        text_ru: Виртуальное окружение Python 3.11 в репозитории
+        text_en: "Python 3.12 virtualenv, every dependency pinned with a hash, an offline wheelhouse — plan P01"
+        text_ru: "Виртуальное окружение Python 3.12, все зависимости закреплены с хешами, локальный кэш пакетов для работы без сети — план P01"
+        plan: P01
         status: todo
         evidence: null
       - id: S0.2
-        text_en: "PyTorch with CUDA — verify torch.cuda.is_available() is True and the device is the RTX 3060"
-        text_ru: "PyTorch с поддержкой CUDA — убедиться, что torch.cuda.is_available() возвращает True и видеокарта определяется как RTX 3060"
+        text_en: "PyTorch with CUDA — torch.cuda.is_available() is True on the laptop's RTX 3050 (4 GB) — plan P01"
+        text_ru: "PyTorch с поддержкой CUDA — torch.cuda.is_available() возвращает True на видеокарте ноутбука RTX 3050 (4 ГБ) — план P01"
+        plan: P01
         status: todo
         evidence: null
       - id: S0.3
-        text_en: Install anomalib and opencv-python
-        text_ru: Установить anomalib и opencv-python
+        text_en: "Anomalib 2.6.2 pinned, headless OpenCV, Tk; the backbone cached and loaded with the network off — plan P01"
+        text_ru: "Anomalib 2.6.2 с точной версией, OpenCV без графического интерфейса, Tk; опорная сеть закэширована и загружается без сети — план P01"
+        plan: P01
         status: todo
         evidence: null
       - id: S0.4
         text_en: "Check the licence of every Anomalib model that could ship (Anomalib itself is Apache-2.0; per-model terms differ)"
         text_ru: "Проверить лицензию каждой модели Anomalib, которая может попасть в поставку (сам Anomalib под Apache-2.0, но условия отдельных моделей различаются)"
-        status: todo
-        evidence: null
+        status: done
+        evidence: docs/15-model.md §11 — closes OQ-7; the backbone weights are OQ-10
       - id: S0.5
-        text_en: "Buy ~170 flat identical units (пряники) — 100 kept good (30 train / 30 calibrate / 40 validate) and 70 to damage. See 14-eval-protocol.md §3"
-        text_ru: "Закупить ~170 одинаковых плоских изделий (пряники) — 100 остаются годными (30 обучение / 30 калибровка / 40 контроль) и 70 под повреждение. См. 14-eval-protocol.md §3"
+        text_en: "Buy моти — one pale flavour, one batch, on the morning of the shoot; standard 83 or lean 64 units (OQ-8)"
+        text_ru: "Закупить моти — один светлый вкус, одна партия, утром в день съёмки; стандартный вариант 83 или экономный 64 изделия (OQ-8)"
         status: todo
         evidence: null
       - id: S0.6
-        text_en: "Buy ~30 tall units (булки) — the three-dimensional height case"
-        text_ru: "Закупить ~30 высоких изделий (булки) — проверка объёмного случая с высотой"
-        status: todo
-        evidence: null
+        text_en: "Buy ~30 tall units (булки) — dropped: the product is моти, the height case is gone"
+        text_ru: "Закупить ~30 высоких изделий (булки) — исключено: продукт — моти, случая с высотой больше нет"
+        status: dropped
+        evidence: docs/05-concept.md §0
       - id: S0.7
-        text_en: Create the Anomalib folder layout under data/datasets/
-        text_ru: Создать структуру каталогов Anomalib в data/datasets/
+        text_en: "Folder layout under data/ as in 12-data-model.md §2 — created by the tools, never by hand"
+        text_ru: "Структура каталогов в data/ по 12-data-model.md §2 — создаётся инструментами, а не вручную"
+        plan: [P05, P08]
         status: todo
         evidence: null
 
@@ -191,8 +230,8 @@ stages:
     track: appearance
     name_en: Prove the pipeline on public data
     name_ru: Проверка пайплайна на публичных данных
-    planned_start: 2026-09-23
-    planned_end: 2026-09-25
+    planned_start: 2026-09-24
+    planned_end: 2026-09-24
     status: not_started
     goal_en: Know the installation is correct before our own data can be blamed.
     goal_ru: Убедиться, что окружение установлено правильно, до того как в ошибках можно будет винить наши собственные данные.
@@ -200,66 +239,75 @@ stages:
       - id: S1.1
         text_en: Download MVTec AD (CC BY-NC-SA 4.0 — validation only, never ships)
         text_ru: Загрузить MVTec AD (лицензия CC BY-NC-SA 4.0 — только для проверки окружения, никогда не входит в поставку)
+        plan: P07
         status: todo
         evidence: null
       - id: S1.2
-        text_en: Run PatchCore on one category and reproduce roughly the published numbers
-        text_ru: Запустить PatchCore на одной категории и примерно воспроизвести опубликованные показатели
+        text_en: "Run our PatchCore code path on one MVTec AD category and land near Anomalib's published number — plan P07"
+        text_ru: "Прогнать наш код PatchCore на одной категории MVTec AD и получить показатель, близкий к опубликованному в Anomalib — план P07"
+        plan: P07
         status: todo
         evidence: null
       - id: S1.3
-        text_en: Record baseline inference latency on the RTX 3060 and on CPU
-        text_ru: Замерить базовое время вывода на RTX 3060 и на центральном процессоре
+        text_en: "Record inference latency on the RTX 3050 and on the CPU pinned to 4 threads — plan P07"
+        text_ru: "Замерить время вывода на RTX 3050 и на центральном процессоре, ограниченном 4 потоками — план P07"
+        plan: P07
         status: todo
         evidence: null
 
   - id: S2
     track: appearance
-    name_en: Build the rig and shoot
-    name_ru: Сборка стенда и съёмка
-    planned_start: 2026-09-26
-    planned_end: 2026-10-06
+    name_en: Rig, pilot and MVP shoot
+    name_ru: Стенд, пробная съёмка освещения и съёмка для MVP
+    planned_start: 2026-09-22
+    planned_end: 2026-09-25
     status: not_started
     goal_en: >
-      A dataset large enough to measure against, and an answer to which lighting
-      geometry reveals which defect. This is the real work.
+      A dataset shot so that its numbers mean something — locked camera, paired good and
+      damaged frames, controls against drift — and the answer to which lighting shows a
+      dent best. This is the real work.
     goal_ru: >
-      Датасет достаточного объёма, чтобы по нему можно было измерять, и ответ на
-      вопрос, какая схема освещения выявляет какой дефект. Это основная работа этапа.
+      Датасет, снятый так, чтобы его показатели что-то значили: зафиксированная камера,
+      парные снимки годных и повреждённых изделий, контрольные изделия против дрейфа — и
+      ответ на вопрос, какое освещение лучше всего показывает вмятину. Это основная работа.
     tasks:
       - id: S2.1
-        text_en: "Rig — matte-black box interior, camera fixed and marked, object filling ~80% of frame"
-        text_ru: "Стенд — матово-чёрный короб изнутри, камера жёстко закреплена и отмечена, объект занимает ~80% кадра"
+        text_en: "Rig — matte-black box, webcam fixed at the lowest sharp height, placement marks outside the inspection area (13 §3)"
+        text_ru: "Стенд — матово-чёрный короб, веб-камера закреплена на минимальной высоте с резким изображением, метки размещения вне зоны контроля (13 §3)"
         status: todo
         evidence: null
       - id: S2.2
-        text_en: "Add the fixed grey/white reference patch inside the field of view (lighting drift self-check)"
-        text_ru: "Разместить в поле зрения неподвижную серо-белую эталонную пластину (самоконтроль дрейфа освещения)"
+        text_en: Grey reference card in view, outside the placement area
+        text_ru: Серая эталонная карточка в кадре, вне зоны размещения изделия
         status: todo
         evidence: null
       - id: S2.3
-        text_en: "Lock camera settings — manual exposure, manual white balance, manual focus"
-        text_ru: "Зафиксировать настройки камеры — ручная выдержка, ручной баланс белого, ручная фокусировка"
+        text_en: "Camera lock test — exposure, gain, white balance, focus manual and read back; grey card within 1%; no banding (13 §4, ADR-0010) — needs P05"
+        text_ru: "Проверка фиксации камеры — выдержка, усиление, баланс белого и фокус в ручном режиме с обратным чтением; серая карточка в пределах 1%; без полос (13 §4, ADR-0010) — нужен P05"
+        plan: P05
         status: todo
         evidence: null
       - id: S2.4
-        text_en: "Shoot 100 good units × 3 lighting geometries × 3 rotations (low-angle, diffuse, backlight) — one session per geometry, ~1530 frames in total across good and damaged"
-        text_ru: "Отснять 100 годных изделий × 3 схемы освещения × 3 поворота (скользящее, рассеянное, контровое) — по одной сессии на схему, всего около 1530 кадров вместе с повреждёнными"
+        text_en: "Lighting pilot — G1, G2, G3 (G1 and G3 with one lamp); choose by silhouette, then separation; pilot units discarded (13 §5, ADR-0013) — needs P06, P07"
+        text_ru: "Пробная съёмка освещения — G1, G2, G3 (G1 и G3 при одной лампе); выбор сначала по силуэту, затем по разделению; пробные изделия после этого не используются (13 §5, ADR-0013) — нужны P06, P07"
+        plan: [P06, P07]
         status: todo
         evidence: null
       - id: S2.5
-        text_en: "Damage 70 units — 30 dents (the Gate A class), 20 chips/breaks, 20 deformed. 30 is the smallest n at which an observed 90% clears a 75% lower bound"
-        text_ru: "Повредить 70 изделий — 30 вмятин (класс рубежа A), 20 сколов, 20 деформаций. 30 — минимальный объём, при котором наблюдаемые 90% проходят нижнюю границу 75%"
+        text_en: "Split plan by seed before the first frame — every unit's split known in advance (13 §6)"
+        text_ru: "План разбиения по зерну до первого кадра — выборка каждого изделия известна заранее (13 §6)"
+        plan: P05
         status: todo
         evidence: null
       - id: S2.6
-        text_en: Shoot every damaged unit under all 3 geometries × 3 rotations
-        text_ru: Отснять каждое повреждённое изделие во всех 3 схемах освещения × 3 поворота
+        text_en: "MVP dataset shoot — controls at start, middle and end; random order; test units shot good, damaged by recipe, shot again; placement frames (13 §6, ADR-0014)"
+        text_ru: "Съёмка датасета MVP — контрольные изделия в начале, середине и конце; случайный порядок; тестовые изделия снимаются годными, повреждаются по методике и снимаются снова; кадры проверки размещения (13 §6, ADR-0014)"
+        plan: P05
         status: todo
         evidence: null
       - id: S2.7
-        text_en: "Split good units by UNIT into train/good 30, calib/good 30, test/good 40 — the threshold is chosen on calib and the false-alarm rate measured on test, and no unit crosses a split"
-        text_ru: "Разделить годные изделия ПО ИЗДЕЛИЯМ: 30 обучение, 30 калибровка, 40 контроль — порог выбирается на калибровочной выборке, доля ложных срабатываний измеряется на контрольной, ни одно изделие не попадает в две выборки"
+        text_en: Copy data/raw to the phone over USB before anything else touches it
+        text_ru: Скопировать data/raw на телефон по USB до любой дальнейшей обработки
         status: todo
         evidence: null
       - id: S2.8
@@ -268,11 +316,6 @@ stages:
         status: todo
         evidence: null
       - id: S2.9
-        text_en: "Record the reference patch reading for every session and confirm sessions are comparable before merging any sets (guard E7)"
-        text_ru: "Записать показание эталонной пластины для каждой сессии и убедиться в сопоставимости сессий до объединения выборок (защита E7)"
-        status: todo
-        evidence: null
-      - id: S2.10
         text_en: "Write the one sentence — which lighting shows a dent best, and why"
         text_ru: "Сформулировать вывод одним предложением — какое освещение лучше всего показывает вмятину и почему"
         status: todo
@@ -280,32 +323,42 @@ stages:
 
   - id: S3
     track: appearance
-    name_en: Train and measure
-    name_ru: Обучение и измерение
-    planned_start: 2026-10-07
-    planned_end: 2026-10-13
+    name_en: Train and measure — INDICATIVE
+    name_ru: Обучение и измерение — ориентировочно
+    planned_start: 2026-09-25
+    planned_end: 2026-09-26
     status: not_started
-    goal_en: The gate numbers, with confidence intervals, per lighting geometry and defect class.
-    goal_ru: Получить показатели для контрольных рубежей с доверительными интервалами, по каждой схеме освещения и каждому классу дефектов.
+    goal_en: Indicative numbers from the frozen MVP golden set, with bounds, stamped INDICATIVE — the method works or it does not (14 §9, ADR-0007).
+    goal_ru: Ориентировочные показатели по замороженному эталонному набору MVP, с доверительными границами и пометкой «ОРИЕНТИРОВОЧНО» — метод работает или нет (14 §9, ADR-0007).
     tasks:
       - id: S3.1
-        text_en: "PatchCore with a WideResNet-50 backbone, trained on train/good only — one model per lighting geometry"
-        text_ru: "PatchCore на базе WideResNet-50, обучение только на годных изделиях — отдельная модель на каждую схему освещения"
+        text_en: "PatchCore, WideResNet-50, trained on train/good only, seeded; one bundle whose model_id carries its hash — plan P07"
+        text_ru: "PatchCore на WideResNet-50, обучение только на годных изделиях, с фиксированным зерном; один пакет модели с хешем в идентификаторе — план P07"
+        plan: P07
         status: todo
         evidence: null
       - id: S3.2
-        text_en: "Evaluate per docs/14-eval-protocol.md — recall at 1/5/10% false-alarm rates, unit-level, with Clopper-Pearson bounds"
-        text_ru: "Оценить по docs/14-eval-protocol.md — полнота при 1/5/10% ложных срабатываний, по изделиям, с границами Клоппера — Пирсона"
+        text_en: "Calibrate — geometry tolerances and the threshold on the combined verdict, under one threshold_id — plan P08"
+        text_ru: "Калибровка — допуски геометрии и порог по совокупному решению, под одним идентификатором калибровки — план P08"
+        plan: P08
         status: todo
         evidence: null
       - id: S3.3
-        text_en: "Measure inference latency against the budget on CPU as the Intel N100 proxy — not only on the 3060"
-        text_ru: "Замерить время вывода относительно бюджета на центральном процессоре как приближении к Intel N100, а не только на RTX 3060"
+        text_en: "Evaluate — the INDICATIVE report per 14 §9, and the early-warning check on dent recall — plan P08"
+        text_ru: "Оценка — ориентировочный отчёт по 14 §9 и проверка раннего предупреждения по полноте обнаружения вмятин — план P08"
+        plan: P08
         status: todo
         evidence: null
       - id: S3.4
         text_en: Freeze the golden replay set so every future claim is reproducible by one command
         text_ru: Зафиксировать эталонный набор для воспроизведения, чтобы любое дальнейшее утверждение проверялось одной командой
+        plan: P08
+        status: todo
+        evidence: null
+      - id: S3.5
+        text_en: "Gate B proxy — laptop CPU, 4 threads, p95 inspection time × 3 ≤ 400 ms (ADR-0017) — plan P07"
+        text_ru: "Косвенная проверка рубежа B — процессор ноутбука, 4 потока, 95-й процентиль времени проверки × 3 не более 400 мс (ADR-0017) — план P07"
+        plan: P07
         status: todo
         evidence: null
 
@@ -313,36 +366,66 @@ stages:
     track: appearance
     name_en: Wrap it as a demo
     name_ru: Оформление демонстрации
-    planned_start: 2026-10-14
-    planned_end: 2026-10-23
+    planned_start: 2026-09-26
+    planned_end: 2026-09-27
     status: not_started
-    blocked_by_gate: A
     goal_en: Something you can carry into a factory and hand to a stranger.
     goal_ru: Работающая вещь, которую можно принести на производство и дать в руки постороннему человеку.
     tasks:
       - id: S4.1
         text_en: Live camera view, trigger to capture to verdict
         text_ru: Живое изображение с камеры, цепочка «срабатывание — съёмка — решение»
+        plan: P09
         status: todo
         evidence: null
       - id: S4.2
-        text_en: "Big green OK / red DEFECT, readable across a room"
-        text_ru: "Крупное зелёное «ГОДЕН» / красное «ДЕФЕКТ», читаемое через всё помещение"
+        text_en: "Big ГОДЕН / БРАК / НЕТ РЕШЕНИЯ — green, red, amber — readable across a room"
+        text_ru: "Крупные «ГОДЕН» / «БРАК» / «НЕТ РЕШЕНИЯ» — зелёный, красный, янтарный — читаются через всё помещение"
+        plan: P09
         status: todo
         evidence: null
       - id: S4.3
-        text_en: "Heatmap overlay on the defect — the moment that convinces people"
-        text_ru: "Тепловая карта поверх дефекта — именно это убеждает людей"
+        text_en: "Heatmap over the defect, or the failed measurement for a geometry БРАК"
+        text_ru: "Тепловая карта поверх дефекта или непройденный замер при браке по геометрии"
+        plan: P09
         status: todo
         evidence: null
       - id: S4.4
         text_en: Every check written to the evidence store, session list visible
         text_ru: Каждая проверка записывается в хранилище доказательств, список за сессию виден на экране
+        plan: [P03, P04, P09]
         status: todo
         evidence: null
       - id: S4.5
         text_en: "Starts with one command, runs fully offline, a stranger uses it without help"
         text_ru: "Запускается одной командой, работает полностью автономно, посторонний человек пользуется без подсказок"
+        plan: P09
+        status: todo
+        evidence: null
+
+  - id: GA
+    track: appearance
+    name_en: Gate A — the full protocol on fresh моти
+    name_ru: Рубеж A — полный протокол на новых моти
+    planned_start: 2026-09-28
+    planned_end: 2026-10-13
+    status: not_started
+    goal_en: "The one bench number that can be defended: Gate A on 133 freshly bought units, paired, in the pilot's geometry (14 §6, 13 §9)."
+    goal_ru: "Единственный стендовый показатель, который можно отстаивать: рубеж A на 133 заново закупленных изделиях, парная съёмка, при освещении по итогам пробной съёмки (14 §6, 13 §9)."
+    tasks:
+      - id: GA.1
+        text_en: Buy 133 fresh моти of the same flavour
+        text_ru: Закупить 133 новых моти того же вкуса
+        status: todo
+        evidence: null
+      - id: GA.2
+        text_en: "Shoot per 13 §9 — 30 train, 30 calib, 70 test paired (30 dent, 20 tear, 20 deformed), 3 controls"
+        text_ru: "Съёмка по 13 §9 — 30 обучение, 30 калибровка, 70 тестовых парами (30 вмятин, 20 разрывов, 20 деформаций), 3 контрольных"
+        status: todo
+        evidence: null
+      - id: GA.3
+        text_en: Evaluate Gate A with the same commands as the MVP
+        text_ru: Оценить рубеж A теми же командами, что и MVP
         status: todo
         evidence: null
 
@@ -353,8 +436,8 @@ stages:
     planned_start: 2026-10-26
     planned_end: null
     status: blocked
-    blocked_on: client scheduling
-    blocked_on_ru: согласование даты с заказчиком
+    blocked_on: client scheduling — and deferred by decision for the MVP week (2026-09-21)
+    blocked_on_ru: согласование даты с заказчиком — и отложено решением на неделю MVP (21.09.2026)
     goal_en: >
       Physical evidence. This is the scarcest resource in the project and no amount of
       documentation substitutes for it.
@@ -459,29 +542,29 @@ gates:
     name_ru: Рубеж обнаружения на стенде
     due: 2026-10-13
     status: pending
-    blocks: [S4, S5]
+    blocks: [S5]
     definition_ref: docs/14-eval-protocol.md
     statement_en: >
-      On the flat product, under the lighting geometry selected on calibration data, with
-      the threshold set to a 5% false-alarm target on 30 calibration units: dent recall at
-      or above 90% on 30 held-out dented UNITS (at least 27 of 30), whose 95% one-sided
-      lower bound therefore clears 75%; false-alarm rate on 40 held-out good units at or
-      below 10% as a point estimate, reported with its upper bound; and the whole result
-      regenerated from the frozen golden set by one command.
+      On one flavour of моти, under the lighting geometry selected in the pilot, with the
+      threshold set on the combined verdict to a 5% false-alarm target on 30 calibration
+      units: dent recall at or above 90% on 30 held-out dented UNITS (at least 27 of 30),
+      whose 95% one-sided lower bound therefore clears 75%; combined false-alarm rate on 70
+      held-out good units at or below 10% as a point estimate, reported with its upper
+      bound; and the whole result regenerated from the frozen golden set by one command.
     statement_ru: >
-      На плоском изделии, при схеме освещения, выбранной по калибровочной выборке, и пороге,
-      установленном на целевую долю ложных срабатываний 5% по 30 калибровочным изделиям:
-      полнота обнаружения вмятин не ниже 90% на 30 отложенных повреждённых ИЗДЕЛИЯХ
-      (не менее 27 из 30), что даёт нижнюю одностороннюю 95%-ю границу выше 75%; доля ложных
-      срабатываний на 40 отложенных годных изделиях не выше 10% как точечная оценка, с
-      указанием верхней границы; и весь результат воспроизводится из замороженного эталонного
-      набора одной командой.
+      На одном вкусе моти, при схеме освещения, выбранной по итогам пробной съёмки, и пороге
+      по совокупному решению, установленном на целевую долю ложных срабатываний 5% по 30
+      калибровочным изделиям: полнота обнаружения вмятин не ниже 90% на 30 отложенных
+      повреждённых ИЗДЕЛИЯХ (не менее 27 из 30), что даёт нижнюю одностороннюю 95%-ю
+      границу выше 75%; совокупная доля ложных срабатываний на 70 отложенных годных изделиях
+      не выше 10% как точечная оценка, с указанием верхней границы; и весь результат
+      воспроизводится из замороженного эталонного набора одной командой.
     on_fail_en: >
-      The problem is the lighting, not the model. Return to S2 and re-shoot. Do not retrain,
-      do not tune hyperparameters, do not add features.
+      The problem is the lighting, not the model. Return to the shoot (GA.2) and re-shoot.
+      Do not retrain, do not tune hyperparameters, do not add features.
     on_fail_ru: >
-      Проблема в освещении, а не в модели. Вернуться к этапу S2 и переснять. Не переобучать,
-      не подбирать гиперпараметры, не добавлять функциональность.
+      Проблема в освещении, а не в модели. Вернуться к съёмке (GA.2) и переснять. Не
+      переобучать, не подбирать гиперпараметры, не добавлять функциональность.
     supersedes_en: >
       The 2026-09-02 formulation (90% of dents at 5% false alarms, on 5 dents and 10 good
       units) was not measurable: 5 of 5 dents caught is consistent with a true catch rate of
@@ -492,15 +575,19 @@ gates:
     name_ru: Рубеж быстродействия
     due: 2026-10-13
     status: pending
-    blocks: [S4]
-    definition_ref: docs/10-architecture.md
+    blocks: [S5]
+    definition_ref: docs/14-eval-protocol.md
     statement_en: >
-      End-to-end trigger-to-verdict at or under 700 ms at the 95th percentile, measured
-      on CPU as the Intel N100 proxy, with persistence off the critical path.
+      Until an N100 exists (ADR-0017): on replay, camera excluded, laptop CPU pinned to 4
+      threads, at least 200 consecutive inspections — p95 inspection time × 3 at or under
+      400 ms. The real gate, trigger to verdict at or under 700 ms at p95 on an N100 with
+      the factory camera, persistence off the critical path, runs after Gate C.
     statement_ru: >
-      Полный цикл от срабатывания до решения не более 700 мс по 95-му процентилю,
-      измеренный на центральном процессоре как приближении к Intel N100, при этом
-      запись в хранилище вынесена из критического пути.
+      Пока нет N100 (ADR-0017): на воспроизведении с диска, без камеры, на процессоре
+      ноутбука с 4 потоками, не менее 200 проверок подряд — 95-й процентиль времени проверки,
+      умноженный на 3, не более 400 мс. Настоящий рубеж — не более 700 мс от срабатывания до
+      решения по 95-му процентилю на N100 с заводской камерой, запись вне критического пути —
+      проводится после рубежа C.
 
   - id: C
     name_en: Hardware spend gate
@@ -509,10 +596,10 @@ gates:
     status: pending
     blocks: []
     statement_en: >
-      No hardware is purchased beyond groceries until Gate A has passed, AND the site visit
+      No hardware is purchased beyond the product being inspected (моти) until Gate A has passed, AND the site visit
       has produced video and defective samples, AND the metrology question (OQ-1) is answered.
     statement_ru: >
-      Никакое оборудование, кроме учебных продуктов, не закупается, пока не пройден
+      Никакое оборудование, кроме самого контролируемого продукта (моти), не закупается, пока не пройден
       рубеж A, И выезд на производство не дал видео и бракованные образцы, И не получен
       ответ на вопрос о метрологии (OQ-1).
 
@@ -577,11 +664,39 @@ open_questions:
 
   - id: OQ-7
     owner: us
-    status: open
+    status: answered
+    answered_on: 2026-09-21
     text_en: Which Anomalib models are licence-clean for a commercial deliverable?
     text_ru: Какие модели Anomalib юридически чисты для коммерческой поставки?
     blocks_en: Model selection for anything that ships. Anomalib is Apache-2.0; per-model terms differ.
     blocks_ru: Выбор модели для поставки. Сам Anomalib под Apache-2.0, но условия отдельных моделей различаются.
+    answer_en: "PatchCore and PaDiM code are Intel's own, Apache-2.0; EfficientAD is excluded. The open item is the ImageNet-pretrained backbone weights — OQ-10. docs/15-model.md §11."
+    answer_ru: "Код PatchCore и PaDiM принадлежит Intel, лицензия Apache-2.0; EfficientAD исключён. Открытым остаётся вопрос о весах опорной сети, обученных на ImageNet, — OQ-10. docs/15-model.md §11."
+
+  - id: OQ-8
+    owner: us
+    status: open
+    text_en: Standard (83 units) or lean (64 units) for the MVP shoot? Ali leans lean, deciding at the shop.
+    text_ru: Стандартный (83 изделия) или экономный (64 изделия) вариант для съёмки MVP? Али склоняется к экономному, решение — в магазине.
+    blocks_en: The purchase (S0.5) and the width of every indicative bound (14 §9).
+    blocks_ru: Закупку (S0.5) и ширину всех ориентировочных границ (14 §9).
+
+  - id: OQ-9
+    owner: client
+    status: open
+    asked_on: null
+    text_en: Is your моти chilled, room-temperature or frozen; what sizes and flavours; which defects actually occur?
+    text_ru: Ваши моти охлаждённые, комнатной температуры или замороженные; каких размеров и вкусов; какие дефекты встречаются на самом деле?
+    blocks_en: Assumptions A-01 and A-07 — the shoot protocol and the defect classes. Deferred for the MVP week.
+    blocks_ru: Допущения A-01 и A-07 — порядок съёмки и классы дефектов. Отложено на неделю MVP.
+
+  - id: OQ-10
+    owner: us
+    status: open
+    text_en: Are ImageNet-pretrained backbone weights usable in a commercial deliverable, and are incidental images of hands personal data under 152-ФЗ?
+    text_ru: Допустимо ли использовать в коммерческой поставке веса опорной сети, обученные на ImageNet, и являются ли случайные изображения рук персональными данными по 152-ФЗ?
+    blocks_en: Shipping anything to the client. A question for the lawyer budget line, not for us to answer.
+    blocks_ru: Любую поставку заказчику. Это вопрос к юристу в рамках статьи бюджета, а не для нашего собственного ответа.
 
 # --------------------------------------------------------------------------------
 # RISKS
@@ -618,16 +733,16 @@ risks:
     text_ru: Автоматические настройки камеры портят датасет, подстраивая экспозицию под дефект.
     signal_en: Images inconsistent between sessions.
     signal_ru: Снимки несогласованы между сессиями съёмки.
-    response_en: Lock exposure, white balance and focus. The most common failure in this whole plan. The reference patch detects it.
-    response_ru: Зафиксировать выдержку, баланс белого и фокус. Самая частая ошибка во всём плане. Эталонная пластина её выявляет.
+    response_en: "Lock exposure, gain, white balance and focus, and read them back; the lock test and the grey card prove the sensor applies them (ADR-0010)."
+    response_ru: "Зафиксировать выдержку, усиление, баланс белого и фокус и прочитать их обратно; проверка фиксации и серая карточка доказывают, что датчик их применяет (ADR-0010)."
   - id: R5
     severity: medium
     text_en: PatchCore is too slow for one unit per second on an Intel N100.
     text_ru: PatchCore слишком медленный для одного изделия в секунду на Intel N100.
     signal_en: Gate B fails at S3.
     signal_ru: Рубеж B не пройден на этапе S3.
-    response_en: A smaller coreset, lower input resolution, or switch to PaDiM or FastFlow.
-    response_ru: Уменьшить опорное множество, снизить разрешение входа или перейти на PaDiM либо FastFlow.
+    response_en: "In this order, each measured on the golden set: a 1% coreset, 224 px input, a ResNet-18 backbone, then PaDiM (15-model.md §10)."
+    response_ru: "По порядку, с замером на эталонном наборе после каждого шага: опорное множество 1%, вход 224 пикселя, опорная сеть ResNet-18, затем PaDiM (15-model.md §10)."
   - id: R6
     severity: medium
     text_en: Real factory defects are subtler than our deliberate damage.
@@ -650,5 +765,37 @@ risks:
     text_ru: Что-то обученное на MVTec AD попадает в поставку — лицензия запрещает коммерческое использование.
     signal_en: —
     signal_ru: —
-    response_en: MVTec is S1 validation only. It is never trained into anything that ships.
-    response_ru: MVTec используется только для проверки окружения на этапе S1 и никогда не обучается в поставляемое решение.
+    response_en: MVTec is S1 validation only. A bundle trained on it is tagged validation-only and the station refuses to run it (ADR-0016).
+    response_ru: MVTec используется только для проверки окружения на этапе S1. Модель, обученная на нём, помечается как «только для проверки», и станция отказывается её запускать (ADR-0016).
+  - id: R9
+    severity: high
+    text_en: The client questions stay unsent while build work continues, so the product is designed on assumptions.
+    text_ru: Вопросы заказчику остаются неотправленными, пока идёт разработка, и продукт проектируется на допущениях.
+    signal_en: OQ-1 … OQ-6 and OQ-9 have never been sent.
+    signal_ru: OQ-1 … OQ-6 и OQ-9 ни разу не отправлялись.
+    response_en: Deferred by decision for the MVP week (2026-09-21). Revisit on 2026-09-28; the MVP demo is the reason for the next conversation.
+    response_ru: Отложено решением на неделю MVP (21.09.2026). Вернуться к вопросу 28.09.2026; демонстрация MVP — повод для следующего разговора.
+  - id: R10
+    severity: medium
+    text_en: моти change during a session — drying, softening, condensation — and the model learns time instead of damage.
+    text_ru: Моти меняются в ходе съёмки — подсыхают, размягчаются, покрываются конденсатом — и модель учится времени, а не повреждению.
+    signal_en: The control units' scores drift between the start and the end of a session.
+    signal_ru: Оценки контрольных изделий смещаются между началом и концом сессии.
+    response_en: Paired shooting in random order, controls at start, middle and end, 30 minutes to room temperature in the packaging (ADR-0014, 13 §2).
+    response_ru: Парная съёмка в случайном порядке, контрольные изделия в начале, середине и конце, 30 минут выдержки до комнатной температуры в упаковке (ADR-0014, 13 §2).
+  - id: R11
+    severity: high
+    text_en: The ImageNet-pretrained backbone weights carry no explicit licence; their commercial use is unresolved.
+    text_ru: Веса опорной сети, обученные на ImageNet, не имеют явной лицензии; допустимость их коммерческого использования не определена.
+    signal_en: Every PatchCore variant depends on them.
+    signal_ru: От них зависит любой вариант PatchCore.
+    response_en: The lawyer budget line before anything ships (OQ-10). Fallbacks — a commercially licensed pretraining, or self-supervised pretraining on the line's own images (15-model.md §11).
+    response_ru: Обращение к юристу до любой поставки (OQ-10). Запасные варианты — предобучение на данных с коммерческой лицензией или самообучение на собственных снимках линии (15-model.md §11).
+  - id: R12
+    severity: medium
+    text_en: The week is tight — nine executor plans and a shoot in six days.
+    text_ru: Неделя плотная — девять планов для исполнителя и съёмка за шесть дней.
+    signal_en: A plan fails review, or the shoot moves past 2026-09-25.
+    signal_ru: План не проходит проверку или съёмка сдвигается позже 25.09.2026.
+    response_en: The order protects the shoot — tools first, then the shoot, then the report. P09's polish slips first (plans/ROADMAP.md).
+    response_ru: Порядок работ защищает съёмку — сначала инструменты, затем съёмка, затем отчёт. Первой сдвигается доводка P09 (plans/ROADMAP.md).

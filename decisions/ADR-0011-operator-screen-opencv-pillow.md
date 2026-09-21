@@ -1,6 +1,7 @@
 # ADR-0011: The operator screen is one OpenCV window with text drawn by Pillow
 
-**Status:** Accepted · 2026-09-21 · Ali (design Step 3)
+**Status:** Superseded in part by ADR-0018 (2026-09-21): the window is Tk, not OpenCV, because
+Anomalib requires headless OpenCV. The Pillow half of this decision stands.
 
 ## Context
 

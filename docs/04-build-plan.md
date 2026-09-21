@@ -1,5 +1,9 @@
 # Build plan — from nothing to a demo the client can hold
 
+> **Superseded — 2026-09-21.** Kept as history. The stages survive in `project.yml`; the product is
+> моти, not пряники; the MVP is demo-grade (ADR-0007); the design is docs 05–17 and `decisions/`;
+> the work is `plans/ROADMAP.md`. Gate A as written below was restated (ADR-0005, ADR-0017).
+
 **Written 2026-09-02.** Fixed on paper before any code is written. Follow the stages in order.
 Do not skip ahead, do not add features between stages.
 

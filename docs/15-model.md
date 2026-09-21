@@ -294,7 +294,7 @@ the lawyer budget line (CLAUDE.md §6).
 | ImageNet images | Terms of access | No | Non-commercial research and education only | [image-net.org](https://www.image-net.org/download.php) |
 | MVTec AD | CC BY-NC-SA 4.0 | No | Nothing trained on it ships | [MVTec](https://www.mvtec.com/company/research/datasets/mvtec-ad) |
 | OpenVINO | Apache-2.0 | Yes | — | [LICENSE](https://github.com/openvinotoolkit/openvino/blob/master/LICENSE) |
-| OpenCV ≥ 4.5 | Apache-2.0 | Yes | `opencv-python` wheels bundle FFmpeg (LGPL-2.1); non-headless Linux wheels also bundle Qt5 (LGPL-3) — obligations if we redistribute the wheel | [opencv-python](https://github.com/opencv/opencv-python) |
+| OpenCV ≥ 4.5 | Apache-2.0 | Yes | We use `opencv-python-headless` (Anomalib requires it; ADR-0018). Its wheels bundle FFmpeg (LGPL-2.1) — an obligation only if we redistribute the wheel | [opencv-python](https://github.com/opencv/opencv-python) |
 | Pillow | MIT-CMU | Yes | Keep the notice | [LICENSE](https://github.com/python-pillow/Pillow/blob/main/LICENSE) |
 | PyTorch | BSD-3-Clause | Yes | — | [LICENSE](https://github.com/pytorch/pytorch/blob/main/LICENSE) |
 | DejaVu Sans | Bitstream Vera; changes public domain | Yes, bundled | Not sold alone; keep the notice | [licence](https://dejavu-fonts.github.io/License.html) |
@@ -316,8 +316,8 @@ commercial products — which is practice, not a ruling.
   on our own unlabelled line images — the evidence store collects them for free.
 - **EfficientAD is excluded** as a fallback model.
 - **MVTec AD stays validation-only** (R8, unchanged).
-- **The factory build installs OpenCV headless** plus our own screen path, or keeps the LGPL
-  notices — decided when there is a factory build.
+- **OpenCV is headless everywhere** (ADR-0018), so the non-headless wheels' Qt LGPL question never
+  arises; the FFmpeg notice is kept if a wheel is ever redistributed.
 - **Access from Russia.** Intel paused and then restored software downloads in 2022; no current
   block on PyPI, `download.pytorch.org` or the Hugging Face Hub was found, but none was verified
   either. Keep a local
