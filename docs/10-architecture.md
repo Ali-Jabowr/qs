@@ -164,7 +164,7 @@ flowchart TB
     sink["Sink<br/>SQLite + JPEG evidence store"]:::core
     evalh["Evaluation harness<br/>recall@FAR, confidence bounds"]:::offline
     report["Reporting<br/>batch traceability"]:::offline
-    train["Training<br/>Anomalib on the RTX 3060"]:::offline
+    train["Training<br/>PatchCore on the laptop GPU"]:::offline
     pack["Packaging<br/>ONNX to OpenVINO"]:::offline
 
     trig --> pipe
@@ -280,15 +280,15 @@ flowchart LR
 
 The rule is C4: never a stale frame. OpenCV's capture buffer holds several frames, so a naive
 read after a key press returns a frame from *before* it — the previous placement, judged as this
-unit. The camera thread timestamps every frame and `capture(event)` waits for the first one
-stamped after `t0`, with a timeout that raises `CaptureError`. The main thread owns the window,
+unit. The camera thread keeps each frame's kernel timestamp — `CLOCK_MONOTONIC`, the same clock as
+`perf_counter` — and `capture(event)` waits for the first one stamped after `t0`, with a timeout that raises `CaptureError`. The main thread owns the window,
 the keyboard and the inspection; one unit a second needs nothing more. The sink thread keeps
 persistence off the critical path (I9).
 
 ### Latency budget
 
 The client's stated ceiling is one unit per second. The budget below is what Gate B
-measures, on CPU as the Intel N100 proxy — **not** on the RTX 3060, where everything
+measures, on CPU as the Intel N100 proxy — **not** on the laptop GPU, where everything
 looks fast and nothing is learned.
 
 | Step | Budget | Note |
@@ -303,19 +303,19 @@ looks fast and nothing is learned.
 | Persist | *async* | ≤2 s, off the critical path, never blocks a verdict |
 
 If inference will not fit, the answers are in order: a smaller PatchCore coreset, a lower
-input resolution, then PaDiM or FastFlow. That ordering matters — coreset size costs the
-least accuracy per millisecond bought. This gets settled at S3, not at deployment.
+input resolution, a ResNet-18 backbone, then PaDiM ([`15-model.md`](15-model.md) §10). That
+ordering matters — coreset size costs the least accuracy per millisecond bought. This gets settled at S3, not at deployment.
 
 **Bench budget (MVP).** NFR-01 allows 1.0 s at p95 on the laptop; the target leaves room to spare.
 
 | Step | Target | Note |
 |---|---:|---|
-| Key press to first fresh frame | 70 ms | two frame periods at 30 fps |
+| Key press to first fresh frame | 250 ms | uncompressed YUYV at ~5 fps over USB 2.0 — one frame period plus exposure (ADR-0010) |
 | Reference patch | 2 ms | |
 | Localize and geometry | 20 ms | threshold, largest contour, moments |
-| PatchCore on the RTX 3060 | 100 ms | measured at S1 |
+| PatchCore on the RTX 3050 | 100 ms | measured at S1 |
 | Draw and show | 50 ms | Pillow text onto the frame (ADR-0011) |
-| **Total** | **~250 ms** | four times inside NFR-01 |
+| **Total** | **~430 ms** | more than twice inside NFR-01 |
 
 For NFR-02, the same run with the GPU hidden and PyTorch pinned to 4 threads. The laptop CPU is
 still faster per core than an N100, so the number is a lower bound on the factory figure, and is
@@ -327,7 +327,7 @@ reported as one.
 flowchart TB
     subgraph outside["Outside the plant"]
         direction LR
-        dev["Our workstation — RTX 3060<br/>training · evaluation · packaging"]
+        dev["Our laptop — RTX 3050, 4 GB<br/>training · evaluation · packaging"]
         net(["Internet"])
     end
 
@@ -376,7 +376,7 @@ flowchart LR
         card["Grey card<br/>in a corner of the frame"]
         spot["Marked placement area"]
     end
-    subgraph lap["Laptop — RTX 3060, offline"]
+    subgraph lap["Laptop — RTX 3050 4 GB, offline"]
         direction TB
         station["Station<br/>live, or replay"]
         tools["Offline tools<br/>train · calibrate · evaluate"]

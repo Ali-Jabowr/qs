@@ -26,6 +26,31 @@ less than 1%.
 If the webcam fails, the phone becomes the source through snapshots. Its settings are recorded as
 `unverified` (FR-13), and the connection to the phone is the one NFR-07 permits.
 
+## Implementation facts — researched 2026-09-21
+
+Sources: OpenCV `cap_v4l.cpp` (4.x), the kernel V4L2 camera-controls documentation, uvcvideo.
+
+- **Values are raw V4L2**, because OpenCV's range normalisation is off by default: auto-exposure
+  `1` = manual, `3` = auto. The 0.25 / 0.75 convention seen online is for normalised mode only.
+- **Exposure is in 100 µs units.** 10 ms is `100`, 20 ms is `200`. The config holds microseconds;
+  the source converts.
+- **Order matters.** Switch each control to manual first, then set its value. An absolute value
+  written while its auto control is on is ignored or refused.
+- **Read-back proves acceptance, not effect.** OpenCV asks the driver every time, but uvcvideo may
+  answer from its own cache. The grey-card half of the lock test is what proves the sensor applied it.
+- **Set every control on every open.** Another program can reset them between runs.
+- **Freshness uses the kernel timestamp.** `CAP_PROP_POS_MSEC` is the buffer's `CLOCK_MONOTONIC`
+  stamp, the same clock as Python's `perf_counter` (verified on this laptop). `capture()` waits
+  for a stamp later than `t0` plus one exposure time.
+- **Format: uncompressed YUYV**, the highest resolution that gives at least 5 fps. USB 2.0 carries
+  1080p YUYV at about 5 fps; 30 fps needs MJPG, whose compression artifacts are exactly the kind of
+  texture noise PatchCore scores. One frame per unit does not need 30 fps. MJPG only if YUYV is
+  not offered.
+- **Flicker:** `power_line_frequency` set to 50 Hz as well as exposure at a multiple of 10 ms, and
+  LED lamps at full brightness — dimmed LEDs flicker by PWM at other frequencies.
+- **This laptop, today:** no camera enumerated, OpenCV and `v4l-utils` not installed. The first
+  build day installs them; the lock test lists the webcam's real controls and formats.
+
 ## Alternatives considered
 
 - **Phone first.** Better optics, but settings we cannot verify. That is exactly the failure R4

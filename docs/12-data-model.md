@@ -274,6 +274,8 @@ camera:
   device: /dev/video0
   width: 1920
   height: 1080
+  format: YUYV                 # uncompressed; MJPG artifacts are texture noise (ADR-0010)
+  power_line_hz: 50
   exposure_us: 10000           # manual, a multiple of 10 ms against 100 Hz lamp flicker
   wb_kelvin: 4500
   focus: 30
@@ -288,7 +290,7 @@ lighting:
 
 inspector:
   type: appearance             # ADR-0008, ADR-0009
-  localize:  { roi: [360, 0, 1200, 1080], min_area_px: 20000, border_margin_px: 10 }
+  localize:  { roi: [360, 0, 1200, 1080], threshold: 70, min_area_px: 20000, border_margin_px: 10 }
   window_px: 800               # fixed window centred on the unit
   input_px:  256               # one resize factor for every unit: 800 to 256
   mask_dilate_px: 12
@@ -299,10 +301,10 @@ threshold:                     # one calibration: the appearance threshold AND t
   id:     cal-2026-09-25-far5
   value:  1.83
   policy: far_5pct_on_calib
-  geometry:
-    area_px:       [98000, 131000]
-    diameter_px:   [353, 408]
-    roundness_min: 0.86
+  geometry:                    # derived, never typed — 15-model.md §3
+    area_px:        [98000, 131000]
+    axis_ratio_min: 0.90
+    solidity_min:   0.96
 
 display:
   labels: { pass: ГОДЕН, defect: БРАК, no_verdict: НЕТ РЕШЕНИЯ }

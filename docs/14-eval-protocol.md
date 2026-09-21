@@ -105,7 +105,7 @@ For each lighting geometry, in order, with nothing skipped:
 6. **Attach a confidence bound to every rate** — §5. A rate without one is not a result.
 7. **Repeat at 1%, 5% and 10% targets**, so the operating curve is visible rather than a
    single point chosen to look good.
-8. **Measure latency** on CPU, not on the RTX 3060 — Gate B, and
+8. **Measure latency** on CPU, not on the laptop GPU — Gate B, and
    [`10-architecture.md`](10-architecture.md) §5.
 
 ## 5. What a sample size can and cannot demonstrate

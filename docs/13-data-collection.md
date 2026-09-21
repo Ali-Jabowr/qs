@@ -63,7 +63,8 @@ Household parts, nothing bought (Gate C).
 
 **Exposure is a multiple of 10 ms.** Mains lamps in Russia flicker at 100 Hz (twice the 50 Hz
 supply). At an exposure that is not a whole number of flicker periods, frames come out in bands
-of varying brightness. Set 10 ms or 20 ms.
+of varying brightness. Set 10 ms or 20 ms, set the camera's power-line frequency to 50 Hz, and run
+LED lamps at full brightness — a dimmed LED flickers by PWM at a frequency of its own.
 
 **After the pilot, the camera and lamps do not move.** Every tolerance and threshold is tied to
 this geometry; the config version records it.
@@ -74,7 +75,9 @@ ADR-0010. The rig closed, the webcam in place:
 
 1. Set exposure, white balance and focus to manual from the config; read each back.
 2. Capture 50 frames over 5 minutes, switching the room light on and off twice.
-3. **Pass:** every read-back equals the value set, and the grey card reading varies by less than 1%.
+3. **Pass:** every read-back equals the value set, the grey card reading varies by less than 1%,
+   and no frame shows horizontal bands. Read-back alone is not enough — the driver can report a
+   value the sensor is not using; the grey card is what proves it.
 
 Pass: ADR-0010 becomes Accepted. Fail: the phone becomes the source, recorded as `unverified`.
 

@@ -102,7 +102,7 @@ indicative. Gate A keeps its full protocol, due 13.10, on freshly bought units t
 - Trigger: key press. Camera: a USB webcam or an Android phone, both already owned — the primary
   one is chosen in Step 3 by which can hold exposure, white balance and focus locked. Light:
   improvised rig with a reference patch in frame.
-- PatchCore, trained on the RTX 3060. Inference on the same machine, with latency measured on CPU
+- PatchCore, trained on the laptop's RTX 3050 (4 GB). Inference on the same machine, with latency measured on CPU
   as the Intel N100 proxy.
 - Screen: live view, a verdict readable across a room, a heatmap on DEFECT.
 - Evidence: SQLite plus JPEG, append-only.

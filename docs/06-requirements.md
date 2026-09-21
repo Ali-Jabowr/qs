@@ -112,7 +112,7 @@ code, not in the model.
 
 | ID | Quality | Requirement and metric | Scope | Check |
 |---|---|---|---|---|
-| NFR-01 | Responsiveness | Trigger to verdict on screen **≤ 1.0 s at p95** on the demo machine — the RTX 3060 laptop — over ≥ 200 consecutive events. | MVP | R |
+| NFR-01 | Responsiveness | Trigger to verdict on screen **≤ 1.0 s at p95** on the demo machine — the laptop, RTX 3050 Laptop GPU with 4 GB — over ≥ 200 consecutive events. | MVP | R |
 | NFR-02 | CPU latency | Trigger to verdict on CPU only, pinned to 4 threads, p50 / p95 / p99 over ≥ 200 events. The laptop CPU is faster per core than an N100, so this is a lower bound on N100 latency. MVP: measured and reported. Gate B: ≤ 700 ms at p95. | MVP (measure) · Gate B (pass) | R |
 | NFR-03 | Determinism | The same frame, model and threshold give the same score, equal to 1e-6, on the same machine. | MVP | T |
 | NFR-04 | Fault tolerance | 0 crashes over a 200-event run with injected faults — camera unplugged, evidence directory read-only, corrupt frame. Each fault ends in NO_VERDICT and the station stays armed. | MVP | T |
@@ -163,7 +163,7 @@ PLC or actuator, networking, user accounts, cloud.
 
 | ID | Dependency | Needed for | Status |
 |---|---|---|---|
-| D-01 | The RTX 3060 machine with working CUDA | Training | S0 — unverified |
+| D-01 | The laptop's RTX 3050 (4 GB) with working CUDA | Training | Driver 580, CUDA 13.0 present (checked 2026-09-21); PyTorch not yet installed |
 | D-02 | Anomalib, PyTorch and OpenCV versions compatible with one pinned Python | Everything | S0 |
 | D-03 | An owned camera passing the settings-lock test | FR-12, FR-13 | A-05 |
 | D-04 | моти bought | The dataset | Budget **OPEN** |
