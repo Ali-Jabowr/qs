@@ -5,12 +5,12 @@ Numbers are never reused. A superseded ADR stays, with its status changed and a 
 
 | ADR | Decision | Status | Date |
 |---|---|---|---|
-| 0001 | *reserved — backfill of a decision taken before 2026-09-17 (E0.7)* | — | — |
-| 0002 | Anomaly detection, not supervised detection — cited in `14-eval-protocol.md` §4 | to write (E0.7) | 2026-09-01 |
-| 0003 | *reserved — backfill (E0.7)* | — | — |
-| 0004 | *reserved — backfill (E0.7)* | — | — |
-| 0005 | Gate A restated: 30 dents, calibration split, FAR as a point estimate — cited in `14-eval-protocol.md` §5 and `project.yml` | to write (E0.7) | 2026-09-17 |
-| 0006 | Dates re-planned after 15 idle days — cited in `project.yml` | to write (E0.7) | 2026-09-17 |
+| [0001](ADR-0001-smartbot-closed-qs-replaces-it.md) | SmartBot Industrial is closed; QS replaces it | Accepted (backfilled) | 2026-09-01 |
+| [0002](ADR-0002-anomaly-detection-not-supervised.md) | Anomaly detection, not supervised detection | Accepted (backfilled) | 2026-09-01 |
+| [0003](ADR-0003-marketplace-dimensioning-not-v1.md) | Marketplace parcel dimensioning is not V1 — not the geometry check | Accepted (backfilled) | 2026-09-01 |
+| [0004](ADR-0004-marking-station-ships-first.md) | Marking station ships first; appearance is the R&D | Accepted (backfilled) | 2026-09-02 |
+| [0005](ADR-0005-gate-a-restated.md) | Gate A restated so it can tell a working system from luck | Accepted (backfilled) | 2026-09-17 |
+| [0006](ADR-0006-dates-replanned.md) | The schedule is re-planned after fifteen idle days | Accepted (backfilled) | 2026-09-17 |
 | [0007](ADR-0007-mvp-is-demo-grade.md) | The MVP is demo-grade; Gate A stays a separate claim | Accepted | 2026-09-21 |
 | [0008](ADR-0008-geometry-check-in-code.md) | Size and shape are measured in code, not left to the anomaly model | Accepted | 2026-09-21 |
 | [0009](ADR-0009-inspector-localizes-then-judges.md) | Station A's Inspector localizes the unit, then judges the unit — never the frame | Accepted | 2026-09-21 |
@@ -21,5 +21,6 @@ Numbers are never reused. A superseded ADR stays, with its status changed and a 
 | [0014](ADR-0014-paired-shooting.md) | Test units shot good, then damaged, minutes apart, in random order | Accepted | 2026-09-21 |
 | [0015](ADR-0015-patchcore-from-anomalib-torch-level.md) | PatchCore from Anomalib 2.6.2, pinned, torch-model level only | Accepted | 2026-09-21 |
 | [0016](ADR-0016-station-runs-only-what-it-was-given.md) | The station runs only what it was given: offline, hashed, never validation-only models | Accepted | 2026-09-21 |
+| [0017](ADR-0017-gate-b-proxy.md) | Gate B judged on a conservative N100 estimate until an N100 exists | Accepted | 2026-09-21 |
 
 New decisions take the next free number.

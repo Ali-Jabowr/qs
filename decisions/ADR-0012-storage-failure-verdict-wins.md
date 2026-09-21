@@ -19,8 +19,9 @@ of magnitude: a row is ~400 B, an image ~500 KB.
 1. **The operator always gets the verdict on time.** The sink never blocks the pipeline.
 2. **Rows are held in memory while the process lives** and written when storage returns. At ~400 B
    each, a day's production fits in a few megabytes.
-3. **Images are shed past a high-water mark** of 200 queued images: PASS images first, then the
-   rest. A shed image leaves its row with `image_status = 'shed'`.
+3. **Images are encoded before queuing** — JPEG q85 and a uint8 heatmap PNG, ~0.55 MB a record —
+   and **shed past a high-water mark** of 200 queued images, about 110 MB: PASS images first, then
+   the rest. A shed image leaves its row with `image_status = 'shed'`.
 4. **Nothing is lost silently.** `STORAGE` is on the screen for the whole outage, and held and shed
    counts go into the run record.
 
@@ -38,7 +39,9 @@ of magnitude: a row is ~400 B, an image ~500 KB.
 - A storage outage can leave PASS units without an image, never without a record. The gap is
   visible in the data.
 - DEFECT images, the scarcest data in the project, are the last thing shed.
-- If the process dies during an outage, the held rows are lost. That is the one remaining loss path;
-  it is counted at the next start from the `seq` gap.
+- Held rows are the **tail** of the run, so no gap in `seq` reveals them afterwards. At a stop during
+  an outage the station waits up to 10 s for storage, then exits and prints how many rows were lost.
+  If the process is killed instead, even that count is gone — the one unrecoverable path, stated
+  rather than hidden.
 - The schema needs `image_status` and a nullable image path — also required for NO_VERDICT records
   that have no image at all (camera lost, busy).

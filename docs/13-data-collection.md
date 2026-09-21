@@ -58,7 +58,7 @@ Household parts, nothing bought (Gate C).
 | Height | The lowest at which the webcam focuses sharply on a unit's top, with the placement area and grey card in view | Most pixels on the unit |
 | Grey card | Mid-grey matte patch in a corner of the floor, inside the view, outside the placement area | Lighting drift on every frame (FR-14) |
 | Placement marks | Four small dots **outside** the inspection area | A mark inside it is a white line on black — the Localizer would find it |
-| Lamps | Two identical LED desk lamps, if the house has them | G2 needs two (§5) |
+| Lamps | Two identical LED desk lamps, if the house has them | G2 needs two (§5). No purchase approved (2026-09-21): if the house has only one, the pilot compares G1 and G3 |
 | Front | A black cloth over the opening while shooting | Room light out |
 
 **Exposure is a multiple of 10 ms.** Mains lamps in Russia flicker at 100 Hz (twice the 50 Hz
@@ -73,7 +73,8 @@ this geometry; the config version records it.
 
 ADR-0010. The rig closed, the webcam in place:
 
-1. Set exposure, white balance and focus to manual from the config; read each back.
+1. Set exposure, **gain**, white balance and focus to manual from the config; read each back. Gain
+   left on automatic stays wherever auto-exposure last put it, and differs between sessions.
 2. Capture 50 frames over 5 minutes, switching the room light on and off twice.
 3. **Pass:** every read-back equals the value set, the grey card reading varies by less than 1%,
    and no frame shows horizontal bands. Read-back alone is not enough — the driver can report a
@@ -92,7 +93,7 @@ appearance — so the three candidates are:
 | G2 | Low-angle, two sides | Two lamps at the same angle, opposite each other |
 | G3 | Diffuse | The lamp aimed at white card or through a tracing-paper tent |
 
-**Units:** 10 — 6 kept good, 2 to dent, 2 to tear (lean: 4 · 1 · 1).
+**Units:** 10 — 6 kept good, 2 to dent, 2 to tear (lean: 4 · 1 · 1), numbered `p01`…
 
 **Order:** all 10 units good under G1, then G2, then G3, three rotations each. Then damage 4, and
 shoot those 4 under G1, G2, G3. The lamps move three times, not thirty.
@@ -102,12 +103,14 @@ shoot those 4 under G1, G2, G3. The lamps move three times, not thirty.
 1. **Silhouette.** On every good unit, the area measured by the Localizer varies less than 2%
    between rotations. A unit does not change size when turned; shadows do. A geometry that fails
    here fails the geometry check and is out.
-2. **Separation.** A quick PatchCore per geometry, trained on 4 good units, scoring the other 2
-   good and the 4 damaged. The winner has the widest gap between the lowest damaged score and the
-   highest good score, relative to the spread of the good scores.
+2. **Separation.** A quick PatchCore per geometry, **leave one out**: trained on every good pilot
+   unit but one, scoring that one and the damaged units, repeated for each good unit — so the lean
+   pilot works too. The winner has the widest gap between the lowest damaged score and the highest
+   held-out good score, relative to the spread of the held-out good scores.
 3. **The sentence.** Which lighting shows a dent best, and why — written down (S2.10).
 
-A tie goes to G2: two-sided light gives the steadier silhouette. **The pilot units are then
+A tie goes to G2: two-sided light gives the steadier silhouette. With only one lamp in the house,
+the pilot runs G1 and G3 and the tie goes to G3. **The pilot units are then
 thrown away.** They helped make a decision, so they can never help measure it.
 
 ## 6. Session 2 — the MVP dataset
@@ -117,7 +120,8 @@ ADR-0014. One session, under two hours (A-08).
 **Before the first frame**
 
 - **A backup drive exists** — an external drive or USB stick, 32 GB is plenty (PNG frames run
-  ~3 MB; the MVP shoot is ~1.5 GB). None yet as of 2026-09-21: arrange it before the first shoot.
+  ~3 MB; the MVP shoot is ~1.5 GB). **No purchase approved (Ali, 2026-09-21).** Until a stick exists,
+  the backup is the **Android phone over USB** — a second device, no network involved.
 - The splitter assigns unit numbers to splits by seed **before** shooting. Every unit's split is
   known in advance, so the shooting order can be random.
 - Each unit sits in a numbered cell of a tray — an egg box, a muffin tray. Units cannot be labelled;
@@ -127,14 +131,18 @@ ADR-0014. One session, under two hours (A-08).
 
 **The shoot**
 
-1. **Controls first.** The 3 control units, 3 rotations each.
+Every frame is named by the rule in `12-data-model.md` §2 — the shoot tool writes the names.
+
+1. **Controls first.** The 3 control units `c01`–`c03`, 3 rotations each (`_pass1`).
 2. **Then every other unit in the random order the shoot tool prints.** 3 rotations — 0°, 120°, 240°,
    by eye.
 3. **A test unit is shot good, then damaged immediately.** Take it out, damage it on a board outside
    the rig by its recipe (§7), put it back, shoot 3 rotations again. Its good and damaged images
    are minutes apart, not hours.
-4. **Controls again** at the middle and the end.
-5. **Brush the floor** every 10 units. Starch dust is masked out of the anomaly map (ADR-0009), but
+4. **Controls again** at the middle and the end (`_pass2`, `_pass3`).
+5. **Placement frames**, last: 5 with no unit in view (`x01`–`x05`, state `empty`) and 5 with a
+   unit touching the edge of the inspection area (`x06`–`x10`, state `edge`).
+6. **Brush the floor** every 10 units. Starch dust is masked out of the anomaly map (ADR-0009), but
    a drift of it near the unit disturbs the silhouette.
 
 **After**
@@ -168,15 +176,15 @@ One per session, written by the shoot tool, completed by hand where marked:
 ```yaml
 session_id: 2026-09-23-mvp
 kind: dataset                  # pilot | dataset | gate_a
-geometry: G2                   # G1 | G2 | G3
-product: { brand: "…", flavour: "…", shop: "…", best_before: 2026-09-26 }   # by hand
+geometries: [G2]               # the pilot lists all three: [G1, G2, G3]
+product: { brand: "…", flavour: "…", shop: "…", best_before: 2026-09-26 }   # by hand; brand → client_product: true if theirs (17 §5)
 purchased_at: 2026-09-23T09:10+03:00                                       # by hand
 started_at: 2026-09-23T11:02+03:00
 ended_at:   2026-09-23T12:41+03:00
-camera: { device: /dev/video0, exposure_us: 10000, wb_kelvin: 4500, focus: 30, verified: true }
+camera: { device: /dev/video0, exposure_us: 10000, gain: 0, wb_kelvin: 4500, focus: 30, verified: true }
 reference_patch: { start: 0.621, end: 0.618 }
 split_seed: 20260923
-units: { control: [c1, c2, c3], train: […], calib: […], test: […] }
+units: { control: [c01, c02, c03], train: […], calib: […], test: […], placement: [x01 … x10] }
 damage: { u031: dent, u044: deformed-oval, … }
 notes: ""                      # by hand — anything odd
 ```

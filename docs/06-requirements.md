@@ -40,8 +40,8 @@ MVP design must not block. Built on `05-concept.md` (Gate 0 GO) and `decisions/A
 | ID | Requirement | Scope | Basis | Check |
 |---|---|---|---|---|
 | FR-11 | Each operator key press produces exactly one inspection event. Event sequence numbers are gapless within a run. | MVP | invariant I4 · design C5 | T |
-| FR-12 | Each event captures exactly one frame from the configured camera (USB webcam or Android phone). A stale or partial frame is never returned; a failed capture ends in NO_VERDICT (FR-24). | MVP | design C4 | T, D |
-| FR-13 | Capture applies manual exposure, white balance and focus from the config and records the values the camera reports back. A value that cannot be read back is recorded as `unverified`, never assumed. | MVP | R4 · design 11 §5 | T, D |
+| FR-12 | Each event captures exactly one frame from the configured camera (USB webcam or Android phone). A stale, partial or corrupt frame is never returned; a failed capture ends in NO_VERDICT (FR-24). | MVP | design C4 | T, D |
+| FR-13 | Capture applies manual exposure, gain, white balance and focus from the config and records the values the camera reports back. A value that cannot be read back is recorded as `unverified`, never assumed. | MVP | R4 · design 11 §5 | T, D |
 | FR-14 | The mean luminance of the fixed reference patch is measured on every frame and recorded. Outside the configured band the result is NO_VERDICT(`lighting`). | MVP | design 10 §3 | T |
 | FR-15 | The same pipeline runs from a directory of recorded images and their metadata in place of camera and trigger (replay). | MVP | design 11 §6 | T |
 | FR-16 | A photoelectric trigger replaces the key press. | Product | invariant I4 | — |
@@ -56,7 +56,7 @@ MVP design must not block. Built on `05-concept.md` (Gate 0 GO) and `decisions/A
 | FR-23 | Every appearance DEFECT carries a heatmap that locates the anomaly. | MVP | build plan S4.3 | T, D |
 | FR-24 | Capture failure, lighting fault, placement fault and inference error each end in NO_VERDICT with a stated reason. NO_VERDICT is never shown or recorded as PASS. | MVP | invariant I6 · design C7 | T |
 | FR-25 | **Placement.** A frame with no unit, or with the unit not wholly inside the inspection area, ends in NO_VERDICT(`placement`) — not DEFECT. | MVP | new: a stranger at the demo will place units anywhere | T, D |
-| FR-26 | **Geometry check.** The unit's silhouette area, equivalent diameter and roundness are compared with tolerances derived from good units; outside them is DEFECT(`geometry`). Pass/fail against a golden reference, in pixels — not millimetres. Shares the segmentation step of FR-25. | MVP (ADR-0008) | fact: client defect list (shape and dimension deviation) · OQ-1 | T, R |
+| FR-26 | **Geometry check.** The unit's silhouette area, axis ratio and solidity are compared with tolerances derived from good units (diameter is reported for people, not tested — `15-model.md` §3); outside them is DEFECT(`geometry`). Pass/fail against a golden reference, in pixels — not millimetres. Shares the segmentation step of FR-25. | MVP (ADR-0008) | fact: client defect list (shape and dimension deviation) · OQ-1 | T, R |
 | FR-27 | Millimetre measurement with a stated tolerance. | Product | OQ-1 | — |
 | FR-28 | Marking check on the other conveyor. | Product | fact Q21 | — |
 
@@ -84,7 +84,7 @@ code, not in the model.
 |---|---|---|---|---|
 | FR-41 | Every event, NO_VERDICT included, writes one record: image, heatmap if any, label, reason, score, threshold, `model_id`, `threshold_id`, `config_hash`, camera values read back, reference patch, timings, image SHA-256. | MVP | invariant I2 · design 12 §3 | T |
 | FR-42 | The application never updates or deletes a record. | MVP | design 12 §3 | T, I |
-| FR-43 | A batch ID on every record. In the MVP the session ID stands in for it. | Product (MVP stand-in) | fact: photo archive per batch | T |
+| FR-43 | A batch ID on every record. In the MVP the run ID stands in for it — on the bench a run is a session. | Product (MVP stand-in) | fact: photo archive per batch | T |
 | FR-44 | Retention: pass images 400 days; records, defect and override images forever. | Product | design 12 §3 | — |
 | FR-45 | Batch traceability report for QA. | Product | design 10 §2 | — |
 
@@ -92,7 +92,7 @@ code, not in the model.
 
 | ID | Requirement | Scope | Basis | Check |
 |---|---|---|---|---|
-| FR-51 | A **shoot mode** saves each frame losslessly as `u<unit>_r<rotation>.png`, with a per-session `session.yml`: camera values read back, lighting geometry, reference patch reading, product and flavour, purchase date, shoot start and end time. | MVP | design 12 §2 · A-08 | T, I |
+| FR-51 | A **shoot mode** saves each frame losslessly as `<unit>_<state>_<geometry>_r<rotation>[_pass<k>].png` (`12-data-model.md` §2), with a per-session `session.yml`: camera values read back, lighting geometry, reference patch reading, product and flavour, purchase date, shoot start and end time. | MVP | design 12 §2 · A-08 | T, I |
 | FR-52 | The splitter assigns **units, never images**, to train / calib / test, deterministically from a seed, and refuses to run if any unit falls in two splits. | MVP | design E1 | T |
 | FR-53 | One command trains PatchCore on `train/good` only and writes a model bundle whose `model_id` includes a hash of the weights. | MVP | design 14 §4 | T, R |
 | FR-54 | One command sets the threshold at a target false-alarm rate on `calib/good` and writes a new `threshold_id`. Geometry tolerances (FR-26) are derived from good units in the same step; the method is fixed in `15-model.md`. | MVP | design 12 §4 · 14 §4 | T |
@@ -113,13 +113,13 @@ code, not in the model.
 | ID | Quality | Requirement and metric | Scope | Check |
 |---|---|---|---|---|
 | NFR-01 | Responsiveness | Trigger to verdict on screen **≤ 1.0 s at p95** on the demo machine — the laptop, RTX 3050 Laptop GPU with 4 GB — over ≥ 200 consecutive events. | MVP | R |
-| NFR-02 | CPU latency | Trigger to verdict on CPU only, pinned to 4 threads, p50 / p95 / p99 over ≥ 200 events. The laptop CPU is faster per core than an N100, so this is a lower bound on N100 latency. MVP: measured and reported. Gate B: ≤ 700 ms at p95. | MVP (measure) · Gate B (pass) | R |
+| NFR-02 | CPU latency | Trigger to verdict on CPU only, pinned to 4 threads, p50 / p95 / p99 over ≥ 200 events. The laptop CPU is faster per core than an N100, so this is a lower bound on N100 latency. MVP: measured and reported. Gate B, until an N100 exists: p95 inspection time × 3 ≤ 400 ms (ADR-0017). | MVP (measure) · Gate B (pass) | R |
 | NFR-03 | Determinism | The same frame, model and threshold give the same score, equal to 1e-6, on the same machine. | MVP | T |
-| NFR-04 | Fault tolerance | 0 crashes over a 200-event run with injected faults — camera unplugged, evidence directory read-only, corrupt frame. Each fault ends in NO_VERDICT and the station stays armed. | MVP | T |
+| NFR-04 | Fault tolerance | 0 crashes over a 200-event run with injected faults — camera unplugged, evidence directory read-only, corrupt frame. Each fault ends in NO_VERDICT and the station returns to READY, or enters FAULT as `16-failure-model.md` §3 defines. | MVP | T |
 | NFR-05 | Persistence never blocks | With the evidence directory unwritable, verdicts still meet NFR-01; failed writes are counted and shown. | MVP | T |
 | NFR-06 | No lost record | Records written equals events triggered, over a 200-event run. | MVP | T |
 | NFR-07 | On-prem | 0 connections to any host other than the station's own camera, verified with the internet disabled. No socket or HTTP use in `src/qs` except inside a `FrameSource` implementation. | MVP | T, I |
-| NFR-08 | Reproducibility | The evaluation report regenerated from the golden set by one command gives identical numbers. | MVP | T |
+| NFR-08 | Reproducibility | The evaluation report regenerated from the golden set by one command gives identical numbers in every section except latency, which is measured, not reproduced. | MVP | T |
 | NFR-09 | Usability | A person who has never seen it starts it and checks 5 units without help. | MVP | D |
 | NFR-10 | Code quality | `make check` green: pytest 0 failures, ruff 0 errors, mypy 0 errors on `src/`. | MVP | T |
 | NFR-11 | Licences | Every dependency and model that could ship has a recorded licence compatible with commercial use. Nothing trained on MVTec AD ships. | MVP (recorded) | I |

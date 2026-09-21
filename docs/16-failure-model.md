@@ -30,8 +30,8 @@ stateDiagram-v2
     STARTING --> FAULT: camera not found
     READY --> INSPECTING: trigger
     INSPECTING --> READY: verdict shown, record queued
-    INSPECTING --> FAULT: camera lost, or 3 capture or inference errors in a row
-    FAULT --> STARTING: camera back — settings re-applied and re-read
+    INSPECTING --> FAULT: camera lost, or 3 capture errors, or 3 inference errors in a row
+    FAULT --> STARTING: camera and capture faults — camera re-opened, settings re-applied and re-read
     READY --> STOPPED: operator quits
     FAULT --> STOPPED: operator quits
     STOPPED --> [*]
@@ -39,10 +39,10 @@ stateDiagram-v2
 
 | State | Entered when | Operator sees | A trigger produces |
 |---|---|---|---|
-| STARTING | Launch, or recovery from FAULT | "ЗАПУСК" | NO_VERDICT(`busy`) |
+| STARTING | Launch, or recovery from FAULT | "ЗАПУСК" | Key press: discarded. Unit trigger (factory): NO_VERDICT(`busy`) |
 | READY | Every start-up check passed | Live view, "ГОТОВ" | An inspection |
-| INSPECTING | A trigger arrived | The previous verdict | NO_VERDICT(`busy`) — the unit is accounted for, not checked |
-| FAULT | Camera lost, or 3 errors in a row | Full amber screen: "СТАНЦИЯ НЕ ПРОВЕРЯЕТ" and the reason | NO_VERDICT(`camera`) |
+| INSPECTING | A trigger arrived | The previous verdict | Key press: discarded and counted. Unit trigger (factory): NO_VERDICT(`busy`) — accounted for, not checked |
+| FAULT | Camera lost, or 3 capture errors, or 3 inference errors in a row | Full amber screen: "СТАНЦИЯ НЕ ПРОВЕРЯЕТ" and the fault's own reason | NO_VERDICT with the fault's reason — `camera`, `capture` or `inference` |
 | STOPPED | Quit, window closed, or a start-up check failed | Nothing; exit code and message | — |
 
 **Warnings are not states.** Four conditions change what the screen shows, not what the station
@@ -51,7 +51,7 @@ does, and any number can be active at once:
 | Warning | Raised when | Cleared when |
 |---|---|---|
 | `LIGHTING` | A captured frame's reference patch is outside the band | A captured frame is back inside it |
-| `CAMERA_SETTINGS` | Read-back differs from config, or cannot be read (phone fallback) | Read-back matches again; never, for an unverifiable camera |
+| `CAMERA_SETTINGS` | A readable setting differs from config (that unit is NO_VERDICT, F4), or a setting cannot be read at all (units are inspected as normal, recorded with `camera_verified = 0`) | Read-back matches again; never, for an unverifiable camera |
 | `STORAGE` | A write fails, or the image backlog passes its high-water mark | The backlog is written |
 | `LATENCY` | More than 10% of the last 50 inspections broke the budget | Back under 10% |
 
@@ -71,20 +71,21 @@ does, and any number can be active at once:
 
 | | Failure | Detected by | This unit | Station | Clears when |
 |---|---|---|---|---|---|
-| F1 | Camera unplugged or lost | `CameraLost` | NO_VERDICT(`camera`) | FAULT; reconnect at 0.5, 1, 2, 4, 8, then every 10 s | Reconnected and settings re-verified |
-| F2 | No frame after the trigger within the timeout | `CaptureError` | NO_VERDICT(`capture`) | Stays READY; FAULT after 3 in a row | Next good capture |
+| F1 | Camera unplugged or lost | `CameraLost` | NO_VERDICT(`camera`) | FAULT(camera); reconnect at 0.5, 1, 2, 4, 8, then every 10 s | Reconnected and settings re-verified |
+| F2 | No frame after the trigger within the timeout | `CaptureError` | NO_VERDICT(`capture`) | Stays READY; FAULT(capture) after 3 in a row, which re-opens the camera as F1 does | Next good capture; from FAULT, as F1 |
 | F3 | Only a stale frame available | `capture()` waits for one stamped after `t0` (C4) | Never inspected; becomes F2 on timeout | — | — |
-| F4 | Settings drift — auto re-enabled, exposure changed | Read-back on each capture | NO_VERDICT(`camera_settings`) | `CAMERA_SETTINGS` | Read-back matches |
+| F4 | Settings drift — auto re-enabled, exposure changed | A readable value differs on a capture: `CameraSettingsDrift` | NO_VERDICT(`camera_settings`) | `CAMERA_SETTINGS` | Read-back matches |
 | F5 | Lighting out of band — lamp moved, box open, bulb ageing | Reference patch (FR-14) | NO_VERDICT(`lighting`) | `LIGHTING` | A frame back in band |
 | F6 | No unit, or unit not wholly in the area | `PlacementFault` (FR-25) | NO_VERDICT(`placement`) | Stays READY — an operator event, not a fault | — |
-| F7 | Inference fails — CUDA error, non-finite score | `InferenceError` | NO_VERDICT(`inference`) | FAULT after 3 in a row | Restart |
+| F7 | Inference fails — CUDA error, non-finite score, any exception inside `inspect()` | `InferenceError` | NO_VERDICT(`inference`); partial results discarded (C8) | FAULT(inference) after 3 in a row. **No automatic exit** — a model failing three times running is not retried blindly | The operator restarts the station |
 | F8 | Inspection over the latency budget | Timing | The verdict stands; the breach is counted | `LATENCY` above 10% of the last 50 | Back under 10% |
-| F9 | Trigger while inspecting, or while starting | Pipeline | NO_VERDICT(`busy`), no image | — | — |
-| F10 | Key held down (auto-repeat) | Debounce, 300 ms | Not an event | — | — |
+| F9 | A unit trigger (factory photoelectric) while inspecting or starting | Pipeline | NO_VERDICT(`busy`), no image | — | — |
+| F10 | Key presses during an inspection, or a key held down | `KeyboardTrigger`: a press is accepted only ≥ 300 ms after the previous event finished | Discarded and counted; no record — a key press is not a unit | — | — |
 | F11 | Evidence write fails — disk full, permission | The sink thread | Verdict shown on time; record held in memory | `STORAGE`; images shed per ADR-0012 | Backlog written |
 | F12 | Screen fails to draw | Annunciator | Record still written | Logged | — |
-| F13 | Window closed | Screen | — | STOPPED; the sink drains first | — |
+| F13 | Window closed | Screen | — | STOPPED once the queue is written. If storage is down, it waits up to 10 s, then exits and prints how many rows were lost (ADR-0012) | — |
 | F14 | Process killed | — | At most the in-memory backlog is lost | SQLite commits are atomic; see §4 | Restart |
+| F15 | Corrupt frame — wrong shape or dtype, or flat (every pixel within 1 grey level) | Capture validation | NO_VERDICT(`capture`) | As F2 | Next good capture |
 
 Two things are deliberately **not** handled automatically:
 
@@ -133,7 +134,7 @@ Russian, from `display` in the station config; the wording is a draft for Ali to
 | NO_VERDICT, capture or camera settings | Amber, **НЕТ РЕШЕНИЯ** — *нет кадра* / *настройки камеры изменились* |
 | NO_VERDICT, inference | Amber, **НЕТ РЕШЕНИЯ** — *ошибка анализа* |
 | NO_VERDICT, busy | Amber, **ИЗДЕЛИЕ НЕ ПРОВЕРЕНО** |
-| FAULT | Full amber screen, **СТАНЦИЯ НЕ ПРОВЕРЯЕТ** — *камера не подключена* |
+| FAULT | Full amber screen, **СТАНЦИЯ НЕ ПРОВЕРЯЕТ** — *камера не подключена* / *нет кадров* / *ошибка анализа — перезапустите станцию* |
 | Warnings | A banner: *архив не записывается* · *освещение вне нормы* · *настройки камеры не подтверждены* · *медленная работа* |
 
 Amber for every NO_VERDICT, never green (C7). The FAULT screen replaces the live view entirely,
@@ -144,7 +145,7 @@ because a live picture on a station that is not checking looks exactly like one 
 Per run, shown in the session panel and written to the `run` row at a clean stop:
 
 - events; PASS, DEFECT, and NO_VERDICT by reason
-- faults by type; reconnect attempts
+- faults by type; reconnect attempts; key presses discarded
 - records written, held and shed; images shed
 - latency p50 / p95 over the last 50, and budget breaches
 - whether the camera was verified
@@ -160,16 +161,19 @@ Each line is an automated test, run through `ReplaySource` or a scripted fake. N
 |---|---|
 | Camera lost at event k | FAULT; later triggers NO_VERDICT(`camera`); recovery to READY once the fake reconnects; `seq` gapless throughout |
 | No frame after `t0` | NO_VERDICT(`capture`) within timeout + 50 ms |
+| A flat frame; a frame of the wrong shape | NO_VERDICT(`capture`) |
+| A readable exposure changes mid-run; then settings that cannot be read | NO_VERDICT(`camera_settings`); then normal verdicts recorded with `camera_verified = 0` |
 | Newest frame older than `t0` | Never inspected; waits, then NO_VERDICT(`capture`) |
 | Reference patch darkened | NO_VERDICT(`lighting`); `LIGHTING` raised; cleared by the next in-band frame |
 | Empty frame; unit touching the edge | NO_VERDICT(`placement`); the fault counter unchanged |
-| Inspector returns a non-finite score | NO_VERDICT(`inference`); FAULT on the third in a row |
+| Inspector returns a non-finite score | NO_VERDICT(`inference`); FAULT(inference) on the third in a row; no automatic exit |
 | Evidence directory read-only for 100 events | Every verdict within NFR-01; `STORAGE` raised; rows held; PASS images shed past high-water; on restore, every held row written; counts exact |
 | Sink raises `OSError(ENOSPC)` | As above |
 | Process killed mid-run | Database opens; every row's files exist; orphans listed by verification |
-| Key auto-repeat for 2 s | At most one event per 300 ms |
-| Trigger during an inspection | NO_VERDICT(`busy`), no image, `seq` gapless |
+| Keys fed during an inspection; a key held for 2 s (fake screen, fake clock) | No event from a press within 300 ms of the previous event finishing; each discarded press counted; no record for it |
+| A unit trigger during an inspection (fake photoelectric) | NO_VERDICT(`busy`), no image, `seq` gapless |
 | Window closed | STOPPED; queue drained; `run.ended_utc` set |
+| Window closed while storage is down | Exits within 10 s; the number of rows lost is printed |
 
 ## 8. Not handled, deliberately
 

@@ -36,7 +36,7 @@ single easiest place in the project to accidentally multiply our own sample size
 Two rules follow, and both are enforced in code rather than remembered:
 
 - **Split by unit.** No unit may have one rotation in `train/` and another in `test/`.
-  The filename convention `u007_r2.png` ([`12-data-model.md`](12-data-model.md) §2) makes
+  The filename convention (`u007_dmg_G2_r1.png`) ([`12-data-model.md`](12-data-model.md) §2) makes
   the check mechanical.
 - **Aggregate by unit.** A unit is *caught* if any of its rotations scores above the
   threshold. The denominator of every rate reported is units.
@@ -89,14 +89,14 @@ which tightens the false-alarm bound from 7.2% to 4.2%.
 For each lighting geometry, in order, with nothing skipped:
 
 1. **Train** PatchCore on `train/good` only. Anomaly detection never sees a defect in
-   training — that is the whole point of choosing it (ADR-0002). **Derive the geometry
-   tolerances** from the same units (method in `15-model.md`).
+   training — that is the whole point of choosing it (ADR-0002).
 2. **Score** every image in `calib/good`, `test/good` and every defect class.
 3. **Aggregate to units**: each unit's score is the maximum over its rotations.
 4. **Choose the threshold** so that the **combined** verdict — geometry or appearance — meets
    the target false-alarm rate on `calib/good`. For a 5% target on 30 calibration units, that is
    the cut-off leaving at most 1 unit flagged by either check. Record it, with the tolerances,
-   as one `threshold_id` ([`12-data-model.md`](12-data-model.md) §4).
+   as one `threshold_id` ([`12-data-model.md`](12-data-model.md) §4). The geometry tolerances are
+   derived in the same step, from `train/good` ∪ `calib/good` ([`15-model.md`](15-model.md) §3).
 5. **Measure**, on units that had no part in steps 1 or 4:
    - recall per defect class, on `test/dent`, `test/tear`, `test/deformed`, for the combined
      verdict — and, as a diagnostic, which check caught each unit
@@ -116,7 +116,7 @@ that flatters us.
 
 ### Recall — n defective units
 
-|   n | all caught, bound is | 90% caught | bound is |
+|   n | all caught, bound is | about 90% caught | bound is |
 |----:|---------------------:|---:|---------:|
 |   5 | 54.9% | 4/5 | 34.3% |
 |  10 | 74.1% | 9/10 | 60.6% |
@@ -137,7 +137,7 @@ That is why the Gate A defect class is 30 units and not 20 — at 20, an observe
 
 ### False alarms — n good units
 
-|   n | none flagged, FAR at most | 5% flagged | FAR at most |
+|   n | none flagged, FAR at most | about 5% flagged | FAR at most |
 |----:|---------------------:|---:|---------:|
 |  10 | 25.9% | 0/10 | 25.9% |
 |  20 | 13.9% | 1/20 | 21.6% |
@@ -188,8 +188,16 @@ defect was never in the pixels.
 
 ### Gate B — latency · due 2026-10-13
 
-End-to-end trigger-to-verdict **≤ 700 ms at the 95th percentile**, measured on CPU as the
-Intel N100 proxy, with persistence off the critical path. Budget breakdown in
+**Judged on a conservative N100 estimate until an N100 exists** (ADR-0017). Measured on replay —
+the camera excluded, since the factory's is a different one — on the laptop CPU pinned to 4
+threads, over at least 200 consecutive inspections:
+
+> **p95 of `inspect_ms` × 3 ≤ 400 ms** — the laptop must inspect in 133 ms or less at the 95th
+> percentile.
+
+The factor 3 is the top of the estimated laptop-to-N100 range (`15-model.md` §10), so the gate errs
+towards failing. The real gate — trigger to verdict **≤ 700 ms at p95 on an N100** with the factory
+camera, persistence off the critical path — runs after Gate C. Budget breakdown in
 [`10-architecture.md`](10-architecture.md) §5.
 
 Measured on at least 200 consecutive inspections, reporting p50, p95 and p99 — not a mean.
@@ -207,7 +215,8 @@ generated, never hand-written. It contains:
 - the operating table: for targets 1%, 5%, 10% — threshold, recall per defect class with
   lower bounds, false-alarm rate with upper bound, and which check caught what
 - **INDICATIVE** in the title of every MVP report (ADR-0007)
-- latency p50 / p95 / p99
+- latency p50 / p95 / p99, in its own section marked *measured, not reproducible* — timings vary
+  from run to run, and the identical-numbers check (NFR-08) covers every other section
 - every unit that changed verdict since the previous run on the same golden set
 
 That last line is the regression test. Once a golden set exists, a change to preprocessing
@@ -260,8 +269,14 @@ So the MVP can show that the method works and that the lighting reveals the defe
 show the client's 95%, nor Gate A. The threshold on 15 calibration units cannot resolve a 5%
 target — one unit is 6.7% — so the MVP cut-off is the highest calibration score, reported as such.
 
-**Placement set.** Ten frames with no unit or a unit touching the edge go into the golden set.
-Every one must come back NO_VERDICT(`placement`) — a functional check, not a statistic.
+**Placement set.** Ten frames — five with no unit, five with a unit touching the edge — shot at the
+end of the session (`13-data-collection.md` §6) and kept in the golden set as `role = placement`.
+Every one must come back NO_VERDICT(`placement`): a functional check, not a statistic.
+
+**NO_VERDICT in the counts.** A unit is caught if any of its rotations is DEFECT. Rotations that come
+back NO_VERDICT are left out of the aggregate. A unit with every rotation NO_VERDICT is *unscored*:
+listed by name, counted as **missed** for recall, left out of the false-alarm rate with its count
+reported. Every choice here errs against the flattering number.
 
 **Early warning** (`06-requirements.md` §4). Dent recall under 70% at the 5% target — fewer than
 9 of 12 — means stop and fix the lighting before building more of the demo. The same rule as

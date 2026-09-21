@@ -76,7 +76,7 @@ STRIDE, trimmed to what applies. Scope: **MVP** = built this week; **Product** =
 | T8 | Malware carried in on the calibration stick | Plant | One dedicated stick, scanned before every visit, carrying only the signed bundle | Product |
 | T9 | The box is stolen | A1, A2 | Full-disk encryption on the edge box | Product — decided with the client |
 | T10 | Disk full, camera unplugged | Availability | `16-failure-model.md`, ADR-0012 | MVP |
-| T11 | A shoot is lost to a disk failure | A6 | `data/raw/` copied to an external drive after every session | MVP |
+| T11 | A shoot is lost to a disk failure | A6 | `data/raw/` copied to a second device after every session — the phone over USB, no network | MVP |
 
 ## 4. People in frame — 152-ФЗ
 
@@ -98,11 +98,11 @@ backbone-licence item (`15-model.md` §11).
 | Data | Where | In git | Backup | Kept |
 |---|---|---|---|---|
 | Code, docs, config | Repo | Yes | Git | Always |
-| Raw shoot images | `data/raw/<session>/` | No | External drive after every session | Until Gate A is passed, then reviewed |
+| Raw shoot images | `data/raw/<session>/` | No | Second device after every session — the Android phone over USB until a stick exists | Until Gate A is passed, then reviewed |
 | Datasets, golden sets | `data/datasets/`, `data/golden/` | No — rebuilt from raw by the splitter; golden sets carry a content hash | With raw | As raw |
 | Model bundles | `models/<model_id>/` | No — rebuilt by one command; its hash is in the config | Not needed | While referenced by a config |
 | Evidence | `evidence/` | No | Not needed on the bench | Per session |
-| Wheels and pretrained weights | `wheelhouse/`, `.torch/` | No | External drive, once | Pinned versions only |
+| Wheels and pretrained weights | `wheelhouse/`, `.torch/`, `.hf/` | No | External drive, once | Pinned versions only |
 | MVTec AD | `data/external/mvtec/` | No | No | Validation only (R8) |
 
 **Client information stays generic in the repo.** No client name, no brand. If the bench uses the
@@ -122,5 +122,5 @@ Each is automated, and none needs a camera:
    validation mode.
 5. **Append-only.** Update and delete on `inspection` and `inspection_check` both fail
    (`12-data-model.md` §3).
-6. **Nothing tracked.** `git check-ignore` confirms `data/`, `evidence/`, `models/`, `wheelhouse/` and
-   `.torch/` are ignored.
+6. **Nothing tracked.** `git check-ignore` confirms `data/`, `evidence/`, `models/`, `wheelhouse/`,
+   `.torch/` and `.hf/` are ignored.

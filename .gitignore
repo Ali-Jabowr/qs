@@ -4,6 +4,7 @@ evidence/
 models/
 wheelhouse/
 .torch/
+.hf/
 __pycache__/
 *.pyc
 .pytest_cache/

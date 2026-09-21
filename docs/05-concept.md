@@ -85,7 +85,7 @@ working distance), `14-eval-protocol.md` and `project.yml` S0.5–S0.6 (units to
 ## 5. The MVP
 
 **Definition.** The real pipeline, running end to end on the bench, on store-bought моти:
-key press → capture in the rig → model → OK / DEFECT / NO_VERDICT with a heatmap → append-only
+key press → capture in the rig → model → PASS / DEFECT / NO_VERDICT (ГОДЕН / БРАК / НЕТ РЕШЕНИЯ) with a heatmap → append-only
 evidence record. Trained on good units only, threshold set on separate calibration units, result
 measured on held-out units. Starts with one command and runs offline.
 

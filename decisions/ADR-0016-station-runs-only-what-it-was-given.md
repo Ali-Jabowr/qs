@@ -17,8 +17,10 @@ Three things can make the station run something nobody decided it should:
 ## Decision
 
 1. **Setup is online; running is offline.** Every wheel and every pretrained weight is fetched once
-   at setup, hashed, and cached in the repo's ignored `wheelhouse/` and `.torch/`. The station runs
-   with `TORCH_HOME` pointing at the cache, and a test runs it with networking disabled.
+   at setup, hashed, and cached in the repo's ignored `wheelhouse/`, `.torch/` and `.hf/` — Anomalib loads its backbone
+   through timm, which fetches from the Hugging Face Hub (confirmed at the environment step). The
+   station runs with `TORCH_HOME` and `HF_HOME` pointing at the caches and `HF_HUB_OFFLINE=1`, and a
+   test runs it with networking disabled.
 2. **Bundles carry provenance.** `bundle.yml` records the hash of every training image and the source
    of the data: `own` or `external:<name>`. The station checks the bundle's hash against the
    config's `model_id` at start-up.

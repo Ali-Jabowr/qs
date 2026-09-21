@@ -18,8 +18,8 @@ to the station's own camera. Two cameras are owned and buying one is ruled out (
 
 The bench `FrameSource` is `WebcamSource` over V4L2.
 
-**The settings-lock test, first build day:** with the rig closed, set every control to manual,
-read each back and compare; then capture 50 frames over 5 minutes with the room light switched
+**The settings-lock test, first build day:** with the rig closed, set every control — exposure, gain, white balance, focus —
+to manual, read each back and compare; then capture 50 frames over 5 minutes with the room light switched
 on and off. Pass: every read-back equals the set value, and the reference patch reading varies by
 less than 1%.
 
@@ -40,7 +40,8 @@ Sources: OpenCV `cap_v4l.cpp` (4.x), the kernel V4L2 camera-controls documentati
   answer from its own cache. The grey-card half of the lock test is what proves the sensor applied it.
 - **Set every control on every open.** Another program can reset them between runs.
 - **Freshness uses the kernel timestamp.** `CAP_PROP_POS_MSEC` is the buffer's `CLOCK_MONOTONIC`
-  stamp, the same clock as Python's `perf_counter` (verified on this laptop). `capture()` waits
+  stamp, the same clock as Python's `perf_counter`. That Python uses `CLOCK_MONOTONIC` was verified on
+  this laptop; that uvcvideo stamps with it is from the driver source, confirmed at the lock test. `capture()` waits
   for a stamp later than `t0` plus one exposure time.
 - **Format: uncompressed YUYV**, the highest resolution that gives at least 5 fps. USB 2.0 carries
   1080p YUYV at about 5 fps; 30 fps needs MJPG, whose compression artifacts are exactly the kind of

@@ -22,15 +22,18 @@ station configuration that ties a verdict to the conditions that produced it.
 ```
 data/
   raw/<session-id>/                  untouched originals, exactly as shot
-    session.yml                      camera read-back, lighting geometry, patch reading,
+    session.yml                      camera read-back, lighting geometries, patch reading,
                                      product, flavour, purchase date, start and end time
-    u007_r2.png                      lossless — see below
+    u007_dmg_G2_r1.png               lossless; the name is the identity — see below
   datasets/<product>/<geometry>/     one dataset per lighting geometry
     train/good/                      good units only — all the model ever trains on
     calib/good/                      good units that set the threshold and the tolerances
     test/good/                       held-out good units, for the false-alarm rate
     test/<defect-class>/             one folder per class; classes fixed in 14-eval-protocol.md
   golden/<name>/                     frozen replay sets. Never edited, only added to
+    frames/                          the evaluated frames, by their shoot names
+    manifest.csv                     one row per frame — see below
+    manifest.sha256                  the golden set's hash: SHA-256 of manifest.csv
 ```
 
 One dataset **per lighting geometry**, because S2's whole question is which geometry
@@ -40,8 +43,24 @@ trained and measured under identical conditions.
 ### The filename is the unit identity
 
 ```
-u007_r2.png     unit 7, rotation 2
+<unit>_<state>_<geometry>_r<rotation>[_pass<k>].png
+
+u007_good_G2_r0.png         dataset unit 7, before damage, lighting G2, rotation 0°
+u007_dmg_G2_r0.png          the same unit after damage
+c02_good_G2_r1_pass3.png    control unit 2, rotation 120°, third pass (end of session)
+p04_good_G1_r2.png          pilot unit 4 under G1 — the pilot shoots every geometry
+x03_empty_G2_r0.png         placement frame 3: no unit in view
 ```
+
+| Part | Values | Why |
+|---|---|---|
+| `unit` | `uNNN` dataset · `cNN` control · `pNN` pilot · `xNN` placement frame | The prefix says what the unit is for, so a pilot or control frame can never be split into train or test by accident |
+| `state` | `good` · `dmg` · `empty` · `edge` | Paired shooting (ADR-0014) photographs one unit in two states |
+| `geometry` | `G1` · `G2` · `G3` | The pilot shoots all three in one session (ADR-0013) |
+| `rotation` | `r0` · `r1` · `r2` = 0°, 120°, 240° | Three views of one sample |
+| `pass` | `pass1` … `pass3` | Controls only — start, middle, end |
+
+The defect class of a damaged unit — dent, tear, deformed — is in `session.yml`, not in the name.
 
 **Dataset frames are PNG, never JPEG.** The camera delivers uncompressed frames precisely because
 compression artifacts are the kind of fine texture PatchCore scores (ADR-0010); saving the
@@ -58,6 +77,15 @@ filename convention makes that visible and makes two rules enforceable in code:
   rotation of a training unit sitting in the test set inflates every number we quote.
 - **Aggregate by unit at evaluation.** A unit counts as caught if any of its rotations is
   flagged; the denominator is units. [`14-eval-protocol.md`](14-eval-protocol.md) §3.
+
+### The golden set
+
+`golden/<name>/manifest.csv` has one row per frame: `file, unit, role, state, class, geometry,
+rotation, pass, sha256`, where `role` is `calib`, `test`, `control` or `placement`. It holds
+calibration frames because thresholds at 1 / 5 / 10% are set from them, test frames, control
+frames and placement frames — not training frames, which live in `datasets/` and are named in the
+model bundle. The golden set's hash is the SHA-256 of `manifest.csv`, so changing any frame, or any
+frame's role, changes the hash.
 
 `session.yml` records what the camera was actually set to, so two shoots a week apart can
 be shown to be comparable rather than assumed to be.
@@ -167,10 +195,10 @@ CREATE TABLE inspection (
     unit_x INTEGER, unit_y INTEGER, unit_w INTEGER, unit_h INTEGER,
 
     exposure_us       INTEGER,
-    gain_db           REAL,
+    gain              INTEGER,                 -- raw driver units
     wb_kelvin         INTEGER,
     focus             INTEGER,
-    camera_verified   INTEGER NOT NULL CHECK (camera_verified IN (0, 1)),
+    camera_verified   INTEGER CHECK (camera_verified IN (0, 1)),  -- NULL when no frame
     reference_patch   REAL,
 
     capture_ms        REAL,
@@ -180,17 +208,18 @@ CREATE TABLE inspection (
     UNIQUE (run_id, seq),
     CHECK (label <> 'no_verdict' OR reason IS NOT NULL),
     CHECK ((image_status = 'stored') = (image_path IS NOT NULL AND image_sha256 IS NOT NULL)),
-    CHECK (image_status <> 'none' OR label = 'no_verdict')
+    CHECK (image_status <> 'none' OR label = 'no_verdict'),
+    CHECK (image_status = 'none' OR camera_verified IS NOT NULL)
 );
 
 CREATE TABLE inspection_check (
     inspection_id     INTEGER NOT NULL REFERENCES inspection(id),
     name              TEXT    NOT NULL,        -- 'geometry' | 'appearance'
     passed            INTEGER NOT NULL CHECK (passed IN (0, 1)),
-    value             REAL,                    -- the anomaly score
-    limit_value       REAL,                    -- the threshold ("limit" is reserved in SQL)
-    failed_on         TEXT,                    -- e.g. 'diameter_px<min'
-    measures          TEXT    NOT NULL DEFAULT '{}',  -- JSON, e.g. {"diameter_px": 412.0}
+    value             REAL,                    -- appearance: the anomaly score
+    limit_value       REAL,                    -- appearance: the threshold ("limit" is reserved)
+    failed_on         TEXT,                    -- e.g. 'area_px<min', 'score>threshold'
+    measures          TEXT    NOT NULL DEFAULT '{}',  -- JSON, e.g. {"area_px": 104812, "solidity": 0.97}
     PRIMARY KEY (inspection_id, name)
 );
 
@@ -242,6 +271,10 @@ unanswerable after the fact if the columns were not there from the first line of
     heatmaps/<station>/<YYYY>/<MM>/<DD>/<batch>/<seq>.png
 ```
 
+Images are JPEG q85 and heatmaps uint8 PNG in window coordinates (`11-interfaces.md` §2) — both
+encoded on the pipeline thread before queuing, so the sink queue holds ~0.55 MB per record, not raw
+pixels (ADR-0012).
+
 `image_sha256` is computed at write. Corruption and tampering are both detectable, and a
 verification pass is one query and a walk.
 
@@ -283,12 +316,13 @@ camera:
   format: YUYV                 # uncompressed; MJPG artifacts are texture noise (ADR-0010)
   power_line_hz: 50
   exposure_us: 10000           # manual, a multiple of 10 ms against 100 Hz lamp flicker
+  gain: 0                      # manual, raw driver units; with auto-exposure off it stays put only if set
   wb_kelvin: 4500
   focus: 30
   capture_timeout_ms: 500      # no frame after t0 in this time: CaptureError
 
 lighting:
-  geometry: low_angle          # chosen by the pilot
+  geometry: G2                 # G1 | G2 | G3 — chosen by the pilot (ADR-0013)
   reference_patch:
     roi:    [1780, 40, 100, 100]
     expect: 0.62
@@ -297,16 +331,15 @@ lighting:
 inspector:
   type: appearance             # ADR-0008, ADR-0009
   localize:  { roi: [360, 0, 1200, 1080], threshold: 70, min_area_px: 20000, border_margin_px: 10 }
-  window_px: 800               # fixed window centred on the unit
-  input_px:  256               # one resize factor for every unit: 800 to 256
   mask_dilate_px: 12
-  model:     patchcore-mochi-v1
-  backend:   torch-cuda        # torch-cpu, 4 threads, for the NFR-02 run
+  model:     patchcore-mochi-v1-3f9a1c2b7d4e   # the full model_id; window_px and input_px live in its bundle
+  backend:   torch-cuda        # the backend the threshold was calibrated on (15-model.md §9)
 
 threshold:                     # one calibration: the appearance threshold AND the tolerances
-  id:     cal-2026-09-25-far5
+  id:     cal-2026-09-25-far5-a41c07   # the last part: hash of the calibration record
   value:  1.83
   policy: far_5pct_on_calib
+  set_on: { model: patchcore-mochi-v1-3f9a1c2b7d4e, backend: torch-cuda, calib_units: 15, localize_threshold: 70, mask_dilate_px: 12 }
   geometry:                    # derived, never typed — 15-model.md §3
     area_px:        [98000, 131000]
     axis_ratio_min: 0.90
@@ -323,7 +356,16 @@ latency:   { budget_ms: 1000, breach_action: record_and_continue }
 The factory config has the same shape. It differs in trigger, camera, backend, evidence root and
 batch source — the blue boxes of `10-architecture.md` §4 and nothing else.
 
-`config_hash` is the SHA-256 of the file in canonical form. Rule C6 in
+**Two sources of truth are ruled out.** Preprocessing the model was trained with — `window_px`,
+`input_px`, normalisation — lives in the model bundle only; the config names the bundle by its full
+`model_id`. The calibration records what it was set on, so a threshold can never be used silently
+with a different model, backend or localisation.
+
+**The CPU run for NFR-02 measures latency only.** It uses the same bundle with `backend: torch-cpu`;
+its verdicts are not reported, because the threshold was calibrated on CUDA (`15-model.md` §9).
+
+`config_hash` is the SHA-256 of the file in canonical form: the YAML parsed, dumped as JSON with
+sorted keys, no whitespace, UTF-8. Rule C6 in
 [`11-interfaces.md`](11-interfaces.md) says every implementation is constructed from this
 and nothing else, which is what keeps configuration from drifting into code.
 
@@ -350,7 +392,7 @@ real, bounded piece of engineering work, and this schema is what makes it bounde
 
 ## 5. What is deliberately absent
 
-- **No ORM.** Five tables and a handful of queries. `sqlite3` from the standard library.
+- **No ORM.** Four tables and a handful of queries. `sqlite3` from the standard library.
 - **No migrations framework.** A `schema_version` row and an ordered list of DDL steps.
 - **No image database.** Files on disk with hashes in the record. A JPEG in a BLOB column
   is slower to serve, harder to back up and impossible to inspect with `ls`.

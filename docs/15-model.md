@@ -74,7 +74,7 @@ plus `calib/good` — each unit's measures are averaged over its rotations, then
 where σₙ is the **measurement noise**: the pooled standard deviation of each measure across
 rotations of the same unit. The observed range of real units, widened by what the measurement
 itself cannot resolve. Twenty-odd units underestimate the population's range, so some good units
-will fall outside; §7 measures how many, on units that played no part.
+will fall outside; `14-eval-protocol.md` §4 step 5 measures how many, on test units that played no part.
 
 ## 4. The window PatchCore sees
 
@@ -94,15 +94,19 @@ specific:
 - `Folder` splits by **image** (`normal_split_ratio=0.2` by default) — rotations of one training unit
   would land in test, which is error E1.
 - The default post-processor normalises scores to [0, 1] against a threshold of its own and clamps
-  them. We set our own threshold (§7) and need the raw distance. `post_processor=False`.
+  them. We set our own threshold (§7) and need the raw distance.
 - The default pre-processor resizes whatever it is given to 256 × 256. Our window is already cut and
-  resized by one constant factor (§4); a second resize is at best redundant. `pre_processor=False`.
+  resized by one constant factor (§4); a second resize is at best redundant.
+
+Both processors belong to the Lightning wrapper `Patchcore`, not to the torch `PatchcoreModel`, so
+using the torch model directly avoids them. If the wrapper is ever used to build it, both are passed
+as `False`. **To be confirmed against 2.6.2 at the environment step.**
 
 **Configuration**
 
 | Setting | Value | Note |
 |---|---|---|
-| Backbone | `wide_resnet50_2`, ImageNet-pretrained | The licence question in §11 applies to every choice here |
+| Backbone | `wide_resnet50_2`, ImageNet-pretrained | Loaded through timm from the Hugging Face Hub (`timm/wide_resnet50_2.tv_in1k`, the original torchvision weights) — **confirm at the environment step**. The licence question in §11 applies |
 | Layers | `layer2`, `layer3` | Anomalib's default and the paper's |
 | Input | 256 × 256, ImageNet mean and std | A 32 × 32 patch grid |
 | Coreset | 10% | 1% is the first latency fallback (§10) |
@@ -138,8 +142,8 @@ Anomalib's exporter bakes its pre- and post-processor into the graph.
 
 ## 6. From map to score
 
-1. The anomaly map at `input_px` is upsampled back to `window_px` and placed into frame
-   coordinates.
+1. The anomaly map at `input_px` is upsampled back to `window_px` and stays in window coordinates;
+   `window_box` records where the window sits in the frame (`11-interfaces.md` §2).
 2. It is **masked** to the unit's silhouette dilated by `mask_dilate_px`. Background pixels are set
    to zero (ADR-0009).
 3. **Score = the maximum** of the masked map — PatchCore's own image-score definition, restricted to
@@ -147,11 +151,40 @@ Anomalib's exporter bakes its pre- and post-processor into the graph.
 4. A non-finite score raises `InferenceError` (F7), never a verdict.
 
 **The heatmap on screen** (FR-23, FR-33) is the masked map divided by the threshold, clipped to
-[0, 1.5], coloured, and blended over the unit only. A value of 1.0 means exactly at the threshold,
+[0, 1.5], coloured, and blended over the unit only. **In the store** it is the same ratio clipped to
+[0, 2] and saved as a uint8 PNG (× 127.5). A value of 1.0 means exactly at the threshold,
 so the colour means the same thing on every unit, every day. A geometry DEFECT shows the outline
 instead, with the failing measure against its tolerance.
 
 ## 7. Calibration — one step, one `threshold_id`
+
+The offline flow end to end — the second critical flow after inspecting one unit
+(`10-architecture.md` §5):
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor A as Ali
+    participant Sp as Splitter
+    participant Sh as Shoot mode
+    participant Tr as Train
+    participant Ca as Calibrate
+    participant Ev as Evaluate
+    A->>Sp: assign unit numbers to splits, by seed
+    Sp-->>A: the split plan, before any frame
+    A->>Sh: shoot the session (13-data-collection §6)
+    Sh-->>A: data/raw/session + session.yml
+    A->>A: copy raw to the backup drive
+    A->>Sp: build datasets and freeze the golden set
+    Sp-->>A: datasets/, golden/mvp-date + hash — refuses any unit in two splits
+    A->>Tr: train on train/good
+    Tr-->>A: models/model_id — seeded, hashed
+    A->>Ca: calibrate at a target rate
+    Ca-->>A: threshold + tolerances under one threshold_id, into the config
+    A->>Ev: evaluate on the golden set
+    Ev-->>A: reports/eval — INDICATIVE, regenerable by one command
+```
+
 
 Run once per trained model, on units the model never saw:
 
@@ -174,13 +207,20 @@ flags more than the target, the tolerances are the problem — widen, and say so
 models/<model_id>/
     memory_bank.pt         the coreset
     bundle.yml             backbone, layers, input_px, window_px, normalisation, seed,
-                           library versions, and the hash of every training image
+                           library versions, data_source (own | external:<name>),
+                           the unit IDs trained on, and the hash of every training image
 ```
 
 `model_id = patchcore-<product>-v<n>-<first 12 hex of sha256(memory_bank.pt + bundle.yml)>`.
 The station refuses to start if the bundle's hash does not match the `model_id` in its config
-(`16-failure-model.md` §2). Training images are named by hash, so the bundle says exactly which
-units it learned from — and the evaluation harness can assert none of them is in the test set.
+(`16-failure-model.md` §2).
+
+- **Unit IDs, not only image hashes.** Another rotation of a training unit has a different hash, so
+  the evaluation harness checks the bundle's **unit IDs** against the test set's.
+- **`data_source` other than `own` makes the bundle validation-only**, and the station refuses it
+  outside validation mode (ADR-0016).
+- **One source of truth.** `window_px`, `input_px` and normalisation live here and nowhere else; the
+  config names the bundle by its full `model_id`.
 
 ## 9. Determinism
 
@@ -192,6 +232,11 @@ closed:
   neighbour.
 - **Backend.** CUDA and CPU give slightly different floats. A bundle is calibrated on one backend
   and the config names it; switching backends means recalibrating (`16-failure-model.md` §3).
+
+On CUDA, before the model loads: `torch.backends.cudnn.deterministic = True`,
+`torch.backends.cudnn.benchmark = False`, `torch.use_deterministic_algorithms(True)`.
+
+The NFR-02 run on CPU measures latency only; its scores decide nothing.
 
 Test: the same 20 frames inspected twice give identical scores to 1e-6 (NFR-03).
 
@@ -219,9 +264,11 @@ against ~6k patches ~50–120 ms. The default configuration is **borderline** fo
 or a 1% coreset fits with room.
 
 **Measurement (NFR-02).** The laptop with the GPU hidden and PyTorch pinned to 4 threads, 200
-consecutive frames replayed from the golden set. p50, p95 and p99 for the backbone, the search and
+consecutive inspections replayed from the golden set, looping over it when it holds fewer frames
+(the lean set has about 180). p50, p95 and p99 for the backbone, the search and
 the whole inspection, separately. The N100 figure is reported as the laptop's × 2 to × 3 — a range,
-not a number — until an N100 exists (Gate C).
+not a number — and Gate B is judged on its top end: laptop p95 inspection time × 3 ≤ 400 ms
+(ADR-0017), until an N100 exists (Gate C).
 
 **If it misses, in this order**, each step measured on the golden set before the next:
 
@@ -261,7 +308,8 @@ commercial products — which is practice, not a ruling.
 
 **Consequences for this project**
 
-- **The MVP is unaffected.** A bench prototype that is shown, not sold, is research use.
+- **The MVP ships nothing.** Whether demonstrating it to a paying prospect is itself affected is a
+  question for the lawyer line, not a conclusion drawn here.
 - **Before anything ships to the client, the backbone question goes to a lawyer.** It is the one
   licence risk in the stack, and every PatchCore variant carries it. The fallbacks, in order of
   cost: a backbone pretrained on a commercially licensed dataset, or self-supervised pretraining
@@ -271,5 +319,6 @@ commercial products — which is practice, not a ruling.
 - **The factory build installs OpenCV headless** plus our own screen path, or keeps the LGPL
   notices — decided when there is a factory build.
 - **Access from Russia.** Intel paused and then restored software downloads in 2022; no current
-  block on PyPI or `download.pytorch.org` was found, but none was verified either. Keep a local
+  block on PyPI, `download.pytorch.org` or the Hugging Face Hub was found, but none was verified
+  either. Keep a local
   wheel cache of every pinned dependency from the first install (NFR-12).

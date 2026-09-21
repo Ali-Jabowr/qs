@@ -16,8 +16,8 @@ learned components only where there is no right answer.
 
 Station A runs two checks on every unit:
 
-- **Geometry** — deterministic. From the unit's silhouette: area, equivalent diameter and
-  roundness, compared with tolerances derived from good units. Pass/fail against a golden
+- **Geometry** — deterministic. From the unit's silhouette: area, axis ratio and solidity, compared
+  with tolerances derived from good units (diameter is reported, not tested — `15-model.md` §3). Pass/fail against a golden
   reference, in pixels, not millimetres.
 - **Appearance** — PatchCore anomaly score against the threshold.
 

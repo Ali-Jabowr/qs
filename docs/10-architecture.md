@@ -281,7 +281,7 @@ flowchart LR
 The rule is C4: never a stale frame. OpenCV's capture buffer holds several frames, so a naive
 read after a key press returns a frame from *before* it — the previous placement, judged as this
 unit. The camera thread keeps each frame's kernel timestamp — `CLOCK_MONOTONIC`, the same clock as
-`perf_counter` — and `capture(event)` waits for the first one stamped after `t0`, with a timeout that raises `CaptureError`. The main thread owns the window,
+`perf_counter` — and `capture(event)` waits for the first one stamped later than `t0` plus one exposure time, with a timeout that raises `CaptureError`. The main thread owns the window,
 the keyboard and the inspection; one unit a second needs nothing more. The sink thread keeps
 persistence off the critical path (I9).
 
@@ -362,7 +362,7 @@ flowchart TB
 ```
 
 Sizing, carried over from `02-hardware.md` and unchanged: ~500 KB per image, ~5,000 units
-per shift is ~2.5 GB per shift, roughly 75 GB per month. A 1–2 TB SSD holds about a year
+per shift is ~2.5 GB per shift, roughly 55 GB per month at 22 shifts (`12-data-model.md` §3). A 1–2 TB SSD holds about a year
 of full traceability. The archive is part of what is being sold, not a by-product.
 
 ### The bench deployment (MVP)
@@ -405,7 +405,7 @@ legal constraint, a safety constraint, or a lesson already paid for.
 | I1 | **On-prem. No image leaves the building.** | 152-ФЗ, trade secret, and it closes the security objection before it opens. At runtime the only connection is to the station's own camera (NFR-07) |
 | I2 | **Every unit inspected writes an immutable record** with its image, verdict and full provenance | ХАССП traceability has value on its own, and it is the training data for every future retrain |
 | I3 | **Advisory only.** Operator alert, never automatic rejection | No PLC, no actuator, no line-safety sign-off. Prove detection before touching their machinery |
-| I4 | **Hardware trigger, one image per unit.** Never free-running video | Free-running gives doubles, partials and misses |
+| I4 | **One trigger, one inspected image per unit.** The camera may stream for the live view; only the one frame chosen per trigger is inspected (C9) | Inspecting a free-running stream gives doubles, partials and misses |
 | I5 | **Ambient light is blocked and lighting drift is measured** | Shift changes and daylight silently degrade models that tested fine (§3) |
 | I6 | **Fail to "no verdict", never to "pass"** | Over open food, a silent false pass is the one unacceptable failure. See [`16-failure-model.md`](16-failure-model.md) |
 | I7 | **A camera sees surfaces only** | No claim about the inside of opaque product, ever. Metal detection and X-ray exist for that reason |

@@ -33,7 +33,7 @@ is a photoelectric sensor or the spacebar.
 
 ## 2. The values that move between them
 
-Six immutable records. Immutable because the same `Frame` is handed to the inspector, the
+Eight immutable records. Immutable because the same `Frame` is handed to the inspector, the
 sink and — during evaluation — to several inspectors in a row, and a mutable frame makes
 every one of those a possible source of a bug you cannot reproduce.
 
@@ -46,7 +46,7 @@ class Label(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class TriggerEvent:
-    seq: int              # monotonic within a run, gapless — a gap means a missed unit
+    seq: int              # monotonic and gapless within a run: every seq gets exactly one record
     t0: float             # perf_counter at the moment of the trigger; the latency clock
     wall: datetime        # UTC, for the record
     source_id: str        # "keyboard" | "photoelectric" | "replay:<dataset>"
@@ -55,7 +55,7 @@ class TriggerEvent:
 @dataclass(frozen=True, slots=True)
 class CameraReadback:
     exposure_us: int | None       # what the camera reports it is set to, not what we asked
-    gain_db: float | None
+    gain: int | None              # raw driver units — UVC gain has no physical unit
     wb_kelvin: int | None
     focus: int | None
     verified: bool                # False if any value could not be read back (FR-13)
@@ -65,7 +65,7 @@ class CameraReadback:
 class Frame:
     event: TriggerEvent
     pixels: np.ndarray            # HxWx3, uint8, BGR — OpenCV's convention, kept throughout
-    grabbed_at: float             # perf_counter when the camera delivered it; always > event.t0
+    grabbed_at: float             # kernel timestamp, same clock as perf_counter; > t0 + exposure
     camera: CameraReadback
     reference_patch: float | None # mean luminance of the fixed grey target. See §5
     capture_ms: float             # trigger to pixels in hand
@@ -75,24 +75,51 @@ class Frame:
 class CheckResult:
     name: str                     # "geometry" | "appearance" — later "marking"
     passed: bool
-    value: float | None           # the number compared with the limit: the anomaly score
-    limit: float | None           # the threshold applied
-    measures: tuple[tuple[str, float], ...] = ()  # geometry: area_px, diameter_px, roundness
-    failed_on: str | None = None  # e.g. "diameter_px<min", "score>threshold"
+    value: float | None           # appearance: the anomaly score. geometry: None
+    limit: float | None           # appearance: the threshold. geometry: None
+    measures: tuple[tuple[str, float], ...] = ()  # geometry: area_px, diameter_px, axis_ratio, solidity
+    failed_on: str | None = None  # e.g. "area_px<min", "solidity<min", "score>threshold"
 
 
 @dataclass(frozen=True, slots=True)
 class Verdict:
     label: Label
-    checks: tuple[CheckResult, ...]   # every check that ran; empty only for NO_VERDICT
-    heatmap: np.ndarray | None        # HxW float32 in 0..1, frame coordinates, or None
-    unit_box: tuple[int, int, int, int] | None  # x, y, w, h of the unit found
-    model_id: str                 # name + version + weights hash
+    checks: tuple[CheckResult, ...]   # every configured check; empty only for NO_VERDICT
+    heatmap: np.ndarray | None        # float32, window coordinates, in score units — the threshold's
+    window_box: tuple[int, int, int, int] | None  # x, y, w, h of the window in the frame
+    unit_box: tuple[int, int, int, int] | None    # x, y, w, h of the unit found
+    model_id: str                 # patchcore-<product>-v<n>-<12 hex> (15-model.md §8)
     threshold_id: str             # the calibration: the threshold AND the geometry tolerances
-    config_hash: str              # the station config that produced it
+    config_hash: str              # the station config that produced it (12-data-model.md §4)
     inspect_ms: float
     reason: str | None = None     # required when label is NO_VERDICT
+
+
+@dataclass(frozen=True, slots=True)
+class Health:
+    ok: bool
+    detail: str                   # human-readable, for the log and the status bar
+
+
+@dataclass(frozen=True, slots=True)
+class InspectionRecord:
+    """What the Sink persists: one `inspection` row and its `inspection_check` rows. The image
+    and heatmap arrive ALREADY ENCODED — the sink queue never holds raw pixels (ADR-0012)."""
+    run_id: str
+    event: TriggerEvent
+    verdict: Verdict              # always present; NO_VERDICT with a reason when nothing was inspected
+    camera: CameraReadback | None # None when no frame was captured
+    reference_patch: float | None
+    image_jpeg: bytes | None      # JPEG q85 of the frame; None when there was no frame
+    heatmap_png: bytes | None     # uint8 PNG: heatmap / threshold, clipped to [0, 2], × 127.5
+    capture_ms: float | None
+    total_ms: float
 ```
+
+**`StationConfig`** is the typed, validated form of the YAML in
+[`12-data-model.md`](12-data-model.md) §4: a tree of frozen dataclasses with exactly those keys.
+An unknown or missing key is an error at load, not a default. Its field list is pinned in the plan
+that implements it.
 
 **Why a tuple of checks, not one score.** Station A now decides with two checks (ADR-0008), and
 Station M will add its own. The alternative — one typed field per check (`geometry: …`,
@@ -103,16 +130,19 @@ evaluation harness treat every check the same way.
 **`threshold_id` names the whole calibration.** The appearance threshold and the geometry
 tolerances are derived in one step from the same good units (FR-54), so they version together.
 
-`InspectionRecord` — what actually gets persisted — is in
-[`12-data-model.md`](12-data-model.md), because its shape is driven by traceability
-requirements rather than by the runtime.
+**The heatmap is in score units, not 0..1.** The screen and the store each map it through the
+threshold themselves, so a value means the same thing everywhere: 1.0 × threshold is the line
+between ГОДЕН and БРАК. It stays in window coordinates — a window is ~800 px square; the whole
+frame is not — and `window_box` says where the window sits. How the row is laid out on disk is
+[`12-data-model.md`](12-data-model.md) §3.
 
 ## 3. The contracts themselves
 
 ```python
 class TriggerSource(Protocol):
-    """Polled once per main-loop tick; never blocks. Returns at most one event per unit and
-    never skips one silently: if a unit is missed, seq still increments and the gap is recorded."""
+    """Polled once per main-loop tick; never blocks. At most one event per unit. A unit the
+    station cannot inspect is never skipped silently: it still gets its seq and a NO_VERDICT
+    record (C5)."""
 
     def poll(self) -> TriggerEvent | None: ...
     @property
@@ -121,9 +151,12 @@ class TriggerSource(Protocol):
 
 
 class FrameSource(Protocol):
-    """Turns an event into pixels. capture() returns the first frame the camera delivered
-    AFTER event.t0, or raises CaptureError on timeout — never a buffered frame from before the
-    trigger. preview() feeds the live view only; a preview frame is never inspected."""
+    """Turns an event into pixels. capture() returns the first frame whose timestamp is later
+    than event.t0 plus one exposure time — never a buffered frame from before the trigger. It
+    raises CaptureError on timeout or on a corrupt frame (wrong shape or dtype, or flat: every
+    pixel within 1 grey level), and CameraSettingsDrift when a readable setting no longer
+    matches the config. preview() feeds the live view only; a preview frame is never
+    inspected."""
 
     def open(self) -> None: ...
     def capture(self, event: TriggerEvent) -> Frame: ...
@@ -132,7 +165,7 @@ class FrameSource(Protocol):
     def close(self) -> None: ...
 
 
-
+class Inspector(Protocol):
     """Decides. Must be deterministic given (frame, model, threshold): the same frame
     inspected twice returns the same score, or the evaluation harness is measuring noise.
 
@@ -181,6 +214,13 @@ while not trigger.exhausted:
 and `ScreenAnnunciator` are both constructed with it. Replay runs with no screen, as fast as the
 disk allows.
 
+**Key presses during an inspection.** The loop is single-threaded, so presses made while a unit is
+being inspected wait in the window's queue and arrive on the ticks right after. `KeyboardTrigger`
+accepts a press only if it comes at least 300 ms after the previous event finished; anything
+earlier is discarded and counted. That also absorbs auto-repeat from a held key. A key press is not
+a unit, so a discarded press makes no record. NO_VERDICT(`busy`) exists for triggers that do stand
+for a unit — the factory's photoelectric sensor.
+
 ### The rules that are not in the type signatures
 
 | | Rule | What breaks without it |
@@ -188,11 +228,11 @@ disk allows.
 | C1 | `Inspector.inspect` is deterministic given frame, model and threshold | The evaluation harness measures noise, and a gate number cannot be reproduced |
 | C2 | `Inspector` performs no I/O and holds no per-frame state | Latency becomes unpredictable; replay stops matching live |
 | C3 | `Sink.write` never raises and never blocks | A full disk stops the line, which is the failure the client will never forgive |
-| C4 | `FrameSource.capture` returns only a frame delivered after `event.t0`, and raises rather than return a stale or partial one | A silent stale frame passes the previous unit's verdict onto this one |
-| C5 | `TriggerEvent.seq` is gapless within a run | Missed units become invisible, and the count on the report stops matching the count on the line |
+| C4 | `FrameSource.capture` returns only a frame stamped later than `event.t0` plus one exposure, and raises rather than return a stale, partial or corrupt one | A silent stale frame passes the previous unit's verdict onto this one |
+| C5 | `TriggerEvent.seq` is gapless within a run, and every `seq` gets exactly one record | Missed units become invisible, and the count on the report stops matching the count on the line |
 | C6 | Every implementation is constructed from `StationConfig` alone | "It worked on my machine" — configuration drifts into code |
 | C7 | `Label.NO_VERDICT` is never rendered or recorded as a pass | Invariant I6. This is the one that matters over open food |
-| C8 | `Verdict.label` is derived from `checks` alone: DEFECT if any failed; PASS only if at least one ran and all passed; otherwise NO_VERDICT with a reason | A PASS with no check behind it is a silent pass |
+| C8 | For a completed inspection, `Verdict.label` is derived from `checks` alone: DEFECT if any check failed; PASS only if **every configured check** ran and passed. An exception anywhere inside `inspect()` is NO_VERDICT, and any partial results are discarded | A PASS with a check missing behind it is a silent pass |
 | C9 | A `preview()` frame is never inspected or recorded | Its moment is unknown; inspecting it breaks C4 |
 
 ## 4. Implementations
@@ -220,7 +260,7 @@ produce the numbers we quote. See §6.
 
 ## 5. Capture metadata is part of the contract, not a nicety
 
-`Frame` carries `exposure_us`, `gain_db` and `reference_patch`, and the reason is the most
+`Frame` carries the camera read-back and `reference_patch`, and the reason is the most
 common way computer-vision datasets get quietly destroyed: the camera helpfully re-exposes
 for the defect and hides it, and nobody notices for three weeks.
 
@@ -268,12 +308,13 @@ they do not decide.
 
 | Raised by | Exception | Pipeline does |
 |---|---|---|
-| `FrameSource` | `CaptureError` — no frame after `t0` within the timeout | `NO_VERDICT(reason="capture")`, increments the fault counter, stays armed; three in a row is `FAULT` |
-| `FrameSource` | `CameraLost` | `NO_VERDICT(reason="camera")`, transitions to `FAULT`, reconnects with backoff ([`16-failure-model.md`](16-failure-model.md) §3) |
+| `FrameSource` | `CaptureError` — no frame after `t0` within the timeout, or a corrupt frame | `NO_VERDICT(reason="capture")`, fault counter, stays READY; three in a row is `FAULT(capture)` |
+| `FrameSource` | `CameraSettingsDrift` — a readable setting no longer matches the config | `NO_VERDICT(reason="camera_settings")`, raises the `CAMERA_SETTINGS` warning, stays READY. A setting that cannot be read at all is not drift: the record carries `camera_verified = 0` |
+| `FrameSource` | `CameraLost` | `NO_VERDICT(reason="camera")`, transitions to `FAULT(camera)`, reconnects with backoff ([`16-failure-model.md`](16-failure-model.md) §3) |
 | Pipeline | `LightingFault` | `NO_VERDICT(reason="lighting")`, raises the `LIGHTING` warning, keeps running and keeps recording |
-| `Inspector` | `PlacementFault` — no unit, or not wholly in the inspection area | `NO_VERDICT(reason="placement")`, stays armed. Not a fault count: a misplaced unit is an operator event, not a station fault |
-| `Inspector` | `InferenceError` | `NO_VERDICT(reason="inference")`, fault counter, stays armed; three in a row is `FAULT` |
-| Pipeline | A trigger while inspecting or starting | `NO_VERDICT(reason="busy")`, no image — the unit is accounted for, not checked |
+| `Inspector` | `PlacementFault` — no unit, more than one, or not wholly in the inspection area | `NO_VERDICT(reason="placement")`, stays READY. Not a fault count: a misplaced unit is an operator event, not a station fault |
+| `Inspector` | `InferenceError`, or any other exception inside `inspect()` | `NO_VERDICT(reason="inference")`, partial results discarded (C8), fault counter, stays READY; three in a row is `FAULT(inference)` |
+| Pipeline | A unit trigger (photoelectric) while inspecting or starting | `NO_VERDICT(reason="busy")`, no image — the unit is accounted for, not checked. Key presses are handled by `KeyboardTrigger` instead (§3) |
 | `Inspector` | exceeds its latency budget | verdict is still used; a budget breach is counted and reported, not discarded |
 | `Sink` | anything | swallowed, counted, surfaced through `health()`. Never reaches the operator path |
 | `Annunciator` | anything | logged; the record is still written |
