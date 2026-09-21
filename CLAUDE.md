@@ -110,3 +110,17 @@ Research freely for accuracy — web search, context7, agents — and cite sourc
 1. **Execute P01 (environment), then P02 (contracts and config)** — `plans/ROADMAP.md`. Review each into `reviews/`.
 2. **Ali, at the bench:** `sudo apt install v4l-utils`, build the rig (`docs/13-data-collection.md` §3), plug in the webcam; the lock test comes with P05.
 3. **Before the shoot, walk through `docs/13-data-collection.md` together** — Ali asked for this. Settle standard or lean (OQ-8) at the shop.
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in GitHub Issues on `Ali-Jabowr/qs`, through the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The five default labels, each named after its role: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `CONTEXT.md` at the root (not written yet), ADRs in `decisions/`. See `docs/agents/domain.md`.
