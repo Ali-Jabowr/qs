@@ -47,6 +47,35 @@ def build_parser() -> argparse.ArgumentParser:
     plan.add_argument(
         "--root", default="data/raw", metavar="DIR", help="where session folders live"
     )
+
+    from qs.cmd.shoot import best_before, purchased_at
+
+    shoot = commands.add_parser(
+        "shoot", help="the guided dataset session (docs/13-data-collection.md §6, §8)"
+    )
+    shoot.add_argument("--config", required=True, metavar="PATH", help="the station config")
+    shoot.add_argument(
+        "--session", required=True, type=session_id, metavar="ID",
+        help="the session planned by split-plan",
+    )
+    shoot.add_argument("--flavour", required=True, metavar="F", help="the моти's flavour")
+    shoot.add_argument("--shop", required=True, metavar="S", help="where it was bought")
+    shoot.add_argument(
+        "--best-before", required=True, type=best_before, metavar="DATE", help="YYYY-MM-DD"
+    )
+    shoot.add_argument(
+        "--purchased-at", required=True, type=purchased_at, metavar="ISO",
+        help="e.g. 2026-09-25T09:10+03:00",
+    )
+    maker = shoot.add_mutually_exclusive_group(required=True)
+    maker.add_argument("--brand", metavar="B", help="the brand on the pack")
+    maker.add_argument(
+        "--client-product", action="store_true",
+        help="the client's own моти: recorded as client_product, no brand (docs/17 §5)",
+    )
+    shoot.add_argument(
+        "--root", default="data/raw", metavar="DIR", help="where session folders live"
+    )
     return parser
 
 
@@ -69,6 +98,10 @@ def run(argv: Sequence[str] | None = None) -> int:
         from qs.cmd import camera_test
 
         return camera_test.main(args)
+    if args.command == "shoot":
+        from qs.cmd import shoot
+
+        return shoot.main(args)
     raise AssertionError(f"unhandled command {args.command!r}")
 
 
