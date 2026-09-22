@@ -19,7 +19,7 @@ import cv2
 
 from qs.config import DisplayConfig, StationConfig, load_config
 from qs.contracts import CameraReadback, FrameSource, TriggerEvent
-from qs.errors import CameraSettingsDrift, CaptureError, ConfigError
+from qs.errors import CameraLost, CameraSettingsDrift, CaptureError, ConfigError
 from qs.screen import Screen
 from qs.sources.v4l2 import ControlReading
 from qs.sources.webcam import WebcamSource
@@ -210,6 +210,10 @@ def main(
     source = make_source(config)
     try:
         source.open()
+    except KeyboardInterrupt:
+        print("stopped by the operator while opening the camera")
+        source.close()
+        return 2
     except CameraSettingsDrift as exc:
         readings: tuple[ControlReading, ...] = getattr(source, "readings", ())
         print("\n".join(_readings_table(readings)))
@@ -243,19 +247,21 @@ def main(
                 "Switch the room light on and off twice during the test",
                 "Q quits",
             ]
+            event = TriggerEvent(seq, 0.0, datetime.now(UTC), "camera-test")
             try:
-                going = _wait(start + (seq - 1) * args.interval_s, screen, status, source)
+                if not _wait(start + (seq - 1) * args.interval_s, screen, status, source):
+                    print(f"stopped by the operator after {len(samples)} frame(s)")
+                    break
+                event = TriggerEvent(seq, time.perf_counter(), datetime.now(UTC), "camera-test")
+                frame = source.capture(event)
             except KeyboardInterrupt:
-                going = False
-            if not going:
                 print(f"stopped by the operator after {len(samples)} frame(s)")
                 break
-            event = TriggerEvent(seq, time.perf_counter(), datetime.now(UTC), "camera-test")
-            try:
-                frame = source.capture(event)
             except (CaptureError, CameraSettingsDrift) as exc:
                 samples.append(Sample(seq, event.t0, None, None, None, None, str(exc)))
                 print(f"frame {seq}: {exc}")
+                if isinstance(exc, CameraLost):
+                    break  # every later frame would fail the same way
                 continue
             path = out / f"lock_{seq:02d}.png"
             saved = cv2.imwrite(str(path), frame.pixels)

@@ -10,9 +10,10 @@ human workflow and `AGENTS.md` for the executor's instructions.
 
 1. Claude Code (Planner) writes plans into `/plans/<plan-id>/`.
 2. A human reviews and approves the plan.
-3. OpenCode (Executor) implements the plan on a branch.
-4. OpenCode writes `STATUS.md` and opens a PR.
-5. Claude Code reviews the PR and writes `/reviews/REVIEW-<plan-id>.md`.
+3. Claude Code (Executor, ADR-0021) implements the plan on a branch. P01 and P02 were run by OpenCode.
+4. It writes `STATUS.md` and opens a PR.
+5. A fresh Claude agent reviews the diff; Claude Code fixes the findings and writes
+   `/reviews/REVIEW-<plan-id>.md`.
 6. Human decides: merge, fix, or re-plan.
 
 ## PLAN.md FORMAT

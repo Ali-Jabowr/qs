@@ -36,6 +36,8 @@ _QUEUE = 8
 _FAILURES_LOST = 3
 _STALE_S = 2.0
 _JOIN_S = 2.0
+_READ_TIMEOUT_MS = 1000  # below _JOIN_S, so close() never has to release a capture mid-read
+_FIRST_FRAME_MS = 3000  # UVC webcams can take 0.5–1.5 s after STREAMON to deliver frame one
 
 
 class CaptureLike(Protocol):
@@ -112,6 +114,7 @@ class WebcamSource:
             self._cap = cap
             if not cap.isOpened():
                 raise CameraLost(f"{camera.device}: cannot open")
+            cap.set(cv2.CAP_PROP_READ_TIMEOUT_MSEC, _READ_TIMEOUT_MS)
             cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter.fourcc(*camera.format))
             cap.set(cv2.CAP_PROP_FRAME_WIDTH, camera.width)
             cap.set(cv2.CAP_PROP_FRAME_HEIGHT, camera.height)
@@ -139,7 +142,8 @@ class WebcamSource:
             target=self._grab, args=(cap,), name="qs-webcam-grab", daemon=True
         )
         self._thread.start()
-        deadline = time.perf_counter() + self._camera.capture_timeout_ms / 1000
+        first_ms = max(self._camera.capture_timeout_ms, _FIRST_FRAME_MS)
+        deadline = time.perf_counter() + first_ms / 1000
         with self._cond:
             while not self._frames and not self._lost:
                 remaining = deadline - time.perf_counter()
@@ -147,11 +151,21 @@ class WebcamSource:
                     break
                 self._cond.wait(remaining)
             if not self._frames:
-                raise CaptureError(
-                    f"no frame within {self._camera.capture_timeout_ms} ms of opening"
-                )
+                raise CaptureError(f"no frame within {first_ms} ms of opening")
 
     def _grab(self, cap: CaptureLike) -> None:
+        try:
+            self._grab_frames(cap)
+        except Exception:  # a driver error ends the stream; capture() reports CameraLost
+            pass
+        finally:
+            # However the loop ends — stopped, failed or crashed — a capture never waits on it.
+            if not self._stop.is_set():
+                with self._cond:
+                    self._lost = True
+                    self._cond.notify_all()
+
+    def _grab_frames(self, cap: CaptureLike) -> None:
         failures = 0
         while not self._stop.is_set():
             ok, img = cap.read()
@@ -165,9 +179,6 @@ class WebcamSource:
                 continue
             failures += 1
             if failures >= _FAILURES_LOST:
-                with self._cond:
-                    self._lost = True
-                    self._cond.notify_all()
                 return
 
     def capture(self, event: TriggerEvent) -> Frame:
@@ -238,12 +249,15 @@ class WebcamSource:
     def close(self) -> None:
         """Stop the grab thread, release the camera and the controls; safe to call twice."""
         self._stop.set()
+        stuck = False
         if self._thread is not None:
             self._thread.join(_JOIN_S)
+            stuck = self._thread.is_alive()
             self._thread = None
         if self._cap is not None:
             cap, self._cap = self._cap, None
-            cap.release()
+            if not stuck:  # releasing a capture another thread is reading from can crash
+                cap.release()
         if self._controls is not None:
             controls, self._controls = self._controls, None
             controls.close()

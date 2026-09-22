@@ -15,12 +15,11 @@ execution (`plans/ROADMAP.md`).
 git push origin master
 ```
 
-### 2. Execute (OpenCode)
+### 2. Execute (Claude Code — ADR-0021; P01 and P02 were run by OpenCode, ADR-0019)
 ```bash
 git checkout -b exec/<plan-id> master
 ```
-Open OpenCode. Tell it: "Implement /plans/<plan-id>/."
-Watch it work. Intervene if it goes off-track.
+Claude Code implements `/plans/<plan-id>/` itself, following `AGENTS.md`, and writes `STATUS.md`.
 
 When done:
 ```bash
@@ -29,15 +28,15 @@ gh pr create --base master --head exec/<plan-id> \
   --title "exec: <plan-id>" --body "See plans/<plan-id>/STATUS.md"
 ```
 
-### 3. Review (Claude Code)
-Back in Claude Code:
-"OpenCode finished plan <plan-id>. Read STATUS.md, review the diff,
-run the ACCEPTANCE checks, write /reviews/REVIEW-<plan-id>.md."
+### 3. Review (an independent Claude agent, then Claude Code)
+A fresh Claude agent that did not write the code reviews the diff against the plan and runs the
+ACCEPTANCE checks. Claude Code fixes its findings on the branch, re-runs the checks and writes
+`/reviews/REVIEW-<plan-id>.md`.
 
 ### 4. Decide
 - PASS → merge the PR into `master`; mark the plan's tasks done in `project.yml` with the merge
   commit as evidence; `python3 tools/render.py`; move to the next plan
-- FAIL small → tell OpenCode to fix on the same branch
+- FAIL small → fix on the same branch, re-review
 - FAIL big → rewrite the plan with Claude Code
 
 ## Rules

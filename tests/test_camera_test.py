@@ -203,3 +203,21 @@ def test_main_without_a_display_says_so_and_returns_2(
     assert main(run, make_source=make_source, make_screen=no_display) == 2
     assert capsys.readouterr().out.splitlines()[-1].startswith("screen: no display")
     assert made[0].closed == 1
+
+
+def test_main_stops_at_a_lost_camera_and_fails(tmp_path: Path) -> None:
+    from qs.errors import CameraLost
+
+    class LosingSource(FakeSource):
+        calls = 0
+
+        def capture(self, event: TriggerEvent) -> Frame:
+            LosingSource.calls += 1
+            if LosingSource.calls >= 2:
+                raise CameraLost("/dev/video0: camera stopped delivering frames")
+            return super().capture(event)
+
+    assert main(args(tmp_path, frames=5), make_source=LosingSource) == 1
+    assert LosingSource.calls == 2
+    [report] = list((tmp_path / "reports").iterdir())
+    assert "FAIL frames: 2 of 5 captured, 1 failed" in report.read_text(encoding="utf-8")

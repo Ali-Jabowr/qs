@@ -135,12 +135,14 @@ def test_open_sets_the_format_then_applies_the_controls(sources: list) -> None:
     source, controls = make(sources, cap, FakeControls(log=log))
     assert source.readings == ()
     source.open()
-    assert log[:3] == [
+    assert log[:4] == [
+        f"cap {cv2.CAP_PROP_READ_TIMEOUT_MSEC}",
         f"cap {cv2.CAP_PROP_FOURCC}",
         f"cap {cv2.CAP_PROP_FRAME_WIDTH}",
         f"cap {cv2.CAP_PROP_FRAME_HEIGHT}",
     ]
-    assert all(entry.startswith("control") for entry in log[3:]) and len(log) == 11
+    assert all(entry.startswith("control") for entry in log[4:]) and len(log) == 12
+    assert cap.props[cv2.CAP_PROP_READ_TIMEOUT_MSEC] == 1000
     assert cap.props[cv2.CAP_PROP_FOURCC] == cv2.VideoWriter.fourcc(*"YUYV")
     assert (cap.props[cv2.CAP_PROP_FRAME_WIDTH], cap.props[cv2.CAP_PROP_FRAME_HEIGHT]) == (W, H)
     assert len(source.readings) == 8
@@ -172,7 +174,7 @@ def test_a_control_mismatch_at_open_is_drift_and_readings_are_kept(sources: list
 
 def test_no_first_frame_within_the_timeout_is_a_capture_error(sources: list) -> None:
     source, _ = make(sources, FakeCapture([FAIL, FAIL, FAIL]))
-    with pytest.raises(CaptureError, match="no frame within 500 ms of opening"):
+    with pytest.raises(CaptureError, match="no frame within 3000 ms of opening"):
         source.open()
 
 
@@ -313,3 +315,31 @@ def test_preview_health_and_close(sources: list) -> None:
 def test_open_v4l2_capture_refuses_a_path_that_is_not_a_video_device() -> None:
     with pytest.raises(CameraLost, match="/dev/sda: not a /dev/videoN path"):
         open_v4l2_capture("/dev/sda")
+
+
+class CrashingCapture(FakeCapture):
+    def read(self) -> tuple[bool, np.ndarray | None]:
+        if not self.script:
+            raise cv2.error("driver fell over")
+        return super().read()
+
+
+def test_a_crashed_grab_thread_loses_the_camera(sources: list) -> None:
+    source, _ = make(sources, CrashingCapture([(time.perf_counter(), image())]))
+    source.open()
+    with pytest.raises(CameraLost, match="stopped delivering frames"):
+        source.capture(event(time.perf_counter() + 0.1))
+
+
+def test_close_never_releases_a_capture_that_is_still_being_read(
+    sources: list, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from qs.sources import webcam
+
+    monkeypatch.setattr(webcam, "_JOIN_S", 0.05)
+    cap = FakeCapture([(time.perf_counter(), image())])  # then blocks in read()
+    source, controls = make(sources, cap)
+    source.open()
+    source.close()
+    assert cap.released == 0
+    assert controls.closed == 1

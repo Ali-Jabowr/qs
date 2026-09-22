@@ -34,10 +34,14 @@ def build_parser() -> argparse.ArgumentParser:
 def run(argv: Sequence[str] | None = None) -> int:
     """Parse the arguments and dispatch to the subcommand."""
     args = build_parser().parse_args(argv)
+    import os
+
     import cv2
 
     # OpenCV's own warnings would print beside our one-line errors; ours say it all.
-    cv2.utils.logging.setLogLevel(cv2.utils.logging.LOG_LEVEL_ERROR)
+    # OPENCV_LOG_LEVEL, when set, still wins — for diagnosing a camera.
+    if "OPENCV_LOG_LEVEL" not in os.environ:
+        cv2.utils.logging.setLogLevel(cv2.utils.logging.LOG_LEVEL_ERROR)
     if args.command == "camera-test":
         from qs.cmd import camera_test
 

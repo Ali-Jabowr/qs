@@ -27,7 +27,7 @@ QS/
   docs/10–17             Phase 2 — architecture, contracts, data model, data collection,
                          evaluation, model, failure model, security
   docs/01–04             history (survey kit, hardware tree, survey answers, old build plan)
-  decisions/             ADR-0001 … ADR-0020; README.md is the index
+  decisions/             ADR-0001 … ADR-0021; README.md is the index
   reviews/GATE-2.md      the design review, with the requirement → design → check matrix
   plans/ROADMAP.md       nine executor plans and the week; plans/Pxx-*/ one folder per plan
   src/ · tests/ · tools/ code (from P02) · tests · state renderer, bounds, diagram checker
@@ -82,7 +82,7 @@ Everything else in the survey sheet — line speed, field of view, sizes, enviro
 
 ## 7. Decisions
 
-The log is `decisions/README.md` — ADR-0001 to ADR-0020, each with context, alternatives and consequences. Do not re-open one without new facts; supersede it with a new ADR. The ones that shape this week:
+The log is `decisions/README.md` — ADR-0001 to ADR-0021, each with context, alternatives and consequences. Do not re-open one without new facts; supersede it with a new ADR. The ones that shape this week:
 
 | ADR | Decision |
 |---|---|
@@ -94,8 +94,8 @@ The log is `decisions/README.md` — ADR-0001 to ADR-0020, each with context, al
 | 0015 | PatchCore from Anomalib 2.6.2, pinned, torch model only |
 | 0017 | Gate B judged on a conservative N100 estimate until an N100 exists |
 | 0018 | Operator screen is a Tk window; OpenCV headless everywhere |
-| 0019 | The executor runs on OpenRouter, non-training hosts only, skills off (`opencode.json`): GLM-5.3 for P02, P04, P07; GLM-5.3-Flash for the rest |
 | 0020 | PatchCore's backbone weights are timm's `wide_resnet50_2.racm_in1k`, named by full tag and hash-checked |
+| 0021 | Claude Code executes the plans (from P05); one independent Claude agent reviews each. Supersedes 0019 (OpenCode, which ran P01–P02) |
 
 ## 8. Stack
 
@@ -103,7 +103,7 @@ PatchCore from **Anomalib 2.6.2** (torch model only, our own preprocessing) · d
 
 ## 9. How work is done
 
-**Planner → Executor → Reviewer.** Claude Code writes plans (`plans/Pxx-*/`: PLAN, CONTEXT, CONTRACTS, ACCEPTANCE) and reviews the result (`reviews/REVIEW-Pxx.md`); **OpenCode** (GLM-5.3 or GLM-5.3-Flash per plan, ADR-0019) implements one plan at a time on a branch and writes STATUS.md; Ali approves every gate. Docs and ADRs come from Claude directly; only code goes through the executor. Plans are written one ahead of execution.
+**Planner → Executor → Reviewer.** Claude Code writes plans (`plans/Pxx-*/`: PLAN, CONTEXT, CONTRACTS, ACCEPTANCE), then implements one plan at a time on `exec/Pxx` and writes STATUS.md (ADR-0021; OpenCode ran P01–P02). A fresh Claude agent that did not write the code reviews it; Claude Code fixes the findings and writes `reviews/REVIEW-Pxx.md`. Ali approves every gate and merges every PR. Docs and ADRs come from Claude directly. Plans are written one ahead of execution.
 
 Research freely for accuracy — web search, context7, agents — and cite sources. `ai-engineer` for model/deployment questions; `web-search-agent` for suppliers and regulation dates (**re-verify dates, they move**). Ali's global `/graphify` skill must be invoked via the Skill tool the moment he types it.
 

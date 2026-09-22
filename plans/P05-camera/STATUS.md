@@ -117,3 +117,31 @@ exit=2
 
 None. The lock test itself is Ali's step: the last manual check in ACCEPTANCE, with the webcam in
 the rig. It decides ADR-0010, not P05.
+
+## Round 2 — after review round 1 (FAIL-small)
+
+All changes are on `exec/P05`. CONTRACTS §2 is amended where the plan itself changed (marked *amended
+in review round 1*).
+
+| Finding | Fix |
+|---|---|
+| 1. `close()` could release the capture while the grab thread was still in `read()` | `open()` sets `CAP_PROP_READ_TIMEOUT_MSEC` to 1000 ms, below the 2 s join. If the thread is still alive after the join, `close()` skips `release()`. Test: `test_close_never_releases_a_capture_that_is_still_being_read` |
+| 2. A 500 ms wait for the first frame is too short for a real UVC camera | Now `max(capture_timeout_ms, 3000)` ms, a contract amendment. Test updated |
+| 3. After an unplug the test looped for 5 minutes | `main` stops at the first `CameraLost`, and the verdict FAILs. Test: `test_main_stops_at_a_lost_camera_and_fails` |
+| 4. Ctrl-C in `open()` or `capture()` printed a traceback | `KeyboardInterrupt` is caught around `open()` and the whole loop body |
+| 5. A driver exception killed the grab thread silently | The thread catches it and ends as lost, and `capture()` raises `CameraLost`. There is no thread traceback. Test: `test_a_crashed_grab_thread_loses_the_camera` |
+| Deviation 4, nit | `OPENCV_LOG_LEVEL`, when set, overrides the ERROR default |
+
+Checks after round 2:
+
+```
+make check exit=0
+160 passed, 6 deselected in 1.43s
+All checks passed!
+Success: no issues found in 11 source files
+make gui-check: 1 passed, 165 deselected in 0.43s
+P05 test files: 56 passed, 1 deselected in 1.00s
+bin/qs camera-test --config config/station-A-bench.example.yml --frames 1 --no-screen
+camera: /dev/video0: cannot open
+exit=2
+```
