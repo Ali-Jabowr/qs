@@ -16,6 +16,8 @@ canonical hash). Nothing here touches a camera, a model or a disk beyond reading
 ## Tasks
 
 1. **`src/qs/__init__.py`** — `__version__ = "0.1.0"`, nothing else. The file already exists, empty (P01 added it so mypy has a file to check; `reviews/REVIEW-P01.md`).
+   Make `qs` importable for the tests by adding `pythonpath = ["src"]` to `[tool.pytest.ini_options]` in
+   `pyproject.toml` — the only change to that file. Do **not** install the package into `.venv`.
 2. **`src/qs/contracts.py`** — every name in CONTRACTS.md §1, exactly as specified. Values are frozen,
    slotted dataclasses; protocols are `typing.Protocol`. Include `derive_label` (CONTRACTS §1.4).
 3. **`src/qs/errors.py`** — the exception hierarchy in CONTRACTS.md §2.
