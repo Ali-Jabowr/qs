@@ -1,0 +1,67 @@
+{
+  "date": "2026-09-22",
+  "model": "PatchcoreModel",
+  "backbone": "wide_resnet50_2",
+  "layers": [
+    "layer2",
+    "layer3"
+  ],
+  "caches": {
+    ".hf": {
+      "hub_repo_ids": [
+        "timm/wide_resnet50_2.racm_in1k"
+      ],
+      "files": [
+        {
+          "path": ".hf/.agent_harnesses.json",
+          "sha256": "2697b4b40d91f00ea0328ccaf0442d531d94d6f5228f306eccc1f88e6d24eda3",
+          "bytes": 6007
+        },
+        {
+          "path": ".hf/hub/.locks/models--timm--wide_resnet50_2.racm_in1k/03b71d65fb2c73bb0de079a1781009f27a782ec481d2f64ab3bde9b1cdec3000.lock",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "bytes": 0
+        },
+        {
+          "path": ".hf/hub/CACHEDIR.TAG",
+          "sha256": "f6572428f6d5e1575e73a1502895a8731f10757dfbb634909c6e154b849af91d",
+          "bytes": 191
+        },
+        {
+          "path": ".hf/hub/blobs/.huggingface-shared-blobs",
+          "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+          "bytes": 2
+        },
+        {
+          "path": ".hf/hub/blobs/a4/a44742a3bb062af571cdace5b17b91fa220c164f8f4b58f473f5bbf916221f8a",
+          "sha256": "03b71d65fb2c73bb0de079a1781009f27a782ec481d2f64ab3bde9b1cdec3000",
+          "bytes": 275835296
+        },
+        {
+          "path": ".hf/hub/blobs/a4/a44742a3bb062af571cdace5b17b91fa220c164f8f4b58f473f5bbf916221f8a.lock",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "bytes": 0
+        },
+        {
+          "path": ".hf/hub/blobs/a4/a44742a3bb062af571cdace5b17b91fa220c164f8f4b58f473f5bbf916221f8a.refs",
+          "sha256": "502f006a4b142bcb12647d708da6ffffd38762b3d919d56b2d049444809f6c15",
+          "bytes": 111
+        },
+        {
+          "path": ".hf/hub/models--timm--wide_resnet50_2.racm_in1k/refs/main",
+          "sha256": "4233913c71912ffad6fa48d0f2e1ffd9035b376347f189597a20af786a0a397f",
+          "bytes": 40
+        },
+        {
+          "path": ".hf/xet/logs/xet_20260922T181931086+0300_744699.log",
+          "sha256": "ad205fc7621a04c1fc75d15f0690172c2975244acccfeebc24b5e5161a880066",
+          "bytes": 288533
+        }
+      ]
+    },
+    ".torch": {
+      "hub_repo_ids": [],
+      "files": []
+    }
+  }
+}

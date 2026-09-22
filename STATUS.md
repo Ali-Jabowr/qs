@@ -2,7 +2,7 @@
 # QS — status
 
 **Automated visual quality inspection for a food production line**  
-Owner: Ali, Volgograd · Rendered 2026-09-21
+Owner: Ali, Volgograd · Rendered 2026-09-22
 
 Overall: **15/60 tasks** `██████··················` 25%
 
@@ -171,7 +171,7 @@ Overall: **15/60 tasks** `██████··················
 | `R8` | low | Something trained on MVTec AD ends up in a deliverable — the licence is non-commercial. | — | MVTec is S1 validation only. A bundle trained on it is tagged validation-only and the station refuses to run it (ADR-0016). |
 | `R9` | high | The client questions stay unsent while build work continues, so the product is designed on assumptions. | OQ-1 … OQ-6 and OQ-9 have never been sent. | Deferred by decision for the MVP week (2026-09-21). Revisit on 2026-09-28; the MVP demo is the reason for the next conversation. |
 | `R10` | medium | моти change during a session — drying, softening, condensation — and the model learns time instead of damage. | The control units' scores drift between the start and the end of a session. | Paired shooting in random order, controls at start, middle and end, 30 minutes to room temperature in the packaging (ADR-0014, 13 §2). |
-| `R11` | high | The ImageNet-pretrained backbone weights carry no explicit licence; their commercial use is unresolved. | Every PatchCore variant depends on them. | The lawyer budget line before anything ships (OQ-10). Fallbacks — a commercially licensed pretraining, or self-supervised pretraining on the line's own images (15-model.md §11). |
+| `R11` | high | The ImageNet-pretrained backbone weights (timm's racm_in1k, ADR-0020) declare Apache-2.0 on their model card, but whether ImageNet's non-commercial terms reach them is unresolved; so is their commercial use. | Every PatchCore variant depends on them. | The lawyer budget line before anything ships (OQ-10). Fallbacks — a commercially licensed pretraining, or self-supervised pretraining on the line's own images (15-model.md §11). |
 | `R12` | medium | The week is tight — nine executor plans and a shoot in six days. | A plan fails review, or the shoot moves past 2026-09-25. | The order protects the shoot — tools first, then the shoot, then the report. P09's polish slips first (plans/ROADMAP.md). |
 
 ---

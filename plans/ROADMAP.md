@@ -19,6 +19,9 @@ written **one ahead** of execution, so each can learn from the last. Status of e
 | P08 | `qs build` (datasets and golden set), `qs calibrate`, `qs evaluate` — the INDICATIVE report | P04, P07 | `14` §4–§9; `15` §7 |
 | P09 | The station: `ScreenAnnunciator`, `KeyboardTrigger`, live `qs station`; NFR-01 measured; the non-author test | P05, P08 | `11` §3; `16` §5; ADR-0018 |
 
+**Executor model** (ADR-0019, amended after P01): GLM-5.3 for **P02, P04, P07**; GLM-5.3-Flash for
+the rest — start OpenCode with `opencode -m openrouter/z-ai/glm-5.3-flash` for those.
+
 P03 and P04 are numbered by the original skeleton task (E0.8) but run after P07: the shoot is the
 one step that cannot be redone, so everything it needs comes first.
 

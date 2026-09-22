@@ -88,7 +88,7 @@ def main() -> None:
 
     print()
     n = smallest_clean_n()
-    print(f"To demonstrate a false-alarm rate at or below 5% with 95% confidence,")
+    print("To demonstrate a false-alarm rate at or below 5% with 95% confidence,")
     print(f"{n} good units must pass with none flagged "
           f"(upper bound {upper_bound(n, 0) * 100:.2f}%).")
 

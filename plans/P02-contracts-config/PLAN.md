@@ -15,7 +15,7 @@ canonical hash). Nothing here touches a camera, a model or a disk beyond reading
 
 ## Tasks
 
-1. **`src/qs/__init__.py`** — `__version__ = "0.1.0"`, nothing else.
+1. **`src/qs/__init__.py`** — `__version__ = "0.1.0"`, nothing else. The file already exists, empty (P01 added it so mypy has a file to check; `reviews/REVIEW-P01.md`).
 2. **`src/qs/contracts.py`** — every name in CONTRACTS.md §1, exactly as specified. Values are frozen,
    slotted dataclasses; protocols are `typing.Protocol`. Include `derive_label` (CONTRACTS §1.4).
 3. **`src/qs/errors.py`** — the exception hierarchy in CONTRACTS.md §2.
@@ -27,7 +27,7 @@ canonical hash). Nothing here touches a camera, a model or a disk beyond reading
 6. **`config/station-A-bench.example.yml`** — the example from `docs/12-data-model.md` §4, verbatim
    except for comments. It must load.
 7. **`tests/test_contracts.py`** and **`tests/test_config.py`** — the cases in CONTRACTS.md §4.
-8. **Run** `make check`; write `STATUS.md`.
+8. **Run** `make check`; write `STATUS.md`, with the **actual output** of every ACCEPTANCE check pasted in, not summarised (`reviews/REVIEW-P01.md`).
 
 ## Constraints
 
