@@ -456,3 +456,10 @@ def test_no_defaults_missing_and_unknown_keys_are_both_refused(
 def test_unreadable_file_is_a_config_error(tmp_path: Path) -> None:
     with pytest.raises(ConfigError, match="no-such-file"):
         load_config(tmp_path / "no-such-file.yml")
+
+
+def test_the_bench_config_in_git_loads() -> None:
+    bench = EXAMPLE.with_name("station-A-bench.yml")
+    loaded = load_config(bench)
+    assert loaded.config.station_id == "A-bench"
+    assert loaded.config.camera.type == "webcam"

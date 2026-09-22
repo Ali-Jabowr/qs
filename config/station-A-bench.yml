@@ -1,0 +1,58 @@
+# config/station-A-bench.yml — the bench station's config, versioned in git (docs/12-data-model.md §4).
+# It starts as a copy of station-A-bench.example.yml. Before the lock test (#25 §2) set, from
+# `v4l2-ctl -d <device> --list-formats-ext` and `--list-ctrls`:
+#   camera.device, width, height, format   exactly the mode chosen (YUYV, highest res at >= 5 fps)
+#   camera.exposure_us                     10000 or 20000: a multiple of 10 ms, within the control's range
+#   camera.gain, wb_kelvin, focus          within each control's min/max; focus sharp at the marked height
+#   lighting.reference_patch.roi           [x, y, w, h] over the grey card only, wholly inside the frame
+#   inspector.localize.roi                 wholly inside the frame, and not overlapping the grey card
+# The ROIs below only fit 1920x1080. The inspector, threshold and model values are illustrative
+# until calibration; camera-test does not use them, but they must still load.
+version: 1
+station_id: A-bench
+product: mochi-<flavour>-v1
+
+trigger:   { type: keyboard, key: space }
+camera:
+  type: webcam
+  device: /dev/video0
+  width: 1920
+  height: 1080
+  format: YUYV
+  power_line_hz: 50
+  exposure_us: 10000
+  gain: 0
+  wb_kelvin: 4500
+  focus: 30
+  capture_timeout_ms: 500
+
+lighting:
+  geometry: G2
+  reference_patch:
+    roi:    [1780, 40, 100, 100]
+    expect: 0.62
+    band:   0.05
+
+inspector:
+  type: appearance
+  localize:  { roi: [360, 0, 1200, 1080], threshold: 70, min_area_px: 20000, border_margin_px: 10 }
+  mask_dilate_px: 12
+  model:     patchcore-mochi-v1-3f9a1c2b7d4e
+  backend:   torch-cuda
+
+threshold:
+  id:     cal-2026-09-25-far5-a41c07
+  value:  1.83
+  policy: far_5pct_on_calib
+  set_on: { model: patchcore-mochi-v1-3f9a1c2b7d4e, backend: torch-cuda, calib_units: 15, localize_threshold: 70, mask_dilate_px: 12 }
+  geometry:
+    area_px:        [98000, 131000]
+    axis_ratio_min: 0.90
+    solidity_min:   0.96
+
+display:
+  labels: { pass: ГОДЕН, defect: БРАК, no_verdict: НЕТ РЕШЕНИЯ }
+  font:   assets/DejaVuSans.ttf
+
+evidence:  { root: evidence/, retention_days: 400 }
+latency:   { budget_ms: 1000, breach_action: record_and_continue }

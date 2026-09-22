@@ -343,3 +343,11 @@ def test_close_never_releases_a_capture_that_is_still_being_read(
     source.close()
     assert cap.released == 0
     assert controls.closed == 1
+
+
+def test_a_reference_patch_outside_the_frame_is_a_lighting_fault() -> None:
+    from qs.errors import LightingFault
+
+    pixels = np.full((48, 64, 3), 128, dtype=np.uint8)
+    with pytest.raises(LightingFault, match=r"\[60, 40, 10, 10\] is outside the 64x48 frame"):
+        measure_patch(pixels, (60, 40, 10, 10))

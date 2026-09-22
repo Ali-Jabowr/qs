@@ -19,7 +19,13 @@ import cv2
 
 from qs.config import DisplayConfig, StationConfig, load_config
 from qs.contracts import CameraReadback, FrameSource, TriggerEvent
-from qs.errors import CameraLost, CameraSettingsDrift, CaptureError, ConfigError
+from qs.errors import (
+    CameraLost,
+    CameraSettingsDrift,
+    CaptureError,
+    ConfigError,
+    LightingFault,
+)
 from qs.screen import Screen
 from qs.sources.v4l2 import ControlReading
 from qs.sources.webcam import WebcamSource
@@ -27,6 +33,7 @@ from qs.sources.webcam import WebcamSource
 _TICK_S = 0.05
 _PATCH_LIMIT = 0.01
 _BY_EYE = "CHECK BY EYE banding — look at the saved frames"
+_NO_CONTROL = "the camera does not report this control, so it cannot be locked"
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,6 +57,11 @@ class LockTestResult:
     lines: tuple[str, ...]
 
 
+def _missing(readings: tuple[ControlReading, ...]) -> list[str]:
+    """The controls the camera does not report: they cannot be locked (FR-13, ADR-0010)."""
+    return [r.name for r in readings if r.reported is None]
+
+
 def _status(reading: ControlReading) -> str:
     if reading.reported is None:
         return "unreadable"
@@ -65,12 +77,17 @@ def lock_test_verdict(
     """Judge every criterion of the lock test; one PASS or FAIL line each, and one by eye."""
     judged: list[tuple[bool, str]] = []
 
-    bad = [f"{r.name} {_status(r)} (set {r.wanted}, reports {r.reported})"
+    missing = _missing(readings)
+    bad = [f"{r.name} unreadable (set {r.wanted}; {_NO_CONTROL})" if r.reported is None
+           else f"{r.name} {_status(r)} (set {r.wanted}, reports {r.reported})"
            for r in readings if not r.ok]
     if not readings:
         judged.append((False, "controls: none were read back"))
     elif bad:
-        judged.append((False, "controls: " + "; ".join(bad)))
+        text = "controls: " + "; ".join(bad)
+        if missing:
+            text += " — a missing control fails ADR-0010: the phone takes over"
+        judged.append((False, text))
     else:
         judged.append((True, f"controls: all {len(readings)} read back as set"))
 
@@ -83,10 +100,10 @@ def lock_test_verdict(
 
     readbacks = [s.readback for s in samples if s.readback is not None]
     unverified = sum(1 for r in readbacks if not r.verified)
-    judged.append((
-        bool(readbacks) and unverified == 0,
-        f"read-back: {len(readbacks) - unverified} of {len(readbacks)} frames verified",
-    ))
+    detail = f"read-back: {len(readbacks) - unverified} of {len(readbacks)} frames verified"
+    if unverified and missing:
+        detail += f" (unreadable: {', '.join(missing)})"
+    judged.append((bool(readbacks) and unverified == 0, detail))
 
     stamped = [s for s in samples if s.grabbed_at is not None]
     stale = [s.seq for s in stamped
@@ -218,8 +235,14 @@ def main(
         readings: tuple[ControlReading, ...] = getattr(source, "readings", ())
         print("\n".join(_readings_table(readings)))
         line = f"FAIL {exc}"
+        hint = (
+            "Before calling it the camera's fail: is the value within the control's min/max "
+            f"(v4l2-ctl -d {config.camera.device} --list-ctrls) and the mode one the camera "
+            "lists (--list-formats-ext)?"
+        )
         print(line)
-        _write_report(report, config, readings, [line], None, out)
+        print(hint)
+        _write_report(report, config, readings, [line, hint], None, out)
         print(f"report: {report}")
         source.close()
         return 1
@@ -232,6 +255,12 @@ def main(
     try:
         readings = getattr(source, "readings", ())
         print("\n".join(_readings_table(readings)))
+        missing = _missing(readings)
+        if missing:
+            print(
+                f"WARNING {', '.join(missing)}: {_NO_CONTROL} — this run will FAIL "
+                "(ADR-0010: the phone takes over). It goes on to measure the grey card; Q quits."
+            )
         if not args.no_screen:
             try:
                 screen = make_screen(config.display, "QS — camera lock test")
@@ -247,6 +276,8 @@ def main(
                 "Switch the room light on and off twice during the test",
                 "Q quits",
             ]
+            if missing:
+                status.append(f"WILL FAIL — cannot lock: {', '.join(missing)}")
             event = TriggerEvent(seq, 0.0, datetime.now(UTC), "camera-test")
             try:
                 if not _wait(start + (seq - 1) * args.interval_s, screen, status, source):
@@ -257,7 +288,7 @@ def main(
             except KeyboardInterrupt:
                 print(f"stopped by the operator after {len(samples)} frame(s)")
                 break
-            except (CaptureError, CameraSettingsDrift) as exc:
+            except (CaptureError, CameraSettingsDrift, LightingFault) as exc:
                 samples.append(Sample(seq, event.t0, None, None, None, None, str(exc)))
                 print(f"frame {seq}: {exc}")
                 if isinstance(exc, CameraLost):

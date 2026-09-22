@@ -221,3 +221,91 @@ def test_main_stops_at_a_lost_camera_and_fails(tmp_path: Path) -> None:
     assert LosingSource.calls == 2
     [report] = list((tmp_path / "reports").iterdir())
     assert "FAIL frames: 2 of 5 captured, 1 failed" in report.read_text(encoding="utf-8")
+
+
+def test_main_with_the_grey_card_outside_the_frame_says_so_and_returns_2(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config = tmp_path / "station.yml"
+    config.write_text(
+        EXAMPLE.read_text(encoding="utf-8").replace("[1780, 40, 100, 100]", "[1880, 40, 100, 100]"),
+        encoding="utf-8",
+    )
+    opened: list[FakeSource] = []
+    assert main(args(tmp_path, config), make_source=lambda c: opened.append(FakeSource(c))) == 2
+    [line] = capsys.readouterr().out.strip().splitlines()
+    assert line == (
+        "config: lighting.reference_patch.roi: [1880, 40, 100, 100] is outside the "
+        "1920x1080 frame"
+    )
+    assert opened == []  # refused before the camera is touched
+
+
+def test_main_records_a_lighting_fault_as_a_failed_frame_not_a_traceback(tmp_path: Path) -> None:
+    from qs.errors import LightingFault
+
+    class OffFrameSource(FakeSource):
+        def capture(self, event: TriggerEvent) -> Frame:
+            raise LightingFault("reference patch: [1780, 40, 100, 100] is outside the 64x48 frame")
+
+    assert main(args(tmp_path), make_source=OffFrameSource) == 1
+    [report] = list((tmp_path / "reports").iterdir())
+    text = report.read_text(encoding="utf-8")
+    assert "FAIL frames: 3 of 3 captured, 3 failed (first: #1 reference patch: [1780" in text
+
+
+NO_FOCUS = (*GOOD_READINGS[:7], ControlReading("focus", 30, None))
+
+
+def test_a_missing_focus_control_fails_and_says_the_phone_takes_over() -> None:
+    unverified = CameraReadback(10000, 0, 4500, None, verified=False)
+    samples = [sample(n, readback=unverified) for n in (1, 2, 3)]
+    result = verdict(samples, NO_FOCUS)
+    assert result.passed is False
+    controls, readback = failed_lines(result)
+    assert controls == (
+        "FAIL controls: focus unreadable (set 30; the camera does not report this control, "
+        "so it cannot be locked) — a missing control fails ADR-0010: the phone takes over"
+    )
+    assert readback == "FAIL read-back: 0 of 3 frames verified (unreadable: focus)"
+
+
+def test_main_names_a_missing_control_before_the_run(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    class NoFocusSource(FakeSource):
+        def __init__(self, config: StationConfig) -> None:
+            super().__init__(config)
+            self.readings = NO_FOCUS
+
+        def capture(self, event: TriggerEvent) -> Frame:
+            unverified = CameraReadback(10000, 0, 4500, None, verified=False)
+            return Frame(event, self.pixels, event.t0 + 0.03, unverified, 0.62, 30.0)
+
+    assert main(args(tmp_path), make_source=NoFocusSource) == 1
+    out = capsys.readouterr().out.splitlines()
+    warning = out.index(
+        "WARNING focus: the camera does not report this control, so it cannot be locked — "
+        "this run will FAIL (ADR-0010: the phone takes over). It goes on to measure the "
+        "grey card; Q quits."
+    )
+    assert warning < next(i for i, line in enumerate(out) if line.startswith("FAIL"))
+
+
+def test_main_with_a_refused_value_at_open_fails_and_points_at_the_range(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from qs.errors import CameraSettingsDrift
+
+    class RefusingSource(FakeSource):
+        def open(self) -> None:
+            raise CameraSettingsDrift("gain: set 400, camera reports 255")
+
+    assert main(args(tmp_path), make_source=RefusingSource) == 1
+    out = capsys.readouterr().out.splitlines()
+    assert "FAIL gain: set 400, camera reports 255" in out
+    assert (
+        "Before calling it the camera's fail: is the value within the control's min/max "
+        "(v4l2-ctl -d /dev/video0 --list-ctrls) and the mode one the camera lists "
+        "(--list-formats-ext)?"
+    ) in out
