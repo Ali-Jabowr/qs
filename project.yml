@@ -222,7 +222,7 @@ stages:
       - id: S0.7
         text_en: "Folder layout under data/ as in 12-data-model.md §2 — created by the tools, never by hand"
         text_ru: "Структура каталогов в data/ по 12-data-model.md §2 — создаётся инструментами, а не вручную"
-        plan: [P05, P08]
+        plan: [P05b, P08]
         status: todo
         evidence: null
 
@@ -296,13 +296,13 @@ stages:
       - id: S2.5
         text_en: "Split plan by seed before the first frame — every unit's split known in advance (13 §6)"
         text_ru: "План разбиения по зерну до первого кадра — выборка каждого изделия известна заранее (13 §6)"
-        plan: P05
+        plan: P05b
         status: todo
         evidence: null
       - id: S2.6
         text_en: "MVP dataset shoot — controls at start, middle and end; random order; test units shot good, damaged by recipe, shot again; placement frames (13 §6, ADR-0014)"
         text_ru: "Съёмка датасета MVP — контрольные изделия в начале, середине и конце; случайный порядок; тестовые изделия снимаются годными, повреждаются по методике и снимаются снова; кадры проверки размещения (13 §6, ADR-0014)"
-        plan: P05
+        plan: P05b
         status: todo
         evidence: null
       - id: S2.7

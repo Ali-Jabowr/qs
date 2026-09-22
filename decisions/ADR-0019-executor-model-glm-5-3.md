@@ -62,7 +62,7 @@ that the contracts every later plan builds on get the stronger model:
 | Model | Plans |
 |---|---|
 | `openrouter/z-ai/glm-5.3` (the default in `opencode.json`) | P02, P04, P07 |
-| `openrouter/z-ai/glm-5.3-flash` — start OpenCode with `-m openrouter/z-ai/glm-5.3-flash` | P03, P05, P06, P08, P09 |
+| `openrouter/z-ai/glm-5.3-flash` — start OpenCode with `-m openrouter/z-ai/glm-5.3-flash` | P03, P05, P05b, P06, P08, P09 |
 
 Estimated at ~$10 for the week, inside the $20 key limit. Each review records the plan's cost.
 
