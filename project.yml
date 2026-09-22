@@ -26,7 +26,18 @@ meta:
   location: Volgograd
   location_ru: Волгоград
   repo: /home/marxel/PROJECTS/QS
-  updated: 2026-09-21
+  updated: 2026-09-22
+  # GitHub is the primary board from 2026-09-22. This file stays the state file and is
+  # kept in sync with it; the duplication is accepted. Each migrated question and risk
+  # carries its issue number as `issue:`.
+  github:
+    repo: Ali-Jabowr/qs
+    milestone: 1                 # "Bench MVP (21–27.09)"
+    tracking_issue: 26           # "Bench MVP — tracking"
+    lock_test_issue: 25          # S2.3, ready-for-human
+    branch: mvp/bench            # all work from P05b on; Ali merges one PR to master
+    primary_board_from: 2026-09-22
+    note_en: GitHub is the primary board from 2026-09-22; project.yml is kept in sync.
 
 client:
   label_en: Food producer, Volgograd (one client)
@@ -285,6 +296,7 @@ stages:
         text_en: "Camera lock test — exposure, gain, white balance, focus manual and read back; grey card within 1%; no banding (13 §4, ADR-0010) — needs P05"
         text_ru: "Проверка фиксации камеры — выдержка, усиление, баланс белого и фокус в ручном режиме с обратным чтением; серая карточка в пределах 1%; без полос (13 §4, ADR-0010) — нужен P05"
         plan: P05
+        issue: 25
         status: todo
         evidence: null
       - id: S2.4
@@ -609,6 +621,7 @@ gates:
 
 open_questions:
   - id: OQ-1
+    issue: 4
     owner: client
     status: open
     asked_on: null
@@ -618,6 +631,7 @@ open_questions:
     blocks_ru: Весь бюджет на камеру и оборудование. До ответа камеру не выбирать.
 
   - id: OQ-2
+    issue: 5
     owner: client
     status: open
     asked_on: null
@@ -627,6 +641,7 @@ open_questions:
     blocks_ru: Тип затвора. Непрерывное движение требует глобального затвора, импульсного света и аппаратного запуска.
 
   - id: OQ-3
+    issue: 6
     owner: client
     status: open
     asked_on: null
@@ -636,6 +651,7 @@ open_questions:
     blocks_ru: Одна камера или две. Камера сверху высоту не видит в принципе.
 
   - id: OQ-4
+    issue: 7
     owner: client
     status: open
     asked_on: null
@@ -645,6 +661,7 @@ open_questions:
     blocks_ru: Границы ответственности. Не принимать обнаружение посторонних предметов внутрь условия о 95%.
 
   - id: OQ-5
+    issue: 8
     owner: client
     status: open
     asked_on: null
@@ -654,6 +671,7 @@ open_questions:
     blocks_ru: Ценообразование и всё экономическое обоснование. «2% в день» от неизвестной базы — это не число.
 
   - id: OQ-6
+    issue: 9
     owner: client
     status: open
     asked_on: null
@@ -674,6 +692,7 @@ open_questions:
     answer_ru: "Код PatchCore и PaDiM принадлежит Intel, лицензия Apache-2.0; EfficientAD исключён. Открытым остаётся вопрос о весах опорной сети, обученных на ImageNet, — OQ-10. docs/15-model.md §11."
 
   - id: OQ-8
+    issue: 10
     owner: us
     status: open
     text_en: Standard (83 units) or lean (64 units) for the MVP shoot? Ali leans lean, deciding at the shop.
@@ -682,6 +701,7 @@ open_questions:
     blocks_ru: Закупку (S0.5) и ширину всех ориентировочных границ (14 §9).
 
   - id: OQ-9
+    issue: 11
     owner: client
     status: open
     asked_on: null
@@ -691,6 +711,7 @@ open_questions:
     blocks_ru: Допущения A-01 и A-07 — порядок съёмки и классы дефектов. Отложено на неделю MVP.
 
   - id: OQ-10
+    issue: 12
     owner: us
     status: open
     text_en: Are ImageNet-pretrained backbone weights usable in a commercial deliverable, and are incidental images of hands personal data under 152-ФЗ?
@@ -704,6 +725,7 @@ open_questions:
 
 risks:
   - id: R1
+    issue: 13
     severity: high
     text_en: No physical evidence exists — no video, no photographs, no defective samples.
     text_ru: Физических свидетельств нет — ни видео, ни фотографий, ни бракованных образцов.
@@ -712,6 +734,7 @@ risks:
     response_en: Stage S5. Nothing about hardware or price can be settled without it.
     response_ru: Этап S5. Без этого невозможно определить ни оборудование, ни цену.
   - id: R2
+    issue: 14
     severity: high
     text_en: Natural food variation swamps the defect signal, producing constant false alarms.
     text_ru: Естественная изменчивость пищевого продукта перекрывает признак дефекта, вызывая постоянные ложные срабатывания.
@@ -720,6 +743,7 @@ risks:
     response_en: More training data, tighter lighting control, or narrow the scope to one SKU. The central risk of the appearance station.
     response_ru: Больше обучающих данных, жёстче контроль освещения или сужение до одной позиции ассортимента. Главный риск станции внешнего вида.
   - id: R3
+    issue: 15
     severity: high
     text_en: "\"Foreign objects\" inside a 95% acceptance clause promises safety-critical detection that optics cannot deliver."
     text_ru: "«Посторонние предметы» внутри условия о 95% обещают критичное для безопасности обнаружение, которое оптика обеспечить не может."
@@ -728,6 +752,7 @@ risks:
     response_en: "Scope it out in writing — surface-visible contrasting objects, best effort, not a substitute for metal detection or X-ray."
     response_ru: "Письменно ограничить формулировкой — видимые на поверхности контрастные предметы, по мере возможности, не заменяет металлодетектор или рентген."
   - id: R4
+    issue: 16
     severity: medium
     text_en: Camera automatic settings destroy the dataset by re-exposing for the defect.
     text_ru: Автоматические настройки камеры портят датасет, подстраивая экспозицию под дефект.
@@ -736,6 +761,7 @@ risks:
     response_en: "Lock exposure, gain, white balance and focus, and read them back; the lock test and the grey card prove the sensor applies them (ADR-0010)."
     response_ru: "Зафиксировать выдержку, усиление, баланс белого и фокус и прочитать их обратно; проверка фиксации и серая карточка доказывают, что датчик их применяет (ADR-0010)."
   - id: R5
+    issue: 17
     severity: medium
     text_en: PatchCore is too slow for one unit per second on an Intel N100.
     text_ru: PatchCore слишком медленный для одного изделия в секунду на Intel N100.
@@ -744,6 +770,7 @@ risks:
     response_en: "In this order, each measured on the golden set: a 1% coreset, 224 px input, a ResNet-18 backbone, then PaDiM (15-model.md §10)."
     response_ru: "По порядку, с замером на эталонном наборе после каждого шага: опорное множество 1%, вход 224 пикселя, опорная сеть ResNet-18, затем PaDiM (15-model.md §10)."
   - id: R6
+    issue: 18
     severity: medium
     text_en: Real factory defects are subtler than our deliberate damage.
     text_ru: Реальные производственные дефекты тоньше, чем наши намеренные повреждения.
@@ -752,6 +779,7 @@ risks:
     response_en: This is why defective samples matter more than any questionnaire answer.
     response_ru: Именно поэтому бракованные образцы важнее любого ответа в анкете.
   - id: R7
+    issue: 19
     severity: medium
     text_en: The food-safety officer vetoes the installation after hardware has been bought.
     text_ru: Ответственный за пищевую безопасность запрещает установку уже после закупки оборудования.
@@ -760,6 +788,7 @@ risks:
     response_en: Gate C. Ask before spending.
     response_ru: Рубеж C. Спросить до того, как тратить.
   - id: R8
+    issue: 20
     severity: low
     text_en: Something trained on MVTec AD ends up in a deliverable — the licence is non-commercial.
     text_ru: Что-то обученное на MVTec AD попадает в поставку — лицензия запрещает коммерческое использование.
@@ -768,6 +797,7 @@ risks:
     response_en: MVTec is S1 validation only. A bundle trained on it is tagged validation-only and the station refuses to run it (ADR-0016).
     response_ru: MVTec используется только для проверки окружения на этапе S1. Модель, обученная на нём, помечается как «только для проверки», и станция отказывается её запускать (ADR-0016).
   - id: R9
+    issue: 21
     severity: high
     text_en: The client questions stay unsent while build work continues, so the product is designed on assumptions.
     text_ru: Вопросы заказчику остаются неотправленными, пока идёт разработка, и продукт проектируется на допущениях.
@@ -776,6 +806,7 @@ risks:
     response_en: Deferred by decision for the MVP week (2026-09-21). Revisit on 2026-09-28; the MVP demo is the reason for the next conversation.
     response_ru: Отложено решением на неделю MVP (21.09.2026). Вернуться к вопросу 28.09.2026; демонстрация MVP — повод для следующего разговора.
   - id: R10
+    issue: 22
     severity: medium
     text_en: моти change during a session — drying, softening, condensation — and the model learns time instead of damage.
     text_ru: Моти меняются в ходе съёмки — подсыхают, размягчаются, покрываются конденсатом — и модель учится времени, а не повреждению.
@@ -784,6 +815,7 @@ risks:
     response_en: Paired shooting in random order, controls at start, middle and end, 30 minutes to room temperature in the packaging (ADR-0014, 13 §2).
     response_ru: Парная съёмка в случайном порядке, контрольные изделия в начале, середине и конце, 30 минут выдержки до комнатной температуры в упаковке (ADR-0014, 13 §2).
   - id: R11
+    issue: 23
     severity: high
     text_en: The ImageNet-pretrained backbone weights (timm's racm_in1k, ADR-0020) declare Apache-2.0 on their model card, but whether ImageNet's non-commercial terms reach them is unresolved; so is their commercial use.
     text_ru: Для весов опорной сети, обученных на ImageNet (racm_in1k из timm, ADR-0020), в карточке модели указана лицензия Apache-2.0, но распространяются ли на них некоммерческие условия ImageNet, не определено; не определена и допустимость их коммерческого использования.
@@ -792,6 +824,7 @@ risks:
     response_en: The lawyer budget line before anything ships (OQ-10). Fallbacks — a commercially licensed pretraining, or self-supervised pretraining on the line's own images (15-model.md §11).
     response_ru: Обращение к юристу до любой поставки (OQ-10). Запасные варианты — предобучение на данных с коммерческой лицензией или самообучение на собственных снимках линии (15-model.md §11).
   - id: R12
+    issue: 24
     severity: medium
     text_en: The week is tight — nine executor plans and a shoot in six days.
     text_ru: Неделя плотная — девять планов для исполнителя и съёмка за шесть дней.

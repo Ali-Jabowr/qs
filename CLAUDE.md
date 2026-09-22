@@ -105,6 +105,8 @@ PatchCore from **Anomalib 2.6.2** (torch model only, our own preprocessing) · d
 
 **Planner → Executor → Reviewer.** Claude Code writes plans (`plans/Pxx-*/`: PLAN, CONTEXT, CONTRACTS, ACCEPTANCE), then implements one plan at a time on `exec/Pxx` and writes STATUS.md (ADR-0021; OpenCode ran P01–P02). A fresh Claude agent that did not write the code reviews it; Claude Code fixes the findings and writes `reviews/REVIEW-Pxx.md`. Ali approves every gate and merges every PR. Docs and ADRs come from Claude directly. Plans are written one ahead of execution.
 
+**From P05b on (2026-09-22), GitHub is the primary board** — `Ali-Jabowr/qs`, milestone "Bench MVP (21–27.09)", tracking issue #26. A plan is no longer a `plans/Pxx` folder but a `spec` issue with child `ticket` issues: to-spec → to-tickets → implement. All work lands on one branch, `mvp/bench`; one independent Claude agent reviews; Ali merges one PR. Open questions and risks are `question` and `risk` issues. `project.yml` stays and is kept in sync (`meta.github`, `issue:` on each entry); the duplication is accepted.
+
 Research freely for accuracy — web search, context7, agents — and cite sources. `ai-engineer` for model/deployment questions; `web-search-agent` for suppliers and regulation dates (**re-verify dates, they move**). Ali's global `/graphify` skill must be invoked via the Skill tool the moment he types it.
 
 ## 10. The next three things
