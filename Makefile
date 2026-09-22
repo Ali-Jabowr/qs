@@ -9,7 +9,7 @@ PY := python3
 VENV ?= .venv
 VPY := $(VENV)/bin/python
 
-.PHONY: help render check test diagrams svg clean env env-offline env-check lint
+.PHONY: help render check test diagrams svg clean env env-offline env-check gui-check lint
 
 help:
 	@echo "make render      regenerate STATUS.md, the Russian report and the timeline"
@@ -20,6 +20,7 @@ help:
 	@echo "make env         create $(VENV) and install the locked requirements (online, once)"
 	@echo "make env-offline the same, from wheelhouse/ only — make env-offline VENV=<path> for a fresh venv"
 	@echo "make env-check   the env-marked tests — GPU and weights cache, offline"
+	@echo "make gui-check   the gui-marked tests — needs a display"
 	@echo "make lint        ruff and mypy on the venv"
 
 render:
@@ -57,6 +58,9 @@ env-offline:
 
 env-check:
 	HF_HOME=.hf TORCH_HOME=.torch HF_HUB_OFFLINE=1 $(VENV)/bin/pytest -m env
+
+gui-check:
+	$(VENV)/bin/pytest -m gui
 
 lint:
 	$(VENV)/bin/ruff check src tools tests
