@@ -34,8 +34,9 @@ def derive_label(checks: tuple[CheckResult, ...], configured: frozenset[str]) ->
 
 - Raises `ValueError` if `configured` is empty, if two checks share a name, or if a check's name is
   not in `configured`.
-- Returns `DEFECT` if any check has `passed=False`.
-- Returns `PASS` only if the set of check names equals `configured` and every one passed.
+- Returns `DEFECT` if any check's `passed` is anything other than exactly `True` (`is not True`): a
+  non-bool fails closed, never open. *(Amended at review, `reviews/REVIEW-P02.md`.)*
+- Returns `PASS` only if the set of check names equals `configured` and every `passed` is `True`.
 - Otherwise raises `ValueError` — a completed inspection with a configured check missing is a
   programming error, not a verdict. (NO_VERDICT is decided by the Pipeline from an exception, never
   here.)
@@ -96,14 +97,23 @@ YAML dates are converted to ISO strings before hashing. `load_config` uses `yaml
 ### 3.3 Validation — each a `ConfigError` naming the key
 
 1. Unknown key, missing key, wrong type, value outside its enumeration.
-2. `camera.power_line_hz == 50` and `camera.exposure_us % 10000 != 0`.
+2. `camera.power_line_hz == 50` and `camera.exposure_us % 10000 != 0`; or `camera.exposure_us <= 0`.
 3. `lighting.reference_patch.roi` overlaps `inspector.localize.roi`.
 4. Any ROI outside `camera.width` × `camera.height`.
 5. `inspector.model` does not match `^patchcore-[a-z0-9]+(-[a-z0-9]+)*-v\d+-[0-9a-f]{12}$`.
-6. `threshold.set_on.model != inspector.model`, or `threshold.set_on.backend != inspector.backend`.
+6. `threshold.set_on.model != inspector.model`, or `threshold.set_on.backend != inspector.backend`, or
+   `threshold.set_on.localize_threshold != inspector.localize.threshold`, or
+   `threshold.set_on.mask_dilate_px != inspector.mask_dilate_px` — a threshold is never used with a
+   different localisation (`docs/12-data-model.md` §4).
 7. `threshold.geometry.area_px` min not below max; `axis_ratio_min` or `solidity_min` outside (0, 1].
 8. `lighting.reference_patch.band` not in (0, 1); `expect` not in (0, 1).
-9. `display.labels` missing any of `pass`, `defect`, `no_verdict`, or any empty.
+9. `display.labels` missing any of `pass`, `defect`, `no_verdict`, or any empty or whitespace-only.
+10. `threshold.value` not finite, or not above 0. A NaN or infinite threshold makes `score > threshold`
+    false for every unit, so every appearance check would pass — failing open (CLAUDE.md §6).
+11. A key repeated within one YAML mapping. PyYAML silently keeps the last value; the loader refuses
+    it and names the key.
+
+*Rules 2, 6, 9 were widened and 10–11 added at review (`reviews/REVIEW-P02.md`).*
 
 ## 4. Tests
 
@@ -113,13 +123,17 @@ YAML dates are converted to ISO strings before hashing. `load_config` uses `yaml
 - `Verdict` refuses NO_VERDICT without a reason, and PASS or DEFECT with no checks.
 - `derive_label`: both pass → PASS; geometry fails → DEFECT; appearance fails → DEFECT; both fail →
   DEFECT; one configured check missing → `ValueError`; an unconfigured check name → `ValueError`;
-  duplicate names → `ValueError`; empty `configured` → `ValueError`.
-- Every exception's `reason` is in `REASONS`, and the two sets are equal apart from `busy`.
+  duplicate names → `ValueError`; empty `configured` → `ValueError`; a failed check plus a missing one →
+  DEFECT; a check whose `passed` is not a bool (e.g. `1`, `"no"`) → DEFECT, never PASS.
+- Every exception's `reason` is in `REASONS`, and the two sets are equal apart from `busy`. The test
+  walks `QSError`'s subclasses rather than a hand-written list, so a new class without a `reason`
+  fails it.
 
 `tests/test_config.py`
 
 - The example loads, and every value round-trips to the right type.
 - Its hash is stable: the same mapping with keys reordered, comments added and indentation changed
   gives the same hash; changing one value changes it.
-- One test per validation rule in §3.3, each asserting the key named in the message.
+- One test per validation rule in §3.3, each asserting the key named in the message; rule 4 for both
+  ROIs; rule 6 for each of its four comparisons; rule 10 for NaN, infinity, 0 and a negative value.
 - A missing key and an unknown key are both refused — no defaults.
