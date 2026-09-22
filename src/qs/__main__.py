@@ -28,12 +28,35 @@ def build_parser() -> argparse.ArgumentParser:
         "--report-dir", metavar="DIR", default="reports/camera", help="where the report goes"
     )
     camera.add_argument("--no-screen", action="store_true", help="run without the window")
+
+    from qs.cmd.split_plan import session_id
+
+    plan = commands.add_parser(
+        "split-plan", help="the seeded split plan and tray sheet (docs/13-data-collection.md §6)"
+    )
+    plan.add_argument(
+        "--session", required=True, type=session_id, metavar="ID", help="e.g. 2026-09-25-mvp"
+    )
+    plan.add_argument(
+        "--size", required=True, choices=("standard", "lean"), help="docs/13 §1, OQ-8"
+    )
+    plan.add_argument(
+        "--seed", type=int, default=None, metavar="N",
+        help="the split seed (default the session date as YYYYMMDD)",
+    )
+    plan.add_argument(
+        "--root", default="data/raw", metavar="DIR", help="where session folders live"
+    )
     return parser
 
 
 def run(argv: Sequence[str] | None = None) -> int:
     """Parse the arguments and dispatch to the subcommand."""
     args = build_parser().parse_args(argv)
+    if args.command == "split-plan":
+        from qs.cmd import split_plan
+
+        return split_plan.main(args)
     import os
 
     import cv2
