@@ -4,7 +4,7 @@
 **Automated visual quality inspection for a food production line**  
 Owner: Ali, Volgograd · Rendered 2026-09-22
 
-Overall: **15/60 tasks** `██████··················` 25%
+Overall: **18/60 tasks** `███████·················` 30%
 
 > Verbal intent to pay. No signed contract, no money moved.  
 > Acceptance criterion: **up to 95% (Q28, client verbatim)**
@@ -29,7 +29,7 @@ Overall: **15/60 tasks** `██████··················
 
 | | Stage | Window | Progress | Status |
 |---|---|---|---|---|
-| `[~]` | **S0** Environment and моти | 21.09 – 25.09 | `██··········` 1/7 | in_progress |
+| `[~]` | **S0** Environment and моти | 21.09 – 25.09 | `███████·····` 4/7 | in_progress |
 | `[ ]` | **S1** Prove the pipeline on public data | 24.09 – 24.09 | `············` 0/3 | not_started |
 | `[ ]` | **S2** Rig, pilot and MVP shoot | 22.09 – 25.09 | `············` 0/9 | not_started |
 | `[ ]` | **S3** Train and measure — INDICATIVE | 25.09 – 26.09 | `············` 0/5 | not_started |
@@ -75,11 +75,11 @@ Overall: **15/60 tasks** `██████··················
 - [x] `E0.15` Gate 2 design review — an independent reviewer, 26 findings fixed, GO  ↳ `reviews/GATE-2.md + ADR-0017, ADR-0018`
 - [x] `E0.16` Executor plans — the roadmap and the first two plans  ↳ `plans/ROADMAP.md, plans/P01-environment/, plans/P02-contracts-config/`
 
-**S0 · Environment and моти** — 1/7
+**S0 · Environment and моти** — 4/7
 
-- [ ] `S0.1` Python 3.12 virtualenv, every dependency pinned with a hash, an offline wheelhouse — plan P01
-- [ ] `S0.2` PyTorch with CUDA — torch.cuda.is_available() is True on the laptop's RTX 3050 (4 GB) — plan P01
-- [ ] `S0.3` Anomalib 2.6.2 pinned, headless OpenCV, Tk; the backbone cached and loaded with the network off — plan P01
+- [x] `S0.1` Python 3.12 virtualenv, every dependency pinned with a hash, an offline wheelhouse — plan P01  ↳ `merge bcb3c61 (PR #1) — requirements.txt and requirements-dev.txt, 115 pins, every one hashed; offline install from wheelhouse/ verified with the network cut; reviews/REVIEW-P01.md`
+- [x] `S0.2` PyTorch with CUDA — torch.cuda.is_available() is True on the laptop's RTX 3050 (4 GB) — plan P01  ↳ `merge bcb3c61 (PR #1) — torch 2.14.0 built with CUDA 13.0, is_available() = True on the RTX 3050; reports/env/2026-09-22-environment.md, reviews/REVIEW-P01.md`
+- [x] `S0.3` Anomalib 2.6.2 pinned, headless OpenCV, Tk; the backbone cached and loaded with the network off — plan P01  ↳ `merge bcb3c61 (PR #1) — make env-check 5/5 incl. the offline backbone load; opencv-python-headless only; backbone is racm_in1k (ADR-0020); reviews/REVIEW-P01.md`
 - [x] `S0.4` Check the licence of every Anomalib model that could ship (Anomalib itself is Apache-2.0; per-model terms differ)  ↳ `docs/15-model.md §11 — closes OQ-7; the backbone weights are OQ-10`
 - [ ] `S0.5` Buy моти — one pale flavour, one batch, on the morning of the shoot; standard 83 or lean 64 units (OQ-8)
 - [-] `S0.6` Buy ~30 tall units (булки) — dropped: the product is моти, the height case is gone  ↳ `docs/05-concept.md §0`

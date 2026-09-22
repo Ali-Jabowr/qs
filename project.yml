@@ -190,20 +190,20 @@ stages:
         text_en: "Python 3.12 virtualenv, every dependency pinned with a hash, an offline wheelhouse — plan P01"
         text_ru: "Виртуальное окружение Python 3.12, все зависимости закреплены с хешами, локальный кэш пакетов для работы без сети — план P01"
         plan: P01
-        status: todo
-        evidence: null
+        status: done
+        evidence: "merge bcb3c61 (PR #1) — requirements.txt and requirements-dev.txt, 115 pins, every one hashed; offline install from wheelhouse/ verified with the network cut; reviews/REVIEW-P01.md"
       - id: S0.2
         text_en: "PyTorch with CUDA — torch.cuda.is_available() is True on the laptop's RTX 3050 (4 GB) — plan P01"
         text_ru: "PyTorch с поддержкой CUDA — torch.cuda.is_available() возвращает True на видеокарте ноутбука RTX 3050 (4 ГБ) — план P01"
         plan: P01
-        status: todo
-        evidence: null
+        status: done
+        evidence: "merge bcb3c61 (PR #1) — torch 2.14.0 built with CUDA 13.0, is_available() = True on the RTX 3050; reports/env/2026-09-22-environment.md, reviews/REVIEW-P01.md"
       - id: S0.3
         text_en: "Anomalib 2.6.2 pinned, headless OpenCV, Tk; the backbone cached and loaded with the network off — plan P01"
         text_ru: "Anomalib 2.6.2 с точной версией, OpenCV без графического интерфейса, Tk; опорная сеть закэширована и загружается без сети — план P01"
         plan: P01
-        status: todo
-        evidence: null
+        status: done
+        evidence: "merge bcb3c61 (PR #1) — make env-check 5/5 incl. the offline backbone load; opencv-python-headless only; backbone is racm_in1k (ADR-0020); reviews/REVIEW-P01.md"
       - id: S0.4
         text_en: "Check the licence of every Anomalib model that could ship (Anomalib itself is Apache-2.0; per-model terms differ)"
         text_ru: "Проверить лицензию каждой модели Anomalib, которая может попасть в поставку (сам Anomalib под Apache-2.0, но условия отдельных моделей различаются)"

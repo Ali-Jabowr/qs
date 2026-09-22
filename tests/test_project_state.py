@@ -80,7 +80,9 @@ def test_russian_report_contains_no_stray_english_task_text(doc):
 # ---------------------------------------------------------------- each rule
 
 def test_done_without_evidence_is_an_error(d):
-    find_stage(d, "S0")["tasks"][0]["status"] = "done"
+    task = find_stage(d, "S0")["tasks"][0]
+    task["status"] = "done"
+    task["evidence"] = None
     assert any("no evidence" in e for e in errors_of(d))
 
 
