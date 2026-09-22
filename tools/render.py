@@ -180,7 +180,8 @@ def validate(doc):
             days = (TODAY - due).days
             notes.append(Note(
                 f"Gate {gate['id']} was due {due:%Y-%m-%d} ({days} days ago) and is still pending.",
-                f"Рубеж {gate['id']}: срок {due:%d.%m.%Y} прошёл {days} дн. назад, всё ещё ожидает.",
+                f"Рубеж {gate['id']}: срок {due:%d.%m.%Y} прошёл {days} дн. назад,"
+                " всё ещё ожидает.",
             ))
 
     for risk in doc["risks"]:

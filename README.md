@@ -51,7 +51,7 @@ docs/05–06                          concept (Gate 0) and requirements (Gate 1)
 docs/10–17                          architecture, contracts, data model, data collection,
                                     evaluation, model, failure model, security
 docs/01–04                          history: survey kit, hardware tree, survey answers, first plan
-decisions/                          ADR-0001 … ADR-0018
+decisions/                          ADR-0001 … ADR-0019
 reviews/                            gate reviews and plan reviews
 plans/                              ROADMAP.md and one folder per executor plan
 src/ tests/ tools/                  code · tests · renderer, bounds, diagram checker

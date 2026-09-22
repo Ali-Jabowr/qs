@@ -1,0 +1,33 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "openrouter/z-ai/glm-5.3",
+  "small_model": "openrouter/z-ai/glm-5.3-flash",
+  "provider": {
+    "openrouter": {
+      "models": {
+        "z-ai/glm-5.3": {
+          "options": {
+            "provider": {
+              "data_collection": "deny",
+              "sort": "price",
+              "quantizations": ["fp8", "bf16", "unknown"]
+            }
+          }
+        },
+        "z-ai/glm-5.3-flash": {
+          "options": {
+            "provider": {
+              "data_collection": "deny",
+              "sort": "price"
+            }
+          }
+        }
+      }
+    }
+  },
+  "permission": {
+    "skill": {
+      "*": "deny"
+    }
+  }
+}
