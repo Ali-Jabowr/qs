@@ -133,8 +133,8 @@ stages:
         text_en: "Runnable skeleton in src/ — contracts and config (P02), evidence store (P03), pipeline with replay and fault injection (P04)"
         text_ru: "Исполняемый каркас в src/ — интерфейсы и конфигурация (P02), хранилище доказательств (P03), конвейер с воспроизведением и внедрением отказов (P04)"
         plan: [P02, P03, P04]
-        status: todo
-        evidence: null
+        status: doing
+        evidence: "P02 merged (36e9fc2) — src/qs contracts, errors and the station config; reviews/REVIEW-P02.md. P03 (store) and P04 (pipeline) remain"
       - id: E0.9
         text_en: Russian/English glossary (the risk register lives in this file)
         text_ru: Русско-английский глоссарий (реестр рисков ведётся в этом файле)

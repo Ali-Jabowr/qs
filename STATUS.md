@@ -65,7 +65,7 @@ Overall: **18/60 tasks** `███████················�
 - [x] `E0.5` Evaluation protocol — recall@FAR, confidence intervals, unit-level sampling, restated gates  ↳ `docs/14-eval-protocol.md + tools/bounds.py (generates its tables)`
 - [x] `E0.6` Failure model — station state machine, fault handling, fail-to-no-verdict, reference patch  ↳ `docs/16-failure-model.md + ADR-0012`
 - [x] `E0.7` Architecture decision records for decisions already taken, and for the new ones  ↳ `decisions/ADR-0001 … ADR-0018 + decisions/README.md`
-- [ ] `E0.8` Runnable skeleton in src/ — contracts and config (P02), evidence store (P03), pipeline with replay and fault injection (P04)
+- [~] `E0.8` Runnable skeleton in src/ — contracts and config (P02), evidence store (P03), pipeline with replay and fault injection (P04)  ↳ `P02 merged (36e9fc2) — src/qs contracts, errors and the station config; reviews/REVIEW-P02.md. P03 (store) and P04 (pipeline) remain`
 - [ ] `E0.9` Russian/English glossary (the risk register lives in this file)
 - [x] `E0.10` Concept and MVP scope — PR/FAQ, the product is моти, Gate 0 passed  ↳ `docs/05-concept.md + ADR-0007`
 - [x] `E0.11` Requirements — numbered FR and NFR with checks, Gate 1 passed  ↳ `docs/06-requirements.md + ADR-0008`
