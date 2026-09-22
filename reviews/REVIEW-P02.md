@@ -152,3 +152,18 @@ Not required (notes for later plans): the `_roi`/`_pair` duplication, closed typ
 P02 round 1: **$0.52**, 28 model steps, 88.7% of input from cache. That includes one turn that spent
 its whole 32K output allowance reasoning and wrote nothing (`finish=length`); Ali steered it on.
 Spent so far this week: **$3.18 of $20**.
+
+## Verdict — round 2: PASS
+
+Re-run by the reviewer on the round-2 tree: `make check` exit 0, **104 passed** (60 in the two P02
+files), ruff and strict mypy clean; the example's hash unchanged (`cd1b5c35…25e7`). Probed directly:
+`threshold.value` NaN, infinity, 0 and −1 all refused; `set_on.localize_threshold` and
+`set_on.mask_dilate_px` mismatches refused; `exposure_us: 0` refused; a whitespace label refused; a
+repeated `gain:` key refused as `camera.gain`; `derive_label` gives DEFECT for `passed=1` and
+`passed="no"` and for failed-plus-missing. Only the six allowed files changed.
+
+The executor's one reading of the amended contract is accepted: rule 11 composes the YAML once with
+`SafeLoader` to find repeated keys, then loads with `safe_load` as before; it compares key text, so
+`1` and `'1'` count as a repeat, which fails closed.
+
+Round 2 cost **$0.57**; P02 in total **$1.08**. Spent this week: **$3.74 of $20**.

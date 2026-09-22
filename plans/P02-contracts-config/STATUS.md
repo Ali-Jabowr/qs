@@ -1,9 +1,10 @@
 # STATUS — P02
 
 **Status: COMPLETE** — every automated check in ACCEPTANCE.md passes, and every case in
-CONTRACTS.md §4 exists as a passing test (47 of them). One forced deviation is flagged for
-the reviewer below: the `display.labels.pass` field is named `pass_`, because `pass` is a
-Python keyword and cannot be a dataclass field name.
+CONTRACTS.md §4 exists as a passing test (60 of them after the round-2 rework; round 1 was 47).
+Four deviations are documented below; the forced one is the `display.labels.pass` field named
+`pass_`, because `pass` is a Python keyword and cannot be a dataclass field name. Round 1 was
+reviewed in `reviews/REVIEW-P02.md` (FAIL, small); the round-2 rework is the last section.
 
 Executed 2026-09-22 on `exec/P02` (from `cabd182`), GLM-5.3 via OpenRouter (ADR-0019).
 
@@ -152,5 +153,131 @@ Standard library and numpy only.
 No code was written beyond the plan's scope; no protocol has an implementation.
 
 ## Blockers
+
+None.
+
+## Round 2
+
+The round-1 review (`reviews/REVIEW-P02.md`) found the config able to **fail open** — a NaN
+or infinite `threshold.value` loaded — and amended CONTRACTS.md (rules 2, 6 and 9 widened,
+rules 10 and 11 added, `derive_label` fails closed, the reason test walks the hierarchy).
+All six rework items are implemented; nothing from the "Not required" list was touched.
+
+### What changed, per rework item
+
+1. **Validation, `config.py`** — rule 2 also refuses `camera.exposure_us <= 0` (checked
+   before the 50 Hz multiple, since a non-positive exposure is the more fundamental fault);
+   rule 6 also compares `threshold.set_on.localize_threshold` with
+   `inspector.localize.threshold` and `threshold.set_on.mask_dilate_px` with
+   `inspector.mask_dilate_px` — a threshold is never used with a different localisation
+   (`docs/12-data-model.md` §4); rule 10 refuses a `threshold.value` that is not finite or
+   not above 0 (`math.isfinite`), so a NaN or infinite threshold can no longer make every
+   appearance check pass; rule 11 refuses a key repeated within one YAML mapping, naming
+   the full dotted key.
+2. **Rule 9** — a whitespace-only label text is refused: "must not be empty or
+   whitespace-only".
+3. **`derive_label`, `contracts.py`** — `check.passed is not True` instead of truthiness,
+   so a non-bool `passed` (`1`, `"no"`, `None`) is a DEFECT, never a PASS. The docstring was
+   updated to say so.
+4. **`errors.py`** — every `reason` is now annotated `reason: str`, and the reason tests
+   walk `QSError`'s subclasses recursively instead of the hand-written list, so a new error
+   class without a `reason` fails them.
+5. **Tests** — rule 4 for `inspector.localize.roi`; rule 6 for each of its four
+   comparisons; rule 10 parametrised over NaN, infinity, 0 and −1; rule 11 for a nested and
+   a top-level duplicate; plus the new arms of rules 2 (`exposure_us: 0`) and 9
+   (whitespace-only) that the amended §4's "one test per validation rule" requires. `_refused`
+   now takes the match string, and the rule 2, 3 and 4 tests match a distinguishing fragment
+   of the message, so each test can tell which rule fired (round-1 test note). `config.py`
+   and `errors.py` gained the module docstring and `from __future__ import annotations`.
+6. **This section**, and the header above now says four deviations, not one.
+
+The example YAML, `canonical_hash` and the dataclass tree are untouched — the rework adds
+validation only, and the example still hashes to `cd1b5c35…`.
+
+### Test results (actual output)
+
+`make check`:
+
+```
+== project state ==
+warning 7 client question(s) are open but have never been sent: OQ-1, OQ-2, OQ-3, OQ-4, OQ-5, OQ-6, OQ-9. Every one of them blocks a decision.
+project.yml is valid. 1 warning(s).
+== tests ==
+........................................................................ [ 69%]
+................................                                         [100%]
+104 passed, 5 deselected in 0.46s
+== diagrams ==
+  ok    10-architecture-1      (docs/10-architecture.md)
+  ok    10-architecture-2      (docs/10-architecture.md)
+  ok    10-architecture-3      (docs/10-architecture.md)
+  ok    10-architecture-4      (docs/10-architecture.md)
+  ok    10-architecture-5      (docs/10-architecture.md)
+  ok    10-architecture-6      (docs/10-architecture.md)
+  ok    10-architecture-7      (docs/10-architecture.md)
+  ok    10-architecture-8      (docs/10-architecture.md)
+  ok    11-interfaces          (docs/11-interfaces.md)
+  ok    12-data-model          (docs/12-data-model.md)
+  ok    14-eval-protocol       (docs/14-eval-protocol.md)
+  ok    15-model-1             (docs/15-model.md)
+  ok    15-model-2              (docs/15-model.md)
+  ok    16-failure-model-1      (docs/16-failure-model.md)
+  ok    16-failure-model-2      (docs/16-failure-model.md)
+  ok    17-security            (docs/17-security.md)
+  ok    timeline               (docs/diagrams/timeline.mmd)
+
+17 diagram(s) render.
+== lint ==
+make[1]: Entering directory '/home/marxel/PROJECTS/QS'
+.venv/bin/ruff check src tools tests
+All checks passed!
+.venv/bin/mypy
+Success: no issues found in 4 source files
+make[1]: Leaving directory '/home/marxel/PROJECTS/QS'
+```
+
+The 104 are the 44 pre-existing `tools/` tests plus 60 new ones (20 contracts, 40 config);
+the project-state warning about the seven open client questions predates P02.
+
+`.venv/bin/pytest tests/test_contracts.py tests/test_config.py -q`:
+
+```
+............................................................             [100%]
+60 passed in 0.39s
+```
+
+`PYTHONPATH=src .venv/bin/python -c "from qs.config import load_config; from pathlib import Path; print(load_config(Path('config/station-A-bench.example.yml')).config_hash)"`:
+
+```
+cd1b5c35ec61a26fd5c58b64ce941591797ca4d5d9f1aaec362f6dc044b425e7
+```
+
+Unchanged from round 1, as required — the rework adds validation only.
+
+`grep -nE '^(import|from) ' src/qs/contracts.py`:
+
+```
+1:from __future__ import annotations
+3:from dataclasses import dataclass
+4:from datetime import datetime
+5:from enum import StrEnum
+6:from typing import TYPE_CHECKING, Protocol
+8:import numpy as np
+```
+
+Standard library and numpy only.
+
+### New deviations
+
+1. **Rule 11's mechanism.** CONTRACTS §3.2 says `load_config` uses `yaml.safe_load` only,
+   but duplicate keys cannot be detected through `safe_load` — PyYAML silently keeps the
+   last value. The loader therefore composes the document once with
+   `yaml.compose(text, Loader=yaml.SafeLoader)` and walks the node graph for repeated keys
+   before the data itself is built — still by `yaml.safe_load` alone. The same `SafeLoader`
+   does the composing, so safety is unchanged, and both rules of the amended contract hold.
+2. **Rule 11 compares keys by their YAML text.** Two keys with the same text but different
+   tags (`1` and `'1'`) would construct to different Python keys, yet are refused — failing
+   closed. The station schema has no such keys.
+
+### Round-2 blockers
 
 None.

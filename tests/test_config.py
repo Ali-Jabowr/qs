@@ -161,8 +161,8 @@ def _mutated(tmp_path: Path, old: str, new: str) -> Path:
     return _written(tmp_path, text.replace(old, new))
 
 
-def _refused(path: Path, key: str) -> None:
-    with pytest.raises(ConfigError, match=re.escape(key)):
+def _refused(path: Path, match: str) -> None:
+    with pytest.raises(ConfigError, match=re.escape(match)):
         load_config(path)
 
 
@@ -261,7 +261,14 @@ def test_rule_1_value_outside_its_enumeration(tmp_path: Path) -> None:
 def test_rule_2_exposure_not_a_multiple_of_10ms_at_50hz(tmp_path: Path) -> None:
     _refused(
         _mutated(tmp_path, "exposure_us: 10000", "exposure_us: 12345"),
-        "camera.exposure_us",
+        "camera.exposure_us: 12345 is not a multiple",
+    )
+
+
+def test_rule_2_exposure_not_above_zero(tmp_path: Path) -> None:
+    _refused(
+        _mutated(tmp_path, "exposure_us: 10000", "exposure_us: 0"),
+        "camera.exposure_us: 0 is not above 0",
     )
 
 
@@ -275,7 +282,7 @@ def test_rule_3_reference_patch_overlapping_the_localize_roi(tmp_path: Path) -> 
         _mutated(
             tmp_path, "roi:    [1780, 40, 100, 100]", "roi:    [1000, 40, 100, 100]"
         ),
-        "lighting.reference_patch.roi",
+        "lighting.reference_patch.roi: overlaps",
     )
 
 
@@ -284,7 +291,16 @@ def test_rule_4_roi_outside_the_frame(tmp_path: Path) -> None:
         _mutated(
             tmp_path, "roi:    [1780, 40, 100, 100]", "roi:    [1880, 40, 100, 100]"
         ),
-        "lighting.reference_patch.roi",
+        "lighting.reference_patch.roi: [1880, 40, 100, 100] is outside the 1920x1080 frame",
+    )
+
+
+def test_rule_4_localize_roi_outside_the_frame(tmp_path: Path) -> None:
+    _refused(
+        _mutated(
+            tmp_path, "roi: [360, 0, 1200, 1080]", "roi: [360, 0, 1200, 2000]"
+        ),
+        "inspector.localize.roi: [360, 0, 1200, 2000] is outside the 1920x1080 frame",
     )
 
 
@@ -318,6 +334,24 @@ def test_rule_6_threshold_not_set_on_the_backend(tmp_path: Path) -> None:
             "backend: torch-cpu, calib_units: 15",
         ),
         "threshold.set_on.backend",
+    )
+
+
+def test_rule_6_threshold_not_set_on_the_localize_threshold(tmp_path: Path) -> None:
+    _refused(
+        _mutated(
+            tmp_path, "localize_threshold: 70", "localize_threshold: 71"
+        ),
+        "threshold.set_on.localize_threshold",
+    )
+
+
+def test_rule_6_threshold_not_set_on_the_mask_dilate_px(tmp_path: Path) -> None:
+    _refused(
+        _mutated(
+            tmp_path, "mask_dilate_px: 12 }", "mask_dilate_px: 13 }"
+        ),
+        "threshold.set_on.mask_dilate_px",
     )
 
 
@@ -370,6 +404,39 @@ def test_rule_9_labels_key_missing(tmp_path: Path) -> None:
 def test_rule_9_label_text_empty(tmp_path: Path) -> None:
     _refused(
         _mutated(tmp_path, "defect: БРАК", "defect: ''"), "display.labels.defect"
+    )
+
+
+def test_rule_9_label_text_whitespace_only(tmp_path: Path) -> None:
+    _refused(
+        _mutated(tmp_path, "defect: БРАК", "defect: '  '"), "display.labels.defect"
+    )
+
+
+@pytest.mark.parametrize(
+    ("old", "new"),
+    [
+        ("value:  1.83", "value:  .nan"),
+        ("value:  1.83", "value:  .inf"),
+        ("value:  1.83", "value:  0"),
+        ("value:  1.83", "value:  -1"),
+    ],
+)
+def test_rule_10_threshold_value_not_finite_and_above_zero(
+    tmp_path: Path, old: str, new: str
+) -> None:
+    _refused(_mutated(tmp_path, old, new), "threshold.value")
+
+
+def test_rule_11_key_repeated_within_one_mapping(tmp_path: Path) -> None:
+    _refused(
+        _mutated(tmp_path, "  gain: 0", "  gain: 0\n  gain: 1"), "camera.gain"
+    )
+
+
+def test_rule_11_key_repeated_at_the_top_level(tmp_path: Path) -> None:
+    _refused(
+        _mutated(tmp_path, "version: 1", "version: 1\nversion: 2"), "version"
     )
 
 

@@ -1,5 +1,15 @@
+"""The station config: a strict loader over `yaml.safe_load`, and its canonical hash.
+
+Nothing here has a default — a missing key is a `ConfigError`, never a silent value (C6) —
+and every rule of CONTRACTS §3.3 refuses the config naming the offending key, so a bad
+config fails at start-up instead of quietly ruining a shoot.
+"""
+
+from __future__ import annotations
+
 import hashlib
 import json
+import math
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -422,6 +432,8 @@ def _overlaps(a: tuple[int, int, int, int], b: tuple[int, int, int, int]) -> boo
 
 
 def _validate(config: StationConfig) -> None:
+    if config.camera.exposure_us <= 0:
+        raise ConfigError(f"camera.exposure_us: {config.camera.exposure_us} is not above 0")
     if config.camera.power_line_hz == 50 and config.camera.exposure_us % 10000 != 0:
         raise ConfigError(
             f"camera.exposure_us: {config.camera.exposure_us} is not a multiple of 10000 "
@@ -459,6 +471,17 @@ def _validate(config: StationConfig) -> None:
             f"threshold.set_on.backend: {config.threshold.set_on.backend!r} does not match "
             f"inspector.backend {config.inspector.backend!r}"
         )
+    if config.threshold.set_on.localize_threshold != config.inspector.localize.threshold:
+        raise ConfigError(
+            f"threshold.set_on.localize_threshold: "
+            f"{config.threshold.set_on.localize_threshold} does not match "
+            f"inspector.localize.threshold {config.inspector.localize.threshold}"
+        )
+    if config.threshold.set_on.mask_dilate_px != config.inspector.mask_dilate_px:
+        raise ConfigError(
+            f"threshold.set_on.mask_dilate_px: {config.threshold.set_on.mask_dilate_px} "
+            f"does not match inspector.mask_dilate_px {config.inspector.mask_dilate_px}"
+        )
     area = config.threshold.geometry.area_px
     if area[0] >= area[1]:
         raise ConfigError(
@@ -483,8 +506,32 @@ def _validate(config: StationConfig) -> None:
         ("display.labels.defect", labels.defect),
         ("display.labels.no_verdict", labels.no_verdict),
     ):
-        if not text:
-            raise ConfigError(f"{path}: must not be empty")
+        if not text.strip():
+            raise ConfigError(f"{path}: must not be empty or whitespace-only")
+    threshold = config.threshold.value
+    if not math.isfinite(threshold) or threshold <= 0:
+        raise ConfigError(
+            f"threshold.value: {threshold} is not a finite number above 0 — a NaN or "
+            "infinite threshold would pass every appearance check (fails open)"
+        )
+
+
+def _refuse_duplicate_keys(node: yaml.Node, path: str) -> None:
+    if not isinstance(node, yaml.MappingNode):
+        return
+    seen: set[str] = set()
+    for key_node, value_node in node.value:
+        if not isinstance(key_node, yaml.ScalarNode):
+            _refuse_duplicate_keys(value_node, path)
+            continue
+        key = str(key_node.value)
+        if key in seen:
+            raise ConfigError(
+                f"{_key(path, key)}: this key is repeated within one mapping — "
+                "YAML would silently keep only the last value"
+            )
+        seen.add(key)
+        _refuse_duplicate_keys(value_node, _key(path, key))
 
 
 def _canonical(value: object) -> object:
@@ -509,6 +556,12 @@ def load_config(path: Path) -> LoadedConfig:
         text = path.read_text(encoding="utf-8")
     except OSError as exc:
         raise ConfigError(f"{path}: cannot read the config file: {exc}") from exc
+    try:
+        document = yaml.compose(text, Loader=yaml.SafeLoader)
+    except yaml.YAMLError as exc:
+        raise ConfigError(f"{path}: invalid YAML: {exc}") from exc
+    if document is not None:
+        _refuse_duplicate_keys(document, "")
     try:
         raw = yaml.safe_load(text)
     except yaml.YAMLError as exc:

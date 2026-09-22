@@ -20,23 +20,23 @@ from qs.contracts import (
 )
 from qs.errors import (
     CameraLost,
-    CameraSettingsDrift,
     CaptureError,
     ConfigError,
-    InferenceError,
-    LightingFault,
     PlacementFault,
     QSError,
 )
 
-REASONED_ERRORS = (
-    CaptureError,
-    CameraLost,
-    CameraSettingsDrift,
-    LightingFault,
-    PlacementFault,
-    InferenceError,
-)
+
+def _error_classes() -> list[type[QSError]]:
+    def walk(cls: type[QSError]) -> list[type[QSError]]:
+        found: list[type[QSError]] = []
+        for sub in cls.__subclasses__():
+            if sub is not ConfigError:
+                found.append(sub)
+            found.extend(walk(sub))
+        return found
+
+    return walk(QSError)
 
 
 def _event() -> TriggerEvent:
@@ -184,18 +184,32 @@ def test_derive_label_empty_configured() -> None:
         derive_label((_check(CHECK_GEOMETRY, True),), frozenset())
 
 
+def test_derive_label_failed_check_plus_missing_one() -> None:
+    checks = (_check(CHECK_GEOMETRY, False),)
+    assert derive_label(checks, CONFIGURED) is Label.DEFECT
+
+
+def test_derive_label_non_bool_passed_fails_closed() -> None:
+    for passed in (1, "no", None):
+        checks = (
+            _check(CHECK_GEOMETRY, True),
+            CheckResult(name=CHECK_APPEARANCE, passed=passed, value=None, limit=None),
+        )
+        assert derive_label(checks, CONFIGURED) is Label.DEFECT
+
+
 def test_every_exception_reason_is_a_reason() -> None:
-    for error in REASONED_ERRORS:
+    for error in _error_classes():
         assert error.reason in REASONS, error
 
 
 def test_exception_reasons_are_reasons_minus_busy() -> None:
-    assert {error.reason for error in REASONED_ERRORS} == set(REASONS) - {"busy"}
+    assert {error.reason for error in _error_classes()} == set(REASONS) - {"busy"}
 
 
 def test_error_hierarchy() -> None:
     assert issubclass(CameraLost, CaptureError)
-    for error in REASONED_ERRORS:
+    for error in _error_classes():
         assert issubclass(error, QSError)
     assert issubclass(ConfigError, QSError)
 

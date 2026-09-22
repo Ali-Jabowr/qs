@@ -172,9 +172,10 @@ class Sink(Protocol):
 
 
 def derive_label(checks: tuple[CheckResult, ...], configured: frozenset[str]) -> Label:
-    """Derive a label from completed checks alone (C8). DEFECT if any check failed;
-    PASS only if every configured check ran and passed; never NO_VERDICT — a completed
-    inspection with a configured check missing is a programming error, not a verdict."""
+    """Derive a label from completed checks alone (C8). DEFECT if any check's `passed`
+    is anything other than exactly True — a non-bool fails closed, never open; PASS only
+    if every configured check ran and passed; never NO_VERDICT — a completed inspection
+    with a configured check missing is a programming error, not a verdict."""
     if not configured:
         raise ValueError("no configured checks: a verdict needs at least one")
     names = [check.name for check in checks]
@@ -184,7 +185,7 @@ def derive_label(checks: tuple[CheckResult, ...], configured: frozenset[str]) ->
     unconfigured = sorted(set(names) - configured)
     if unconfigured:
         raise ValueError("check(s) not configured: " + ", ".join(unconfigured))
-    if any(not check.passed for check in checks):
+    if any(check.passed is not True for check in checks):
         return Label.DEFECT
     missing = sorted(configured - set(names))
     if missing:
