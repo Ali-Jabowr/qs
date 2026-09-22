@@ -23,6 +23,7 @@ Numbers are never reused. A superseded ADR stays, with its status changed and a 
 | [0016](ADR-0016-station-runs-only-what-it-was-given.md) | The station runs only what it was given: offline, hashed, never validation-only models | Accepted | 2026-09-21 |
 | [0017](ADR-0017-gate-b-proxy.md) | Gate B judged on a conservative N100 estimate until an N100 exists | Accepted | 2026-09-21 |
 | [0018](ADR-0018-operator-screen-tk.md) | Operator screen is a Tk window; OpenCV headless everywhere | Accepted | 2026-09-21 |
-| [0019](ADR-0019-executor-model-glm-5-3.md) | The executor runs GLM-5.3 through OpenRouter, only on hosts that do not train on prompts | Accepted — trial on P01 | 2026-09-22 |
+| [0019](ADR-0019-executor-model-glm-5-3.md) | The executor runs GLM-5.3 through OpenRouter, only on hosts that do not train on prompts | Accepted — amended after P01 | 2026-09-22 |
+| [0020](ADR-0020-backbone-weights-racm-in1k.md) | PatchCore's backbone weights are timm's `wide_resnet50_2.racm_in1k`, named by full tag | Accepted | 2026-09-22 |
 
 New decisions take the next free number.

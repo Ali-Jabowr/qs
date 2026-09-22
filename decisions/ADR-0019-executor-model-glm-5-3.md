@@ -1,7 +1,6 @@
 # ADR-0019: The executor runs GLM-5.3 through OpenRouter, only on hosts that do not train on prompts
 
-**Status:** Accepted · 2026-09-22 · Ali. P01 is the trial; the rule under **Decision** settles the
-rest of the week.
+**Status:** Accepted · 2026-09-22 · Ali. Amended the same day after P01 — see **Amendment** below.
 
 ## Context
 
@@ -52,6 +51,20 @@ comes to roughly $10–15 if caching works and $35–45 if it does not.
   them in `reviews/REVIEW-P01.md`. If P01 cost more than **$1.50**, or almost nothing was cached, the
   remaining plans run on GLM-5.3-Flash; P04 and P07 may stay on GLM-5.3 if the remaining budget
   covers them.
+
+## Amendment — 2026-09-22, after P01
+
+P01 cost **$2.66**, and **96.5%** of its input tokens came from cache (`reviews/REVIEW-P01.md`). The rule
+fired on cost, not on caching: 147 of P01's 159 model steps went on coaxing `pip-compile` through a
+link that fell to ~90 KiB/s. Ali chose the per-plan split below instead of the rule's wording, so
+that the contracts every later plan builds on get the stronger model:
+
+| Model | Plans |
+|---|---|
+| `openrouter/z-ai/glm-5.3` (the default in `opencode.json`) | P02, P04, P07 |
+| `openrouter/z-ai/glm-5.3-flash` — start OpenCode with `-m openrouter/z-ai/glm-5.3-flash` | P03, P05, P06, P08, P09 |
+
+Estimated at ~$10 for the week, inside the $20 key limit. Each review records the plan's cost.
 
 ## Alternatives considered
 

@@ -100,13 +100,13 @@ specific:
 
 Both processors belong to the Lightning wrapper `Patchcore`, not to the torch `PatchcoreModel`, so
 using the torch model directly avoids them. If the wrapper is ever used to build it, both are passed
-as `False`. **To be confirmed against 2.6.2 at the environment step.**
+as `False`. **Confirmed against 2.6.2 at P01** (`reviews/REVIEW-P01.md`, R18).
 
 **Configuration**
 
 | Setting | Value | Note |
 |---|---|---|
-| Backbone | `wide_resnet50_2`, ImageNet-pretrained | Loaded through timm from the Hugging Face Hub (`timm/wide_resnet50_2.tv_in1k`, the original torchvision weights) — **confirm at the environment step**. The licence question in §11 applies |
+| Backbone | `wide_resnet50_2.racm_in1k`, ImageNet-pretrained | Loaded through timm from the Hugging Face Hub, **named by full tag** and checked against the P01 hash (ADR-0020). P01 found this is timm's default — its own re-training — not the torchvision `tv_in1k` weights this row first predicted. The licence question in §11 applies |
 | Layers | `layer2`, `layer3` | Anomalib's default and the paper's |
 | Input | 256 × 256, ImageNet mean and std | A 32 × 32 patch grid |
 | Coreset | 10% | 1% is the first latency fallback (§10) |
@@ -290,7 +290,7 @@ the lawyer budget line (CLAUDE.md §6).
 | Anomalib, incl. PatchCore and PaDiM | Apache-2.0 (Intel) | Yes | PatchCore and PaDiM are Intel's own code, not third-party | [LICENSE](https://github.com/open-edge-platform/anomalib/blob/main/LICENSE) |
 | Anomalib FastFlow | Apache-2.0 (third party) | Yes | Keep the attribution | [third-party-programs.txt](https://github.com/open-edge-platform/anomalib/blob/main/third-party-programs.txt) |
 | Anomalib EfficientAD | Apache-2.0 code | **Unclear** | Downloads extra pretrained teacher weights with no licence found, and trains on Imagenette | [docs](https://anomalib.readthedocs.io/en/stable/markdown/guides/reference/models/image/efficient_ad.html) |
-| torchvision `wide_resnet50_2`, `resnet18` weights | None stated | **Unresolved** | torchvision: weights "may have their own licenses… your responsibility to determine" | [models](https://docs.pytorch.org/vision/stable/models.html), [vision#2597](https://github.com/pytorch/vision/issues/2597) |
+| `wide_resnet50_2.racm_in1k` weights (installed, ADR-0020); `resnet18` weights (latency fallback) | Apache-2.0 declared on timm's model card for `racm_in1k`; torchvision states none for its own | **Unresolved** | A publisher's licence does not settle whether ImageNet's terms reach the weights. torchvision: weights "may have their own licenses… your responsibility to determine" | [racm_in1k card](https://huggingface.co/timm/wide_resnet50_2.racm_in1k), [models](https://docs.pytorch.org/vision/stable/models.html), [vision#2597](https://github.com/pytorch/vision/issues/2597) |
 | ImageNet images | Terms of access | No | Non-commercial research and education only | [image-net.org](https://www.image-net.org/download.php) |
 | MVTec AD | CC BY-NC-SA 4.0 | No | Nothing trained on it ships | [MVTec](https://www.mvtec.com/company/research/datasets/mvtec-ad) |
 | OpenVINO | Apache-2.0 | Yes | — | [LICENSE](https://github.com/openvinotoolkit/openvino/blob/master/LICENSE) |
@@ -300,8 +300,9 @@ the lawyer budget line (CLAUDE.md §6).
 | DejaVu Sans | Bitstream Vera; changes public domain | Yes, bundled | Not sold alone; keep the notice | [licence](https://dejavu-fonts.github.io/License.html) |
 
 **What is settled and what is not about the backbone weights.** Settled: the ImageNet images are
-non-commercial, and neither torchvision nor timm attaches a licence to the weights. Contested:
-whether the dataset's terms reach the weights. One position holds that weights contain no images
+non-commercial. torchvision attaches no licence to its weights; timm's model cards do declare one
+(Apache-2.0 for `racm_in1k`, corrected 2026-09-22, ADR-0020). Contested: whether the dataset's
+terms reach the weights, which a publisher's licence does not decide. One position holds that weights contain no images
 and may not be copyrightable at all ([arXiv 2412.07066](https://arxiv.org/pdf/2412.07066)); the
 other says to assume the dataset's terms apply and to take advice. These backbones ship in many
 commercial products — which is practice, not a ruling.

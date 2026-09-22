@@ -785,8 +785,8 @@ risks:
     response_ru: Парная съёмка в случайном порядке, контрольные изделия в начале, середине и конце, 30 минут выдержки до комнатной температуры в упаковке (ADR-0014, 13 §2).
   - id: R11
     severity: high
-    text_en: The ImageNet-pretrained backbone weights carry no explicit licence; their commercial use is unresolved.
-    text_ru: Веса опорной сети, обученные на ImageNet, не имеют явной лицензии; допустимость их коммерческого использования не определена.
+    text_en: The ImageNet-pretrained backbone weights (timm's racm_in1k, ADR-0020) declare Apache-2.0 on their model card, but whether ImageNet's non-commercial terms reach them is unresolved; so is their commercial use.
+    text_ru: Для весов опорной сети, обученных на ImageNet (racm_in1k из timm, ADR-0020), в карточке модели указана лицензия Apache-2.0, но распространяются ли на них некоммерческие условия ImageNet, не определено; не определена и допустимость их коммерческого использования.
     signal_en: Every PatchCore variant depends on them.
     signal_ru: От них зависит любой вариант PatchCore.
     response_en: The lawyer budget line before anything ships (OQ-10). Fallbacks — a commercially licensed pretraining, or self-supervised pretraining on the line's own images (15-model.md §11).
