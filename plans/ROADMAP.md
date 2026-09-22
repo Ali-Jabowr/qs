@@ -20,8 +20,8 @@ written **one ahead** of execution, so each can learn from the last. Status of e
 | P08 | `qs build` (datasets and golden set), `qs calibrate`, `qs evaluate` — the INDICATIVE report | P04, P07 | `14` §4–§9; `15` §7 |
 | P09 | The station: `ScreenAnnunciator`, `KeyboardTrigger`, live `qs station`; NFR-01 measured; the non-author test | P05, P08 | `11` §3; `16` §5; ADR-0018 |
 
-**Executor model** (ADR-0019, amended after P01): GLM-5.3 for **P02, P04, P07**; GLM-5.3-Flash for
-the rest — start OpenCode with `opencode -m openrouter/z-ai/glm-5.3-flash` for those.
+**Executor** (ADR-0021): Claude Code implements every plan from P05 on, and one fresh Claude agent
+reviews it. P01 and P02 were executed by OpenCode (ADR-0019, superseded).
 
 P05 was split in two on 2026-09-22, so each half fits one executor session: the camera first (the
 lock test needs it on Wednesday), then the shoot tools (Friday's shoot needs them).

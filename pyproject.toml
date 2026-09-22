@@ -22,5 +22,8 @@ files = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
-markers = ["env: needs the real environment — GPU, weights cache (run by make env-check)"]
-addopts = "-m 'not env'"
+markers = [
+    "env: needs the real environment — GPU, weights cache (run by make env-check)",
+    "gui: needs a display (run by make gui-check)",
+]
+addopts = "-m 'not env and not gui'"

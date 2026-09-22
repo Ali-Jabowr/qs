@@ -1,6 +1,6 @@
 # ADR-0019: The executor runs GLM-5.3 through OpenRouter, only on hosts that do not train on prompts
 
-**Status:** Accepted · 2026-09-22 · Ali. Amended the same day after P01 — see **Amendment** below.
+**Status:** Superseded by [ADR-0021](ADR-0021-executor-is-claude-code.md) · 2026-09-22 (was Accepted the same day; amended after P01 — see **Amendment** below). It governed P01 and P02.
 
 ## Context
 

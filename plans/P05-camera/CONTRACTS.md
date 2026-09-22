@@ -120,13 +120,16 @@ open a camera by path — checked on this laptop — so it opens by the number.)
 
 **`open()`**, in this order:
 1. `cap = open_capture(camera.device)`; `not cap.isOpened()` → `CameraLost(f"{device}: cannot open")`.
-2. `cap.set` `CAP_PROP_FOURCC` to `cv2.VideoWriter_fourcc(*camera.format)`, then `CAP_PROP_FRAME_WIDTH`,
+2. `cap.set(CAP_PROP_READ_TIMEOUT_MSEC, 1000)` — below the 2 s join in `close()` *(amended in
+   review round 1)*. Then `cap.set` `CAP_PROP_FOURCC` to `cv2.VideoWriter_fourcc(*camera.format)`, then `CAP_PROP_FRAME_WIDTH`,
    then `CAP_PROP_FRAME_HEIGHT`. Read the three back with `cap.get` (FOURCC decoded to 4 characters).
    Any mismatch → `CameraSettingsDrift(f"format: set {format} {w}x{h}, camera reports {fmt} {w2}x{h2}")`.
 3. `controls = open_controls(camera.device)`; `readings = apply_controls(controls, camera)`; store them;
    `check_readings(readings)`.
-4. Start the grab thread (daemon). Wait up to `capture_timeout_ms` for its first frame, else
-   `CaptureError(f"no frame within {capture_timeout_ms} ms of opening")`.
+4. Start the grab thread (daemon). Wait up to `max(capture_timeout_ms, 3000)` ms for its first frame,
+   else `CaptureError(f"no frame within {that} ms of opening")`. *(Amended in review round 1: UVC
+   webcams can take 0.5–1.5 s after STREAMON to deliver the first frame; 500 ms would stop Ali's
+   lock test before it starts.)*
 If any step raises, release what was opened before re-raising.
 
 **The grab thread** loops until `close()`: `ok, img = cap.read()`; `ts = cap.get(CAP_PROP_POS_MSEC) /
@@ -153,6 +156,10 @@ failure, count it; after **3 consecutive** failures mark the source lost, notify
 **`health()`** — `Health(ok, detail)`: `ok` if not lost, the thread is alive and the newest frame is
 under 2 s old (`perf_counter() - ts`); `detail` says which of these failed, or `"streaming"`.
 **`close()`** — stop the thread, join it (2 s), `cap.release()`, `controls.close()`. Safe to call twice.
+*(Amended in review round 1:)* if the thread is still inside `read()` after the join, `release()` is
+skipped — releasing a capture another thread is reading from is undefined behaviour. The grab thread
+catches any exception from the driver and ends as lost, so `capture()` raises `CameraLost` instead of
+timing out.
 
 ## 3. `src/qs/screen.py`
 
