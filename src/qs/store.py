@@ -519,3 +519,90 @@ def _ensure_schema(conn: sqlite3.Connection, path: Path) -> None:
         + SCHEMA
         + f"\nINSERT INTO schema_version (version) VALUES ({SCHEMA_VERSION});\nCOMMIT;"
     )
+
+
+# --- verification ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class VerifyReport:
+    """What one pass over an evidence root found. Paths are relative to the root."""
+
+    missing: tuple[str, ...]  # a row's stored image or heatmap file is absent
+    mismatched: tuple[str, ...]  # a stored image whose SHA-256 differs from its row
+    orphans: tuple[str, ...]  # files no row names, temp files left by a crash included
+    seq_gaps: dict[str, list[int]]  # per run, the seq numbers missing between first and last
+    open_runs: tuple[str, ...]  # runs with ended_utc NULL
+    ok: bool  # every list empty, apart from open_runs that are live
+
+
+def verify(root: Path, live_runs: frozenset[str] | set[str] = frozenset()) -> VerifyReport:
+    """One query and a walk (docs/12 §3): the database opened read-only, `images/` and
+    `heatmaps/` walked. It modifies nothing. `live_runs` names runs still in progress, whose
+    open `ended_utc` is expected. ValueError, naming the path, for a missing or unreadable
+    database."""
+    root = Path(root)
+    path = root / DB_NAME
+    if not path.is_file():
+        raise ValueError(f"no evidence database at {path}")
+    try:
+        conn = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
+    except sqlite3.Error as exc:
+        raise ValueError(f"cannot open the evidence database {path}: {exc}") from exc
+    try:
+        versions = [r[0] for r in conn.execute("SELECT version FROM schema_version")]
+        if versions != [SCHEMA_VERSION]:
+            raise ValueError(f"{path} is not schema_version {SCHEMA_VERSION}: {versions}")
+        rows = conn.execute(
+            "SELECT run_id, seq, image_status, image_path, image_sha256, heatmap_path"
+            " FROM inspection ORDER BY run_id, seq"
+        ).fetchall()
+        open_runs = tuple(
+            r[0] for r in conn.execute("SELECT run_id FROM run WHERE ended_utc IS NULL ORDER BY 1")
+        )
+    except sqlite3.Error as exc:
+        raise ValueError(f"cannot read the evidence database {path}: {exc}") from exc
+    finally:
+        conn.close()
+
+    named: set[str] = set()
+    missing: list[str] = []
+    mismatched: list[str] = []
+    seqs: dict[str, list[int]] = {}
+    for run_id, seq, status, image_path, image_sha256, heatmap_path in rows:
+        seqs.setdefault(run_id, []).append(seq)
+        if status == "stored" and image_path is not None:
+            named.add(image_path)
+            image = root / image_path
+            if not image.is_file():
+                missing.append(image_path)
+            elif hashlib.sha256(image.read_bytes()).hexdigest() != image_sha256:
+                mismatched.append(image_path)
+        if heatmap_path is not None:
+            named.add(heatmap_path)
+            if not (root / heatmap_path).is_file():
+                missing.append(heatmap_path)
+
+    on_disk = sorted(
+        file.relative_to(root).as_posix()
+        for top in ("images", "heatmaps")
+        if (root / top).is_dir()
+        for file in (root / top).rglob("*")
+        if not file.is_dir()
+    )
+    seq_gaps: dict[str, list[int]] = {}
+    for run_id, numbers in seqs.items():
+        present = set(numbers)
+        gaps = [n for n in range(min(numbers), max(numbers) + 1) if n not in present]
+        if gaps:
+            seq_gaps[run_id] = gaps
+    orphans = tuple(p for p in on_disk if p not in named)
+    ok = not (missing or mismatched or orphans or seq_gaps) and set(open_runs) <= set(live_runs)
+    return VerifyReport(
+        missing=tuple(sorted(missing)),
+        mismatched=tuple(sorted(mismatched)),
+        orphans=orphans,
+        seq_gaps=seq_gaps,
+        open_runs=open_runs,
+        ok=ok,
+    )
