@@ -14,6 +14,10 @@ import errno
 import hashlib
 import json
 import os
+import signal
+import sqlite3
+import subprocess
+import sys
 import threading
 import time
 from collections.abc import Callable, Iterator
@@ -46,6 +50,7 @@ from qs.inspector.stub import StubInspector
 from qs.pipeline import Pipeline
 from qs.sink import SqliteSink
 from qs.station import Station
+from qs.store import Store, verify
 from station_fixtures import (
     UNVERIFIED,
     FakeClock,
@@ -400,6 +405,138 @@ def test_2_images_are_shed_pass_first_then_no_verdict_then_defect(
     assert sink["images_shed"] == 60
     assert sink["held"] >= 250  # those queued after the last failed retry are not "held"
     assert run.counters()["labels"] == {"pass": 60, "defect": 220, "no_verdict": 20}
+
+
+# --- 3 · stop while storage is down -----------------------------------------------------------
+
+
+@needs_non_root
+def test_3_a_stop_while_storage_is_down_ends_in_10_s_and_counts_the_lost(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """docs/16 §7 and F13: the evidence root goes read-only after event 20 is written, and
+    SIGINT stops the run after event 30. The sink keeps P03's own 10 s stop wait; the command
+    returns once it has passed, prints the 10 rows lost, exits 1, and the run's `ended_utc`
+    stays NULL. Every event is accounted for: 20 rows written and 10 lost."""
+    root = tmp_path / "evidence"
+    spy = Spy()
+    stopped_at: list[float] = []
+
+    def outage() -> None:  # at the show of event 21, before its own write
+        assert spy.sink is not None
+        deadline = time.monotonic() + 5.0
+        while spy.sink.pending() and time.monotonic() < deadline:
+            time.sleep(0.005)
+        assert spy.sink.pending() == 0
+        root.chmod(0o555)
+
+    def stop() -> None:
+        stopped_at.append(time.monotonic())
+        signal.raise_signal(signal.SIGINT)
+
+    try:
+        run = _station(
+            tmp_path, capsys, monkeypatch,
+            events=40, hooks={21: outage, 30: stop}, spy=spy, stop_wait_s=None,
+        )
+        returned = time.monotonic()
+    finally:
+        root.chmod(0o755)
+    assert run.code == 1
+    assert 10.0 <= returned - stopped_at[0] < 11.5  # P03's wait, not shortened, then out
+    assert [int(r["seq"]) for r in run.inspections()] == list(range(1, 21))
+    run_row = run.run_row()
+    assert run_row["ended_utc"] is None and run_row["counters"] is None
+    assert "events 30 · pass 30" in run.out  # nothing polled after the stop
+    assert "records written 20 · " in run.out and " · lost 10" in run.out
+    assert "10 record(s) LOST" in run.out
+    assert len(run.spy.handle_s) == 30
+    counters = _pipeline(run).counters
+    assert counters["events"] == 30 and counters["final_state"] == "READY"
+    assert spy.sink is not None
+    sink = spy.sink.counters()
+    assert (sink["written"], sink["lost"], sink["pending"], sink["rejected"]) == (20, 10, 0, 0)
+
+
+# --- 4 · process killed mid-run ---------------------------------------------------------------
+
+SRC = Path(__file__).resolve().parents[1] / "src"
+KILL_AFTER = 100  # rows
+KILL_FRAMES = 600  # far more than are written before the kill
+
+
+def _row_count(database: Path) -> int:
+    """Rows committed so far, read-only; 0 until the database exists or its schema is made,
+    and 0 if the writer holds its lock for longer than the reader's 0.5 s busy wait."""
+    if not database.exists():
+        return 0
+    try:
+        conn = sqlite3.connect(f"{database.resolve().as_uri()}?mode=ro", uri=True, timeout=0.5)
+    except sqlite3.Error:
+        return 0
+    try:
+        return int(conn.execute("SELECT COUNT(*) FROM inspection").fetchone()[0])
+    except sqlite3.Error:
+        return 0
+    finally:
+        conn.close()
+
+
+def test_4_a_process_killed_mid_run_leaves_evidence_that_verifies(tmp_path: Path) -> None:
+    """docs/16 §7, F14 and §4: `qs station --replay` in a child process, SIGKILLed once 100
+    rows are committed. The database opens and is intact; its rows are `seq` 1…m with no gap;
+    every row's files exist with their hashes; verification lists any orphan, which can only
+    be the files of record m+1, written before its row could commit; and the run stays open
+    (`ended_utc` NULL). At most the in-memory backlog is lost."""
+    config = write_config(tmp_path)
+    shoot = tmp_path / "shoot"
+    [first] = write_frames(shoot, 1)
+    for index in range(2, KILL_FRAMES + 1):
+        os.link(first, shoot / f"f{index:04d}.png")  # the same pixels, no disk used
+    env = dict(os.environ)
+    env["PYTHONPATH"] = os.pathsep.join([str(SRC), *filter(None, [env.get("PYTHONPATH")])])
+    root = tmp_path / "evidence"
+    database = root / "qs.db"
+    with (tmp_path / "stderr.txt").open("wb") as stderr:
+        child = subprocess.Popen(
+            [sys.executable, "-m", "qs", "station", "--config", str(config),
+             "--replay", str(shoot)],
+            cwd=tmp_path, env=env, stdout=subprocess.DEVNULL, stderr=stderr,
+        )
+        try:
+            deadline = time.monotonic() + 8.0
+            while _row_count(database) < KILL_AFTER:
+                assert child.poll() is None, "the station ended before it was killed"
+                assert time.monotonic() < deadline, "100 rows were not written within 8 s"
+                time.sleep(0.005)
+            child.send_signal(signal.SIGKILL)
+        finally:
+            child.kill()
+            child.wait(timeout=5)
+    assert child.returncode == -signal.SIGKILL, (tmp_path / "stderr.txt").read_text()
+
+    conn = sqlite3.connect(database)  # a restart's open: rolls back any half-made commit
+    try:
+        assert conn.execute("PRAGMA integrity_check").fetchone() == ("ok",)
+        seqs = [r[0] for r in conn.execute("SELECT seq FROM inspection ORDER BY id")]
+        [(run_id, ended, counters)] = conn.execute(
+            "SELECT run_id, ended_utc, counters FROM run"
+        ).fetchall()
+    finally:
+        conn.close()
+    m = len(seqs)
+    assert m >= KILL_AFTER and seqs == list(range(1, m + 1))
+    assert (ended, counters) == (None, None)
+    report = verify(root)
+    assert report.missing == () and report.mismatched == () and report.seq_gaps == {}
+    assert report.open_runs == (run_id,)
+    for orphan in report.orphans:  # the next record's image, or its temporary file
+        assert Path(orphan).name.startswith(f"{m + 1:06d}_"), report.orphans
+    assert len(report.orphans) <= 1
+    for r in rows(database, "SELECT * FROM inspection WHERE image_status = 'stored'"):
+        data = (root / r["image_path"]).read_bytes()
+        assert hashlib.sha256(data).hexdigest() == r["image_sha256"]
+    Store(root).close()  # the next run opens the same evidence
 
 
 # --- 5 · settings -----------------------------------------------------------------------------
