@@ -1,5 +1,5 @@
 """`inspector.type: appearance` through `qs station --replay`: P07's `AppearanceInspector`
-behind the same Pipeline as the stub (docs/11 §4, #68).
+behind the same Pipeline as the stub (docs/11 §4).
 
 The frames are 1920×1080 synthetic discs on P06's black floor, with the grey card painted
 into the reference patch. The example config is rewritten to name a bundle written with a
