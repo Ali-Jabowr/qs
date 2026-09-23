@@ -16,11 +16,14 @@ import json
 import os
 import threading
 import time
-from collections.abc import Callable
-from dataclasses import dataclass, field
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from dataclasses import dataclass, field, replace
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pytest
 
 import qs.cmd.station
@@ -29,12 +32,33 @@ from evidence_records import fast_sqlite
 from qs.annunciator import NullAnnunciator
 from qs.cmd.station import main
 from qs.config import LoadedConfig
-from qs.contracts import Frame, FrameSource, Inspector, TriggerEvent, TriggerSource, Verdict
+from qs.contracts import (
+    Frame,
+    FrameSource,
+    Health,
+    Inspector,
+    TriggerEvent,
+    TriggerSource,
+    Verdict,
+)
+from qs.errors import CameraSettingsDrift, CaptureError
 from qs.inspector.stub import StubInspector
 from qs.pipeline import Pipeline
 from qs.sink import SqliteSink
 from qs.station import Station
-from station_fixtures import FakeClock, rows, station_args, write_config, write_frames
+from station_fixtures import (
+    UNVERIFIED,
+    FakeClock,
+    loaded_config,
+    rows,
+    sha256_file,
+    station_args,
+    textured,
+    write_config,
+    write_frames,
+    write_frames_csv,
+    write_png,
+)
 
 needs_non_root = pytest.mark.skipif(
     os.geteuid() == 0, reason="root ignores chmod: a read-only directory cannot be simulated"
@@ -296,3 +320,360 @@ def test_1_enospc_for_events_50_to_149_holds_every_row(
     assert sink["held"] >= 100 and sink["write_failures"] >= 1
     assert sink["images_shed"] == 0
     assert run.counters()["final_state"] == "READY"
+
+
+# --- 2 · shedding at station level ------------------------------------------------------------
+
+
+@contextmanager
+def _read_only(path: Path) -> Iterator[Callable[[], None]]:
+    """`path` created and read-only until the yielded restore() is called, or the block ends."""
+    path.mkdir(parents=True, exist_ok=True)
+    path.chmod(0o555)
+    restored = False
+
+    def restore() -> None:
+        nonlocal restored
+        if not restored:
+            path.chmod(0o755)
+            restored = True
+
+    try:
+        yield restore
+    finally:
+        restore()
+
+
+@needs_non_root
+def test_2_images_are_shed_pass_first_then_no_verdict_then_defect(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """docs/16 §7 and F11, ADR-0012, #56: 300 events with the evidence root read-only from
+    before event 1 to after event 260. Events 1–260 carry 20 PASS, 20 NO_VERDICT(`placement`)
+    and 220 DEFECT images, so the 60 images past the high-water of 200 are every PASS, then
+    every NO_VERDICT, then the 20 oldest DEFECT. Every row is still written; a shed row keeps
+    its label and has `image_status = 'shed'` and no file."""
+    passes = set(range(1, 261, 13))
+    placements = set(range(2, 261, 13))
+    assert len(passes) == len(placements) == 20
+    script = {seq: "defect:appearance" for seq in range(1, 261)}
+    script.update({seq: "placement:edge" for seq in placements})
+    for seq in passes:
+        del script[seq]  # unscripted: a pass
+    defects = sorted(set(range(1, 261)) - passes - placements)
+    spy = Spy()
+    drain = Drain(spy)
+    with _read_only(tmp_path / "evidence") as restore:
+
+        def restored() -> None:
+            restore()
+            drain.restore()
+
+        run = _station(
+            tmp_path, capsys, monkeypatch,
+            events=300, script=script,
+            hooks={260: restored}, between=drain.between, spy=spy,
+        )
+    _one_record_per_event(run, 300)
+    assert run.code == 0
+    assert max(run.spy.handle_s) < 1.0  # shedding never delays a verdict
+    assert all("STORAGE" in run.spy.warnings[seq] for seq in range(201, 261))  # shedding
+    assert "STORAGE" not in run.spy.warnings[300]
+    found = run.by_seq()
+    shed = {seq for seq, r in found.items() if r["image_status"] == "shed"}
+    assert shed == passes | placements | set(defects[:20])
+    for seq in shed:
+        r = found[seq]
+        assert (r["image_path"], r["image_sha256"], r["heatmap_path"]) == (None, None, None)
+        assert r["camera_verified"] == 0  # the row keeps what the frame said
+    for seq in set(range(1, 301)) - shed:
+        assert found[seq]["image_status"] == "stored"
+    assert {found[seq]["label"] for seq in passes} == {"pass"}
+    assert {found[seq]["reason"] for seq in placements} == {"placement"}
+    assert {found[seq]["label"] for seq in defects} == {"defect"}
+    assert all(found[seq]["heatmap_path"] is not None for seq in defects[20:])
+    _stored_files_match(run)
+    root = run.database.parent
+    on_disk = {p.name for p in root.rglob("*") if p.is_file() and p.suffix in (".jpg", ".png")}
+    assert len(on_disk) == (300 - 60) + (220 - 20)  # images, and the kept heatmaps
+    sink = run.counters()["sink"]
+    assert sink["images_shed"] == 60
+    assert sink["held"] >= 250  # those queued after the last failed retry are not "held"
+    assert run.counters()["labels"] == {"pass": 60, "defect": 220, "no_verdict": 20}
+
+
+# --- 5 · settings -----------------------------------------------------------------------------
+
+
+class Wrapped:
+    """A `FrameSource` that passes everything to `inner`; subclasses change `capture`."""
+
+    def __init__(self, inner: FrameSource) -> None:
+        self.inner = inner
+
+    def open(self) -> None:
+        self.inner.open()
+
+    def capture(self, event: TriggerEvent) -> Frame:
+        return self.inner.capture(event)
+
+    def preview(self) -> np.ndarray | None:
+        return self.inner.preview()
+
+    def health(self) -> Health:
+        return self.inner.health()
+
+    def close(self) -> None:
+        self.inner.close()
+
+
+class SettingsSource(Wrapped):
+    """A readable exposure reads back changed at `drift_at` (`CameraSettingsDrift`), and from
+    `unreadable_from` on no setting can be read back at all."""
+
+    def __init__(self, inner: FrameSource, drift_at: int, unreadable_from: int) -> None:
+        super().__init__(inner)
+        self.drift_at, self.unreadable_from = drift_at, unreadable_from
+
+    def capture(self, event: TriggerEvent) -> Frame:
+        if event.seq == self.drift_at:
+            raise CameraSettingsDrift("exposure_us: set 10000, reads 9984 (injected)")
+        frame = self.inner.capture(event)
+        if event.seq >= self.unreadable_from:
+            return replace(frame, camera=UNVERIFIED)
+        return frame
+
+
+def _verified_frames_csv(paths: list[Path]) -> None:
+    """A `frames.csv` recording every frame as shot with the config's settings, read back."""
+    write_frames_csv(paths[0].parent, [
+        {"file": p.name, "exposure_us": 10000, "gain": 0, "wb_kelvin": 4500, "focus": 30,
+         "verified": "true", "sha256": sha256_file(p)}
+        for p in paths
+    ])
+
+
+def _pipeline(run: Run) -> Pipeline:
+    assert run.spy.pipeline is not None
+    return run.spy.pipeline
+
+
+def test_5_settings_drift_at_30_then_unreadable_from_60(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """docs/16 §7 and F4: the drifted unit is NO_VERDICT(`camera_settings`) with no image and
+    `CAMERA_SETTINGS` up until a verified frame; from the first unreadable read-back on, units
+    are inspected as normal, recorded with `camera_verified = 0`, and the warning stays up."""
+    run = _station(
+        tmp_path, capsys, monkeypatch,
+        prepare=_verified_frames_csv,
+        wrap_source=lambda source: SettingsSource(source, drift_at=30, unreadable_from=60),
+    )
+    _one_record_per_event(run, 200)
+    assert run.code == 0
+    found = run.by_seq()
+    drifted = found[30]
+    assert (drifted["label"], drifted["reason"]) == ("no_verdict", "camera_settings")
+    assert drifted["image_status"] == "none" and drifted["camera_verified"] is None
+    for seq in [*range(1, 30), *range(31, 60)]:
+        assert found[seq]["label"] == "pass"
+        assert (found[seq]["camera_verified"], found[seq]["exposure_us"]) == (1, 10000)
+    for seq in range(60, 201):
+        assert found[seq]["label"] == "pass" and found[seq]["image_status"] == "stored"
+        assert (found[seq]["camera_verified"], found[seq]["exposure_us"]) == (0, None)
+    assert run.spy.inspected == [seq for seq in range(1, 201) if seq != 30]
+    up = [seq for seq in range(1, 201) if "CAMERA_SETTINGS" in run.spy.warnings[seq]]
+    assert up == [30, *range(60, 201)]
+    assert "CAMERA_SETTINGS" in _pipeline(run).warnings  # still up at the stop
+    counters = run.counters()
+    assert counters["no_verdict"] == {"camera_settings": 1}
+    assert counters["faults"] == {} and counters["camera_verified"] is False
+    assert counters["final_state"] == "READY"
+    assert "camera verified no" in run.out
+
+
+# --- 6 · reference patch darkened -------------------------------------------------------------
+
+
+def test_6_reference_patch_darkened_for_events_40_to_49(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """docs/16 §7 and F5: ten NO_VERDICT(`lighting`) with their images, never inspected;
+    `LIGHTING` raised at 40 and cleared by the in-band frame of event 50."""
+    dark = 40  # 40 / 255 = 0.157, far below 0.62 ± 5 %
+
+    def darken(paths: list[Path]) -> None:
+        for seq in range(40, 50):
+            write_png(paths[seq - 1], textured(seq, patch_grey=dark))
+
+    run = _station(tmp_path, capsys, monkeypatch, prepare=darken)
+    _one_record_per_event(run, 200)
+    assert run.code == 0
+    found = run.by_seq()
+    for seq in range(40, 50):
+        r = found[seq]
+        assert (r["label"], r["reason"], r["image_status"]) == ("no_verdict", "lighting", "stored")
+        assert r["reference_patch"] == pytest.approx(dark / 255, abs=0.01)
+        assert r["inspect_ms"] == 0.0
+    assert all(found[seq]["label"] == "pass" for seq in [*range(1, 40), *range(50, 201)])
+    assert run.spy.inspected == [*range(1, 40), *range(50, 201)]
+    lit = [seq for seq in range(1, 201) if "LIGHTING" in run.spy.warnings[seq]]
+    assert lit == list(range(40, 50))  # raised by 40, cleared by 50
+    [checks] = rows(
+        run.database,
+        "SELECT COUNT(*) AS n FROM inspection_check c JOIN inspection i"
+        " ON c.inspection_id = i.id WHERE i.reason = 'lighting'",
+    )
+    assert checks["n"] == 0  # not inspected: no check was recorded
+    _stored_files_match(run)
+    counters = run.counters()
+    assert counters["no_verdict"] == {"lighting": 10}
+    assert counters["faults"] == {} and counters["final_state"] == "READY"
+
+
+# --- 7 · unit trigger during an inspection ----------------------------------------------------
+
+
+class Photoelectric:
+    """A fake photoelectric unit trigger over `count` events, `seq` 1…count. An event in
+    `inside` fired while the previous one was being inspected: its `t0` is 1 ms after the
+    previous event's, which is before that event's `handle()` returned."""
+
+    def __init__(self, count: int, inside: set[int], clock: Callable[[], float]) -> None:
+        self.count, self.inside, self.clock = count, inside, clock
+        self.next = 1
+        self.last_t0 = 0.0
+
+    def poll(self) -> TriggerEvent | None:
+        if self.next > self.count:
+            return None
+        seq = self.next
+        self.next += 1
+        t0 = self.last_t0 + 0.001 if seq in self.inside else self.clock()
+        self.last_t0 = t0
+        wall = datetime(2026, 9, 26, 9, 0, 0, tzinfo=UTC) + timedelta(seconds=seq)
+        return TriggerEvent(seq, t0, wall, "photoelectric:fake")
+
+    @property
+    def exhausted(self) -> bool:
+        return self.next > self.count
+
+    def close(self) -> None:
+        self.next = self.count + 1
+
+
+class Captures(Wrapped):
+    """Records every `seq` the station asked to capture."""
+
+    def __init__(self, inner: FrameSource, captured: list[int]) -> None:
+        super().__init__(inner)
+        self.captured = captured
+
+    def capture(self, event: TriggerEvent) -> Frame:
+        self.captured.append(event.seq)
+        return self.inner.capture(event)
+
+
+def test_7_twenty_unit_triggers_inside_an_inspection_are_busy(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """docs/16 §7 and F9: 200 units, and 20 more triggers that fire inside an inspection, give
+    220 records with `seq` 1–220 gapless; the 20 are NO_VERDICT(`busy`) with no image, and are
+    never captured or inspected."""
+    inside = set(range(11, 221, 11))
+    assert len(inside) == 20
+    clock = FakeClock(step=0.01)
+    captured: list[int] = []
+    run = _station(
+        tmp_path, capsys, monkeypatch,
+        events=220,
+        clock=clock,
+        wrap_trigger=lambda replay: Photoelectric(220, inside, clock),
+        wrap_source=lambda source: Captures(source, captured),
+    )
+    _one_record_per_event(run, 220)
+    assert run.code == 0
+    found = run.by_seq()
+    busy = {seq for seq, r in found.items() if r["reason"] == "busy"}
+    assert busy == inside
+    for seq in busy:
+        r = found[seq]
+        assert (r["label"], r["image_status"], r["camera_verified"]) == ("no_verdict", "none", None)
+        assert r["capture_ms"] is None
+    assert all(found[seq]["label"] == "pass" for seq in set(found) - busy)
+    others = [seq for seq in range(1, 221) if seq not in inside]
+    assert captured == others and run.spy.inspected == others
+    counters = run.counters()
+    assert counters["labels"] == {"pass": 200, "defect": 0, "no_verdict": 20}
+    assert counters["no_verdict"] == {"busy": 20}
+    assert counters["faults"] == {} and counters["final_state"] == "READY"
+
+
+# --- 8 · no frame after t0 --------------------------------------------------------------------
+
+
+class StaleSource(Wrapped):
+    """A camera whose frames, for the events in `stale`, are all stamped before `t0` plus one
+    exposure. Following C4 it never returns one: it waits on the fake clock for a fresh frame
+    until `timeout_ms` has passed, then raises `CaptureError`. At the events in `empty` its
+    buffer holds nothing; at the others, three frames stamped too early."""
+
+    def __init__(
+        self, inner: FrameSource, clock: FakeClock, *, stale: set[int], empty: set[int],
+        timeout_ms: int, exposure_us: int,
+    ) -> None:
+        super().__init__(inner)
+        self.clock, self.stale, self.empty = clock, stale, empty
+        self.timeout_s, self.exposure_s = timeout_ms / 1000, exposure_us / 1e6
+        self.waited_ms: dict[int, float] = {}
+
+    def capture(self, event: TriggerEvent) -> Frame:
+        if event.seq not in self.stale:
+            return self.inner.capture(event)
+        not_before = event.t0 + self.exposure_s
+        early = (event.t0 - 0.2, event.t0 - 0.001, event.t0 + self.exposure_s / 2)
+        buffered = () if event.seq in self.empty else early
+        assert not any(stamp > not_before for stamp in buffered)  # none is fresh
+        deadline = event.t0 + self.timeout_s
+        while (now := self.clock()) < deadline:
+            self.clock.advance(0.005)  # waiting for the next frame
+        self.waited_ms[event.seq] = (now - event.t0) * 1000
+        raise CaptureError(
+            f"no frame newer than the trigger within {self.timeout_s * 1000:.0f} ms"
+        )
+
+
+def test_8_no_frame_after_t0_and_a_newest_frame_older_than_t0(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """docs/16 §7, F2, F3 and C4: at 50 the camera delivers nothing after the trigger, and at
+    120 and 121 its newest frames are older than `t0`. Each is NO_VERDICT(`capture`) with no
+    image, recorded within the capture timeout + 50 ms of fake time, and never inspected; two
+    in a row are not a fault, and the next unit is inspected."""
+    clock = FakeClock(step=0.01)
+    camera = loaded_config(tmp_path).config.camera
+    timeout_ms = camera.capture_timeout_ms
+    sources: list[StaleSource] = []
+
+    def stale(source: FrameSource) -> FrameSource:
+        sources.append(StaleSource(
+            source, clock, stale={50, 120, 121}, empty={50},
+            timeout_ms=timeout_ms, exposure_us=camera.exposure_us,
+        ))
+        return sources[0]
+
+    run = _station(tmp_path, capsys, monkeypatch, clock=clock, wrap_source=stale)
+    _one_record_per_event(run, 200)
+    assert run.code == 0
+    found = run.by_seq()
+    for seq in (50, 120, 121):
+        r = found[seq]
+        assert (r["label"], r["reason"], r["image_status"]) == ("no_verdict", "capture", "none")
+        assert r["capture_ms"] is None and r["camera_verified"] is None
+        assert sources[0].waited_ms[seq] >= timeout_ms  # it waited the whole timeout
+        assert timeout_ms <= r["total_ms"] <= timeout_ms + 50
+    assert run.spy.inspected == [seq for seq in range(1, 201) if seq not in (50, 120, 121)]
+    assert found[51]["label"] == "pass" and found[122]["label"] == "pass"
+    counters = run.counters()
+    assert counters["no_verdict"] == {"capture": 3}
+    assert counters["faults"] == {} and counters["final_state"] == "READY"
