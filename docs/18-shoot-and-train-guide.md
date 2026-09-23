@@ -171,7 +171,14 @@ afterwards and never used again.
 
 ## Part E: choose the lighting (when #47 is built)
 
-- [ ] **E1.** Run `qs pilot-report` on the pilot session. It gives two numbers per lighting:
+- [ ] **E1.** Run `qs pilot-report` on the pilot session:
+      ```
+      bin/qs pilot-report --config config/station-A-phone.yml --session data/raw/2026-09-24-pilot
+      ```
+      The report lands in `reports/pilot/2026-09-24-pilot.md`, with the threshold histogram
+      beside it as `…-histogram.csv`. Exit 0 means a lighting is recommended; exit 1 means none
+      passed (the report then names the two-frame fallback, ADR-0013). It also prints a
+      suggested window size (`window_px`): write it down for G2. It gives two numbers per lighting:
   - **Silhouette:** does the measured area of a good unit stay within 2% when it's turned? A
     lighting that fails this is **out**, because its shadows would fool the size check.
   - **Separation:** how far apart the damaged units' scores are from the good units' scores.
@@ -228,14 +235,20 @@ anything in `raw/` by hand. `raw/` is copied once and never touched again.
 
 ## Part G: build, train, calibrate, evaluate (after the shoot)
 
-These commands arrive with the tickets shown. Their exact flags will be added here as each is
-built.
+These commands arrive with the tickets shown. G2's exact flags are below; G1, G3 and G4 get
+theirs when #80–#83 are built.
 
 - [ ] **G1. Build the datasets and freeze the test set** with `qs build` (#80). It sorts the
       photos into `datasets/…/train`, `calib` and `test` by the plan, and freezes the test set
       under `golden/` with a content hash. **Nothing in a frozen set is ever changed or
       re-shot.** A report built on an unfrozen set is worthless.
-- [ ] **G2. Train** with `qs train` (#46). PatchCore reads the **18 training units × 3 rotations
+- [ ] **G2. Train** with `qs train` (#46):
+      ```
+      bin/qs train --config config/station-A-phone.yml --dataset data/datasets/mochi/<winner> \
+        --window-px <N from E1> --product mochi
+      ```
+      `<winner>` is the geometry from E3, e.g. `G2`. The defaults are `--seed 42`,
+      `--coreset 0.1` and `--input-px 256`; leave them. PatchCore reads the **18 training units × 3 rotations
       = 54 good photos**. From each photo it keeps a "memory" of small patches of what good
       starch looks like. It runs in minutes on the laptop's GPU. The output is a **model bundle**
       (the weights plus a record of exactly what they were trained on).
