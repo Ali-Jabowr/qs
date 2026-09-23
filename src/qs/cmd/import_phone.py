@@ -6,7 +6,9 @@ writes the same `raw/<session>/` as `qs shoot` — rule-named PNGs (docs/12 §2)
 `session.yml` (docs/13 §8) — plus `phone/`, the originals byte for byte, and `import.csv`.
 
 It fails closed: the EXIF lock, the order, the mapping, the count and a full decode of every
-photo all run before the first write, and any failure writes nothing. `--from` is only read.
+photo all run before the first write, and any failure writes nothing. The write goes into
+`.import/` and is moved in once whole, so a write that stops part-way adds nothing to the
+session and says what to delete. `--from` is only read.
 
 `--check` writes nothing anywhere. Without `--session` it is the phone's day-zero test (EXIF lock
 and grey card); with it, the mid-session "where am I".
@@ -44,15 +46,19 @@ from qs.phone import (
 )
 from qs.session import (
     PLAN_FILE,
+    STAGING_DIR,
     FrameLog,
     ImportLog,
     Product,
     SessionRecord,
+    commit_import,
     copy_original,
     read_session_plan,
     save_frame,
     save_rejected,
     session_started,
+    session_written,
+    stage_import,
     write_session,
 )
 from qs.sources.webcam import measure_patch
@@ -292,6 +298,18 @@ def _printed_list(folder: Path, geometry: str) -> str | None:
             "not printed")
 
 
+def _recovery(folder: Path) -> str:
+    """What an import that stopped left in `folder`, and what Ali does about it (F4). The code
+    never deletes or moves a written frame itself."""
+    staging = folder / STAGING_DIR
+    if not staging.exists():
+        return f"nothing was written to {folder}"
+    if session_written(folder):
+        return (f"it stopped while moving into place: Move everything in {staging} into "
+                f"{folder} (none of it is there yet), then remove the empty {staging}")
+    return f"none of it is in the session — delete {staging}, then import again"
+
+
 def main(args: argparse.Namespace) -> int:
     """Import, or `--check`; 0 done or PASS, 1 refused or FAIL, 2 could not run."""
     try:
@@ -364,6 +382,9 @@ def main(args: argparse.Namespace) -> int:
         photos = _read(paths, args)
         if args.check:
             return _where_am_i(photos, config, shot, redo, printed)
+        if (folder / STAGING_DIR).exists():
+            print(f"import: an earlier import stopped part-way; {_recovery(folder)}")
+            return 1
         if session_started(folder):
             print(f"import: {folder} already has frames — refusing to import over a started "
                   "session")
@@ -410,25 +431,25 @@ def _import(
     assert first.exposure_s is not None  # the lock passed: every photo has one
     exposure_us = int(first.exposure_s * 1_000_000)
     camera = CameraReadback(exposure_us, first.iso, None, None, verified=False)
+    # Everything is written into .import/ and moved in only once session.yml is written there
+    # too, so an import that stops part-way adds nothing to the session (F4).
     try:
-        saved = _write(folder, photos, mapping, readings, camera)
+        staging = stage_import(folder)
+        saved = _write(staging, photos, mapping, readings, camera)
+        record = SessionRecord(
+            session_id=args.session,
+            geometry=config.lighting.geometry,
+            product=product,
+            device=device,
+            camera_at_open=camera,
+            plan=plan,
+            frames=tuple(saved),
+            substitution=shot if shot.discarded else None,
+        )
+        path = write_session(staging, record, by="qs import-phone")
+        commit_import(folder)
     except OSError as exc:
-        print(f"import: {exc} — stopped part-way; what was written is kept in {folder}")
-        return 1
-    record = SessionRecord(
-        session_id=args.session,
-        geometry=config.lighting.geometry,
-        product=product,
-        device=device,
-        camera_at_open=camera,
-        plan=plan,
-        frames=tuple(saved),
-        substitution=shot if shot.discarded else None,
-    )
-    try:
-        path = write_session(folder, record, by="qs import-phone")
-    except OSError as exc:
-        print(f"import: {exc}")
+        print(f"import: {exc} — stopped part-way; {_recovery(folder)}")
         return 1
     counts = {status: sum(m.status == status for m in mapping.photos)
               for status in ("saved", "rejected", "discarded")}

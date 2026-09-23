@@ -6,7 +6,9 @@ in git. The grey card sits in one 16x16 JPEG block, saved 4:4:4, so its reading 
 
 import argparse
 import csv
+import errno
 import hashlib
+import os
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta, timezone
 from pathlib import Path
@@ -17,6 +19,7 @@ import pytest
 import yaml
 from PIL import Image, TiffImagePlugin
 
+import qs.session
 from qs.cmd.import_phone import main, redo_list
 from qs.cmd.split_plan import shots_text
 from qs.phone import decode
@@ -488,6 +491,71 @@ def test_two_photos_taken_at_the_same_sub_second_refuse_but_the_same_second_does
         out = capsys.readouterr().out
         assert "IMG_0010.jpg" in out and "IMG_0011.jpg" in out and "sub-second" in out
         assert not (session(root) / "phone").exists()
+
+
+def fail_at(monkeypatch: pytest.MonkeyPatch, module: object, name: str, nth: int) -> None:
+    """`module.name` raises ENOSPC on its nth call, and works before it."""
+    real = getattr(module, name)
+    calls = iter(range(1, 10**6))
+
+    def failing(*a: object, **k: object) -> object:
+        if next(calls) == nth:
+            raise OSError(errno.ENOSPC, "No space left on device")
+        return real(*a, **k)
+
+    monkeypatch.setattr(module, name, failing)
+
+
+def test_a_disk_full_part_way_adds_nothing_to_the_session_and_names_what_to_delete(
+    root: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    photos = shoot(root / "phone", LEAN)
+    folder = session(root)
+    planned = snapshot(folder)
+    fail_at(monkeypatch, qs.session, "_write_png", 100)
+    assert main(args(root, photos)) == 1
+    staging = folder / ".import"
+    out = capsys.readouterr().out
+    assert "No space left" in out and f"delete {staging}" in out
+    assert {k: v for k, v in snapshot(folder).items() if not k.startswith(".import")} == planned
+    monkeypatch.undo()
+    stale = snapshot(folder)
+    assert main(args(root, photos)) == 1  # a stale staging folder refuses, and names it
+    assert f"delete {staging}" in capsys.readouterr().out
+    assert snapshot(folder) == stale  # not one staged frame deleted or overwritten
+    for path in sorted(staging.rglob("*"), reverse=True):  # Ali deletes it, as told
+        path.rmdir() if path.is_dir() else path.unlink()
+    staging.rmdir()
+    assert main(args(root, photos)) == 0
+    assert len(pngs(root)) == LEAN and not staging.exists()
+
+
+def test_an_import_stopped_while_moving_in_says_how_to_finish_it_by_moving(
+    root: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    photos = shoot(root / "phone", LEAN)
+    folder = session(root)
+    fail_at(monkeypatch, qs.session.os, "link", 100)
+    assert main(args(root, photos)) == 1
+    staging = folder / ".import"
+    assert "Move everything in" in capsys.readouterr().out
+    monkeypatch.undo()
+    assert 0 < len(pngs(root)) < LEAN and not (folder / "session.yml").exists()
+    stale = snapshot(folder)
+    assert main(args(root, photos)) == 1
+    assert f"Move everything in {staging}" in capsys.readouterr().out
+    assert snapshot(folder) == stale
+    for path in staging.iterdir():  # Ali moves them, as told: none is in the session yet
+        assert not (folder / path.name).exists()
+        path.rename(folder / path.name)
+    staging.rmdir()
+    assert len(pngs(root)) == LEAN and "session_id" in session_yml(root)
+
+
+def test_a_finished_import_leaves_no_staging_folder(root: Path) -> None:
+    assert main(args(root, shoot(root / "phone", LEAN))) == 0
+    assert not (session(root) / ".import").exists()
+    assert os.listdir(session(root))  # the session holds the import itself
 
 
 # --- order, formats, config ----------------------------------------------------------------

@@ -12,13 +12,16 @@
 - `session.yml` (docs/13 §8), written once at the end of the session.
 - `rejected/`, the spoiled shots of a redo, never deleted and never overwritten (A1, #28).
 - From `qs import-phone` only (ADR-0022): `phone/`, the phone's original files byte for byte,
-  and `import.csv`, the manifest from each original to its frame.
+  and `import.csv`, the manifest from each original to its frame. The import is written into
+  `.import/` first and moved in, `session.yml` last, only once all of it is written: an import
+  that stops part-way adds nothing to the session (F4).
 """
 
 from __future__ import annotations
 
 import csv
 import hashlib
+import os
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
@@ -47,6 +50,7 @@ SESSION_FILE = "session.yml"
 IMPORT_FILE = "import.csv"
 REJECTED_DIR = "rejected"
 PHONE_DIR = "phone"
+STAGING_DIR = ".import"  # qs import-phone writes here, then moves everything in
 FRAMES_COLUMNS = (
     "file", "unit", "state", "geometry", "rotation", "pass", "wall_utc", "grabbed_at",
     "capture_ms", "reference_patch", "exposure_us", "gain", "wb_kelvin", "focus", "verified",
@@ -206,11 +210,42 @@ def _read_pilot(path: Path, data: dict[Any, Any]) -> PilotPlan:
     )
 
 
-def session_started(folder: Path) -> bool:
+def session_written(folder: Path) -> bool:
     """True if the session already has a frame, a log, a `session.yml`, a rejected shot or
     an imported original."""
     names = (FRAMES_FILE, SESSION_FILE, IMPORT_FILE, REJECTED_DIR, PHONE_DIR)
     return any((folder / name).exists() for name in names) or any(folder.glob("*.png"))
+
+
+def session_started(folder: Path) -> bool:
+    """`session_written`, or an import staged in `.import/` that was never moved in."""
+    return session_written(folder) or (folder / STAGING_DIR).exists()
+
+
+def stage_import(folder: Path) -> Path:
+    """The empty staging folder `.import/` for an import into `folder`; `FileExistsError` if
+    one is left from an import that stopped."""
+    staging = folder / STAGING_DIR
+    staging.mkdir()
+    return staging
+
+
+def commit_import(folder: Path) -> None:
+    """Move a finished import from `.import/` into the session, `session.yml` last, and remove
+    the empty `.import/`. Each move is a rename in one file system, never over a file: a file
+    is linked (which refuses an existing name) and only then unlinked from `.import/`."""
+    staging = folder / STAGING_DIR
+    for item in sorted(staging.iterdir(), key=lambda path: (path.name == SESSION_FILE,
+                                                             path.name)):
+        target = folder / item.name
+        if item.is_dir():
+            if target.exists():
+                raise FileExistsError(f"{target} exists — {item} was not moved over it")
+            item.rename(target)
+        else:
+            os.link(item, target)
+            item.unlink()
+    staging.rmdir()
 
 
 def _write_png(path: Path, pixels: np.ndarray) -> str:
