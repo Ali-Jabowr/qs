@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import random
 from collections import Counter
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 
 from qs.names import DEGREES, ROTATIONS, FrameName, format_name
@@ -47,6 +48,7 @@ PLACEMENT_EMPTY = tuple(f"x{n:02d}" for n in range(1, 6))
 PLACEMENT_EDGE = tuple(f"x{n:02d}" for n in range(6, 11))
 DAMAGES = ("dent", "tear", "deformed-flat", "deformed-oval")
 BRUSH_EVERY = 10  # units (docs/13 §6)
+_SPLITS = ("control", "train", "calib", "test", "spare")
 
 # docs/13 §7, verbatim, so the recipe is repeatable at Gate A.
 RECIPES = {
@@ -196,14 +198,25 @@ def _rotations(unit: str, state: str, geometry: str, what: str, pass_: int | Non
     ]
 
 
-def shot_list(plan: Plan, geometry: str) -> tuple[Step, ...]:
-    """The dataset session, step by step (docs/13 §6, ADR-0014).
+def _unit_steps(unit: str, split: str, damage: str | None, geometry: str,
+                note: str = "") -> list[Step]:
+    """One dataset unit: 3 good rotations; a test unit's damage step and 3 dmg rotations."""
+    what = f"{unit} · cell {cell(unit)} · {split}{note}"
+    steps = _rotations(unit, "good", geometry, what, None)
+    if damage is not None:
+        steps.append(Prompt(
+            "damage", unit,
+            f"Take {unit} out and damage it on the board — {damage}: {RECIPES[damage]}. "
+            "Put it back in the rig.",
+        ))
+        steps.extend(_rotations(unit, "dmg", geometry, f"{what} · {damage}", None))
+    return steps
 
-    Controls pass 1 → every split unit in the plan order, 3 rotations; a test unit's good frames
-    are followed at once by its damage step and its dmg frames → controls pass 2 after half the
-    units → the rest → controls pass 3 → placement x01–x05 empty, x06–x10 edge, at r0. A floor
-    brush every 10 units.
-    """
+
+def _session_steps(
+    plan: Plan, geometry: str, unit_steps: Callable[[str], list[Step]]
+) -> tuple[Step, ...]:
+    """The dataset session around the units; `unit_steps` gives each split unit's steps."""
     steps: list[Step] = []
 
     def controls(pass_: int) -> None:
@@ -214,17 +227,7 @@ def shot_list(plan: Plan, geometry: str) -> tuple[Step, ...]:
     controls(1)
     half = len(plan.order) // 2
     for done, unit in enumerate(plan.order, start=1):
-        split = plan.split_of(unit)
-        what = f"{unit} · cell {cell(unit)} · {split}"
-        steps.extend(_rotations(unit, "good", geometry, what, None))
-        if unit in plan.damage:
-            damage = plan.damage[unit]
-            steps.append(Prompt(
-                "damage", unit,
-                f"Take {unit} out and damage it on the board — {damage}: {RECIPES[damage]}. "
-                "Put it back in the rig.",
-            ))
-            steps.extend(_rotations(unit, "dmg", geometry, f"{what} · {damage}", None))
+        steps.extend(unit_steps(unit))
         if done % BRUSH_EVERY == 0:
             steps.append(Prompt("brush", None, "Brush the floor of the rig clear of starch."))
         if done == half:
@@ -237,3 +240,107 @@ def shot_list(plan: Plan, geometry: str) -> tuple[Step, ...]:
         steps.append(Shot(FrameName(unit, "edge", geometry, 0, None),
                           f"{unit} · placement · a unit touching the edge of the inspection area"))
     return tuple(steps)
+
+
+def shot_list(plan: Plan, geometry: str) -> tuple[Step, ...]:
+    """The dataset session, step by step (docs/13 §6, ADR-0014).
+
+    Controls pass 1 → every split unit in the plan order, 3 rotations; a test unit's good frames
+    are followed at once by its damage step and its dmg frames → controls pass 2 after half the
+    units → the rest → controls pass 3 → placement x01–x05 empty, x06–x10 edge, at r0. A floor
+    brush every 10 units.
+    """
+    return _session_steps(
+        plan, geometry,
+        lambda unit: _unit_steps(unit, plan.split_of(unit), plan.damage.get(unit), geometry),
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class Substitution:
+    """The session as shot when units broke (assumption A1, #28).
+
+    `steps` is the shot list with each broken unit cut after the frames it was shot in and the
+    next unused spare's steps in its place. `units` (control, train, calib, test, spare) and
+    `damage` are the splits as shot: the spare stands where the broken unit stood; with no spare
+    left the split is one short. `discarded` maps each broken unit to its frame files, in order;
+    `replaced` maps it to the spare that took its place, or None.
+    """
+
+    steps: tuple[Step, ...]
+    units: dict[str, tuple[str, ...]]
+    damage: dict[str, str]
+    discarded: dict[str, tuple[str, ...]]
+    replaced: dict[str, str | None]
+
+
+def substitute_spares(
+    plan: Plan, geometry: str, broken: Sequence[tuple[str, int]]
+) -> Substitution:
+    """The session with each `(unit, n)` broken after its first n frames; pure.
+
+    The next unused spare takes the unit's split and damage class at the same place in the
+    order, from its first rotation, under its own number. The broken unit is discarded whole —
+    a test unit broken after its good frames too, so every test unit keeps its pair. A spare
+    that breaks in turn is replaced by the next one. Shared by `qs import-phone` (#53) and
+    `qs shoot` (#33), so both paths give the same `session.yml`.
+    """
+    after: dict[str, int] = {}
+    for unit, n in broken:
+        if unit in after:
+            raise PlanError(f"{unit} is marked broken twice")
+        after[unit] = n
+    spares = list(plan.spare)
+    units = {name: list(getattr(plan, name)) for name in _SPLITS}
+    damage = dict(plan.damage)
+    discarded: dict[str, tuple[str, ...]] = {}
+    replaced: dict[str, str | None] = {}
+
+    def unit_steps(unit: str, split: str, dmg: str | None, note: str = "") -> list[Step]:
+        block = _unit_steps(unit, split, dmg, geometry, note)
+        n = after.get(unit)
+        if n is None:
+            return block
+        frames = sum(isinstance(step, Shot) for step in block)
+        if not 0 <= n < frames:
+            raise PlanError(
+                f"{unit} broke after {n} photos: it has {frames}, so 0 to {frames - 1}"
+            )
+        taken: list[Step] = []
+        for step in block:
+            if sum(isinstance(s, Shot) for s in taken) == n:
+                break
+            taken.append(step)
+        discarded[unit] = tuple(step.file for step in taken if isinstance(step, Shot))
+        spare = spares.pop(0) if spares else None
+        replaced[unit] = spare
+        members = units[split]
+        at = members.index(unit)
+        if dmg is not None:
+            del damage[unit]
+        if spare is None:
+            del members[at]
+            return taken
+        members[at] = spare
+        units["spare"].remove(spare)
+        if dmg is not None:
+            damage[spare] = dmg
+        return taken + unit_steps(spare, split, dmg, f" · spare for {unit}")
+
+    steps = _session_steps(
+        plan, geometry,
+        lambda unit: unit_steps(unit, plan.split_of(unit), plan.damage.get(unit)),
+    )
+    never = sorted(set(after) - set(discarded))
+    if never:
+        raise PlanError(
+            f"{never[0]} is not shot in this session — a broken unit is a split unit or a "
+            "spare in use"
+        )
+    return Substitution(
+        steps=steps,
+        units={name: tuple(members) for name, members in units.items()},
+        damage=dict(sorted(damage.items())),
+        discarded=discarded,
+        replaced=replaced,
+    )

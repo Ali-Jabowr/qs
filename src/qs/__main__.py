@@ -84,6 +84,53 @@ def build_parser() -> argparse.ArgumentParser:
     shoot.add_argument(
         "--root", default="data/raw", metavar="DIR", help="where session folders live"
     )
+
+    from qs.cmd.import_phone import broken_unit, offset, redo_list
+
+    phone = commands.add_parser(
+        "import-phone",
+        help="phone photos into a dataset session, or --check the phone's lock (ADR-0022)",
+    )
+    phone.add_argument("--config", required=True, metavar="PATH", help="the phone config")
+    phone.add_argument(
+        "--from", dest="source", required=True, metavar="DIR",
+        help="the phone's photos, copied over USB (only read)",
+    )
+    phone.add_argument(
+        "--session", type=session_id, default=None, metavar="ID",
+        help="the session planned by split-plan (with --check: the mid-session check)",
+    )
+    phone.add_argument(
+        "--check", action="store_true",
+        help="write nothing: the day-zero lock test, or with --session where the shoot is",
+    )
+    phone.add_argument("--flavour", metavar="F", help="the моти's flavour")
+    phone.add_argument("--shop", metavar="S", help="where it was bought")
+    phone.add_argument("--best-before", type=best_before, metavar="DATE", help="YYYY-MM-DD")
+    phone.add_argument(
+        "--purchased-at", type=purchased_at, metavar="ISO", help="e.g. 2026-09-25T09:10+03:00"
+    )
+    phone_maker = phone.add_mutually_exclusive_group()
+    phone_maker.add_argument("--brand", metavar="B", help="the brand on the pack")
+    phone_maker.add_argument(
+        "--client-product", action="store_true",
+        help="the client's own моти: recorded as client_product, no brand (docs/17 §5)",
+    )
+    phone.add_argument(
+        "--redo", type=redo_list, action="append", default=[], metavar="K[,K…]",
+        help="shot K's first photo was spoiled and retaken; repeat K for each redo (A1)",
+    )
+    phone.add_argument(
+        "--broken", type=broken_unit, action="append", default=[], metavar="UNIT:N",
+        help="the unit broke after N of its photos; the next spare takes its place (A1)",
+    )
+    phone.add_argument(
+        "--utc-offset", type=offset, default=None, metavar="±HH:MM",
+        help="the phone clock's offset, when the EXIF has none",
+    )
+    phone.add_argument(
+        "--root", default="data/raw", metavar="DIR", help="where session folders live"
+    )
     return parser
 
 
@@ -110,6 +157,10 @@ def run(argv: Sequence[str] | None = None) -> int:
         from qs.cmd import shoot
 
         return shoot.main(args)
+    if args.command == "import-phone":
+        from qs.cmd import import_phone
+
+        return import_phone.main(args)
     raise AssertionError(f"unhandled command {args.command!r}")
 
 

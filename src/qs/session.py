@@ -9,6 +9,9 @@
 - `frames.csv`, one row per frame as it is saved (assumption A2, #29): what was recorded at the
   shot cannot be recovered after it (FR-15, docs/11 §6).
 - `session.yml` (docs/13 §8), written once at the end of the session.
+- `rejected/`, the spoiled shots of a redo, never deleted and never overwritten (A1, #28).
+- From `qs import-phone` only (ADR-0022): `phone/`, the phone's original files byte for byte,
+  and `import.csv`, the manifest from each original to its frame.
 """
 
 from __future__ import annotations
@@ -19,24 +22,30 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
 from types import TracebackType
-from typing import Any, TextIO
+from typing import Any, Protocol, TextIO
 
 import cv2
 import numpy as np
 import yaml
 
-from qs.contracts import CameraReadback, Frame
+from qs.contracts import CameraReadback, Frame, TriggerEvent
 from qs.names import FrameName, format_name
-from qs.splitplan import PLACEMENT_EDGE, PLACEMENT_EMPTY, Plan, PlanError
+from qs.splitplan import PLACEMENT_EDGE, PLACEMENT_EMPTY, Plan, PlanError, Substitution
 
 PLAN_FILE = "plan.yml"
 SHEET_FILE = "plan.md"
 FRAMES_FILE = "frames.csv"
 SESSION_FILE = "session.yml"
+IMPORT_FILE = "import.csv"
+REJECTED_DIR = "rejected"
+PHONE_DIR = "phone"
 FRAMES_COLUMNS = (
     "file", "unit", "state", "geometry", "rotation", "pass", "wall_utc", "grabbed_at",
     "capture_ms", "reference_patch", "exposure_us", "gain", "wb_kelvin", "focus", "verified",
     "sha256", "status",
+)
+IMPORT_COLUMNS = (
+    "original", "original_sha256", "exif_time", "frame_file", "png_sha256", "status",
 )
 _SPLITS = ("control", "train", "calib", "test", "spare")
 _HEADER = "# The split plan, written by `qs split-plan`. Never edited by hand.\n"
@@ -144,24 +153,51 @@ def read_plan(folder: Path) -> Plan:
 
 
 def session_started(folder: Path) -> bool:
-    """True if the session already has a frame, a frame log or a `session.yml`."""
-    return any((folder / name).exists() for name in (FRAMES_FILE, SESSION_FILE)) or any(
-        folder.glob("*.png")
-    )
+    """True if the session already has a frame, a log, a `session.yml`, a rejected shot or
+    an imported original."""
+    names = (FRAMES_FILE, SESSION_FILE, IMPORT_FILE, REJECTED_DIR, PHONE_DIR)
+    return any((folder / name).exists() for name in names) or any(folder.glob("*.png"))
 
 
-def save_frame(folder: Path, name: FrameName, pixels: np.ndarray) -> str:
-    """Write the frame as a lossless PNG under its rule name; its SHA-256 as hex.
+def _write_png(path: Path, pixels: np.ndarray) -> str:
+    """Encode in memory and write with exclusive create; the SHA-256 of the bytes written.
 
-    Encoded in memory and written with exclusive create — the same OpenCV PNG encoder as
-    `cv2.imwrite`, but a file already on disk raises `FileExistsError` instead of being
-    replaced: a raw original is never overwritten.
+    The same OpenCV PNG encoder as `cv2.imwrite`, but a file already on disk raises
+    `FileExistsError` instead of being replaced: a raw original is never overwritten.
     """
     ok, encoded = cv2.imencode(".png", pixels)
     if not ok:
-        raise OSError(f"{format_name(name)}: OpenCV could not encode the frame as PNG")
+        raise OSError(f"{path.name}: OpenCV could not encode the frame as PNG")
     data = encoded.tobytes()
-    with (folder / format_name(name)).open("xb") as out:
+    with path.open("xb") as out:
+        out.write(data)
+    return hashlib.sha256(data).hexdigest()
+
+
+def save_frame(folder: Path, name: FrameName, pixels: np.ndarray) -> str:
+    """Write the frame as a lossless PNG under its rule name; its SHA-256 as hex."""
+    return _write_png(folder / format_name(name), pixels)
+
+
+def rejected_file(name: FrameName, nth: int) -> str:
+    """The path, relative to the session, of the nth spoiled take of a shot (A1, #28):
+    `rejected/<name>.png`, then `_2`, `_3` … for a second or third redo of the same shot."""
+    stem = format_name(name)[: -len(".png")]
+    return f"{REJECTED_DIR}/{stem}{'' if nth == 1 else f'_{nth}'}.png"
+
+
+def save_rejected(folder: Path, name: FrameName, nth: int, pixels: np.ndarray) -> tuple[str, str]:
+    """Write the nth spoiled take of a shot into `rejected/`; its relative path and SHA-256."""
+    file = rejected_file(name, nth)
+    (folder / REJECTED_DIR).mkdir(exist_ok=True)
+    return file, _write_png(folder / file, pixels)
+
+
+def copy_original(folder: Path, original: Path) -> str:
+    """Copy a phone file byte for byte into `phone/`, never over another; its SHA-256."""
+    data = original.read_bytes()
+    (folder / PHONE_DIR).mkdir(exist_ok=True)
+    with (folder / PHONE_DIR / original.name).open("xb") as out:
         out.write(data)
     return hashlib.sha256(data).hexdigest()
 
@@ -174,29 +210,90 @@ def _cell(value: object) -> str:
     return str(value)
 
 
-class FrameLog:
-    """`frames.csv`: created with its header, one row appended and flushed per frame."""
+class Recorded(Protocol):
+    """What the frame log and `session.yml` keep of a frame. A `Frame` is one; so is a phone
+    photo's record, which has no pixels in memory and no kernel timestamps (ADR-0022)."""
 
-    def __init__(self, folder: Path) -> None:
-        self._file: TextIO = (folder / FRAMES_FILE).open("x", encoding="utf-8", newline="")
+    @property
+    def event(self) -> TriggerEvent: ...
+
+    @property
+    def reference_patch(self) -> float | None: ...
+
+    @property
+    def camera(self) -> CameraReadback: ...
+
+
+class _CsvLog:
+    """A CSV created with its header — never over an existing one — and flushed per row."""
+
+    def __init__(self, path: Path, columns: tuple[str, ...]) -> None:
+        self._file: TextIO = path.open("x", encoding="utf-8", newline="")
         self._writer = csv.writer(self._file)
-        self._writer.writerow(FRAMES_COLUMNS)
+        self._writer.writerow(columns)
         self._file.flush()
 
-    def append(self, name: FrameName, frame: Frame, sha256: str, status: str) -> None:
-        camera = frame.camera
-        self._writer.writerow(_cell(v) for v in (
-            format_name(name), name.unit, name.state, name.geometry, name.rotation, name.pass_,
-            frame.event.wall.isoformat(), frame.grabbed_at, frame.capture_ms,
-            frame.reference_patch, camera.exposure_us, camera.gain, camera.wb_kelvin,
-            camera.focus, camera.verified, sha256, status,
-        ))
+    def _row(self, values: tuple[object, ...]) -> None:
+        self._writer.writerow(_cell(v) for v in values)
         self._file.flush()
 
     def close(self) -> None:
         self._file.close()
 
+
+class FrameLog(_CsvLog):
+    """`frames.csv`: created with its header, one row appended and flushed per frame."""
+
+    def __init__(self, folder: Path) -> None:
+        super().__init__(folder / FRAMES_FILE, FRAMES_COLUMNS)
+
+    def append(self, name: FrameName, frame: Frame, sha256: str, status: str) -> None:
+        self.append_row(format_name(name), name, frame, frame.grabbed_at, frame.capture_ms,
+                        sha256, status)
+
+    def append_row(
+        self,
+        file: str,
+        name: FrameName,
+        frame: Recorded,
+        grabbed_at: float | None,
+        capture_ms: float | None,
+        sha256: str,
+        status: str,
+    ) -> None:
+        """One row; `file` is relative to the session (`rejected/…` for a spoiled take)."""
+        camera = frame.camera
+        self._row((
+            file, name.unit, name.state, name.geometry, name.rotation, name.pass_,
+            frame.event.wall.isoformat(), grabbed_at, capture_ms,
+            frame.reference_patch, camera.exposure_us, camera.gain, camera.wb_kelvin,
+            camera.focus, camera.verified, sha256, status,
+        ))
+
     def __enter__(self) -> FrameLog:
+        return self
+
+    def __exit__(
+        self,
+        kind: type[BaseException] | None,
+        value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        self.close()
+
+
+class ImportLog(_CsvLog):
+    """`import.csv` (ADR-0022): one row per phone photo, in import order."""
+
+    def __init__(self, folder: Path) -> None:
+        super().__init__(folder / IMPORT_FILE, IMPORT_COLUMNS)
+
+    def append(self, original: str, original_sha256: str, exif_time: datetime,
+               frame_file: str, png_sha256: str, status: str) -> None:
+        self._row((original, original_sha256, exif_time.isoformat(), frame_file, png_sha256,
+                   status))
+
+    def __enter__(self) -> ImportLog:
         return self
 
     def __exit__(
@@ -225,7 +322,11 @@ class Product:
 
 @dataclass(frozen=True, slots=True)
 class SessionRecord:
-    """What `session.yml` records; `frames` are the saved frames, first to last."""
+    """What `session.yml` records; `frames` are the saved frames, first to last.
+
+    `substitution`, when units broke, gives the splits as shot and the `discarded` units
+    (A1, #28); without it the splits are the plan's.
+    """
 
     session_id: str
     geometry: str
@@ -233,7 +334,8 @@ class SessionRecord:
     device: str
     camera_at_open: CameraReadback | None
     plan: Plan
-    frames: tuple[Frame, ...]
+    frames: tuple[Recorded, ...]
+    substitution: Substitution | None = None
 
 
 def _session_data(record: SessionRecord) -> dict[str, Any]:
@@ -245,12 +347,16 @@ def _session_data(record: SessionRecord) -> dict[str, Any]:
               "best_before": product.best_before}
     at_open = record.camera_at_open
     first, last = record.frames[0], record.frames[-1]
+    shot = record.substitution
     units: dict[str, Any] = {
-        name: list(getattr(record.plan, name))
-        for name in ("control", "train", "calib", "test", "spare")
+        name: list(getattr(record.plan, name) if shot is None else shot.units[name])
+        for name in _SPLITS
     }
     units["placement"] = [*PLACEMENT_EMPTY, *PLACEMENT_EDGE]
-    return {
+    damage = record.plan.damage if shot is None else shot.damage
+    discarded = {} if shot is None else {unit: list(files)
+                                          for unit, files in shot.discarded.items()}
+    data: dict[str, Any] = {
         "session_id": record.session_id,
         "kind": "dataset",
         "geometries": [record.geometry],
@@ -270,17 +376,20 @@ def _session_data(record: SessionRecord) -> dict[str, Any]:
         "reference_patch": {"start": first.reference_patch, "end": last.reference_patch},
         "split_seed": record.plan.seed,
         "units": units,
-        "damage": dict(record.plan.damage),
-        "notes": "",
+        "damage": dict(damage),
     }
+    if discarded:  # only when a unit broke (A1, #28)
+        data["discarded"] = discarded
+    data["notes"] = ""
+    return data
 
 
-def write_session(folder: Path, record: SessionRecord) -> Path:
+def write_session(folder: Path, record: SessionRecord, by: str = "qs shoot") -> Path:
     """Write `session.yml` (docs/13 §8) once; refuses if it exists or no frame was saved."""
     if not record.frames:
         raise ValueError("a session.yml needs at least one saved frame")
     path = folder / SESSION_FILE
-    text = "# Written by `qs shoot`. Only `notes` may be filled by hand, before the backup.\n"
+    text = f"# Written by `{by}`. Only `notes` may be filled by hand, before the backup.\n"
     text += yaml.safe_dump(
         _session_data(record), sort_keys=False, default_flow_style=False, allow_unicode=True
     )

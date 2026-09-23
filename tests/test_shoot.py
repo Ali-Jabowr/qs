@@ -424,14 +424,14 @@ def config_with(tmp_path: Path, old: str, new: str) -> Path:
     return path
 
 
-def test_a_phone_camera_type_names_adr_0010_and_returns_2(
+def test_a_phone_camera_type_names_adr_0022_and_import_phone_and_returns_2(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     plan_session(tmp_path)
     config = config_with(tmp_path, "type: webcam", "type: phone")
     assert main(args(tmp_path, config), make_screen=lambda d, t: FakeScreen([])) == 2
     [line] = capsys.readouterr().out.strip().splitlines()
-    assert line.startswith("camera:") and "ADR-0010" in line and "phone" in line
+    assert line.startswith("camera:") and "ADR-0022" in line and "qs import-phone" in line
     assert pngs(tmp_path) == []
 
 

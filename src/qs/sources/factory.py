@@ -19,6 +19,11 @@ def frame_source(config: StationConfig) -> FrameSource:
     match config.camera.type:
         case "webcam":
             return WebcamSource(config)
+        case "phone":
+            raise SourceUnavailable(
+                "camera.type 'phone' has no live source — the phone shoots offline from the "
+                "printed list and qs import-phone brings its photos in (ADR-0022)"
+            )
         case other:
             raise SourceUnavailable(
                 f"camera.type {other!r} has no source — only webcam is built; the phone "
