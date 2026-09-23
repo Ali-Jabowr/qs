@@ -144,3 +144,34 @@ Each finding was fixed test-first as its own commit on `mvp/bench`. **Round 2 ha
 | F4 | Stage the import in `.import/` and move it in whole, `session.yml` last | f9cabf3 |
 | F5 | Ctrl-C in `qs import-phone` prints one line saying what to do | 626d852 |
 | F6 | Compare the webcam's kernel timestamp to 1 ns, not bit for bit | 2f7aca0 |
+
+---
+
+# REVIEW-P05b, round 2
+
+**Verdict: PASS.** 0 blocker · 0 major · 0 minor · 1 nit.
+
+Diff `2f7aca0^..626d852 -- src tests`. Reviewer: the Claude Code orchestrator of 2026-09-23 (a fresh
+session that did not write the fixes). `make check` on a clean worktree of 0fbbe6e: exit 0,
+356 passed, 6 deselected, ruff and strict mypy clean, 17 diagrams render.
+
+| Finding | Fixed? | How it was checked |
+|---|---|---|
+| F1 | ✓ | `_printed_list` runs for every dataset plan before the redo, the read and `--check --session`. It refuses no list, the wrong list, or two lists, and each refusal names the fix. The pilot is exempt because it carries its own geometries. Test: `test_a_config_geometry_that_is_not_the_printed_lists_refuses_and_writes_nothing` |
+| F2 | ✓ | `--redo K` goes through `_printed_rows`, which regenerates the list as printed, before any substitution. So row K is the paper's row K. A row whose unit broke first, or a row past the end, is refused. A spare's photo is redone by its frame name. `map_photos` now matches by file, so it cannot shift. Tests cover the round-1 scenario (broken unit plus a later redo), the spare by name, and the mid-session "next: #n" |
+| F3 | ✓ | `refuse_duplicates` runs before `in_order`: SHA-256 of every file, then capture time to the sub-second, and only when SubSecTimeOriginal is present. `_taken` folds the sub-seconds into the datetime, so two burst photos in one second are not refused |
+| F4 | ✓ | All writes go to `.import/`, and `write_session` writes there too. `commit_import` moves files in with link-then-unlink (never over a name), moves dirs by rename, and moves `session.yml` last. A leftover `.import/` is refused before `session_started`, with `_recovery` naming what to delete or move. The reported `session.yml` is printed by name only, so the staging path never leaks. Tests: ENOSPC while writing, a stop while moving in, and a finished import that leaves no staging |
+| F5 | ✓ | `main` catches Ctrl-C and prints one line. Inside `_import` it gives the recovery line, and during `_report` it says the import is complete. Tests cover the import and `--check` |
+| F6 | ✓ | `pytest.approx(…, abs=1e-9)` in both asserts |
+
+## Nit
+
+- **N1 · `src/qs/session.py` `commit_import`:** a stop between `os.link` and `item.unlink` leaves
+  one file in both `.import/` and the session. `_recovery` then says "Move everything in .import/",
+  and that one file collides. The window is one syscall, and the collision is a refusal, not an
+  overwrite, so it fails safe. The recovery text could also say "skip any file already in
+  place". Left as is.
+
+## Verdict
+
+**PASS.** P05b is done apart from #33 (webcam only, last).
