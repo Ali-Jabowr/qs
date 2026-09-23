@@ -7,6 +7,11 @@ one summary and exits 0 when every event has exactly one written record and the 
 READY, 1 when the run completed otherwise, and 2 when it could not start (or stopped itself on
 a camera read-back mismatch). In P04 `--replay` is required: the live station is P09, and a
 stub never faces a live unit. SIGINT is a stop request.
+
+There is no validation mode: `inspector.type: appearance` loads only the bundle the config
+names, verified against its `model_id`, and refuses a validation-only one (docs/17 §6).
+`make_scorer` and `cuda_available` are the model seams P07 defines — the real PatchCore by
+default, P07's numpy fakes in the tests.
 """
 
 from __future__ import annotations
@@ -28,7 +33,14 @@ from qs.errors import ConfigError
 from qs.pipeline import Clock, Pipeline, Shows, StationSink, WallClock, utc_now
 from qs.sink import SqliteSink
 from qs.sources.replay import ReplayError, replay_files, replay_pair
-from qs.station import StartupRefused, Station, build_inspector
+from qs.station import (
+    MakeScorer,
+    StartupRefused,
+    Station,
+    build_inspector,
+    real_cuda_available,
+    real_scorer,
+)
 from qs.store import DB_NAME
 
 
@@ -55,14 +67,18 @@ def _identity(source: FrameSource) -> FrameSource:
 def main(
     args: argparse.Namespace,
     *,
-    make_inspector: Callable[[LoadedConfig], Inspector] = build_inspector,
+    make_inspector: Callable[[LoadedConfig], Inspector] | None = None,
+    make_scorer: MakeScorer = real_scorer,
+    cuda_available: Callable[[], bool] = real_cuda_available,
     make_sink: Callable[[LoadedConfig, str, datetime], StationSink] = default_sink,
     make_annunciator: Callable[[], Shows] = NullAnnunciator,
     wrap_source: Callable[[FrameSource], FrameSource] = _identity,
     clock: Clock = time.perf_counter,
     wall: WallClock = utc_now,
 ) -> int:
-    """Run the station over `--replay`; 0, 1 or 2 as the module says."""
+    """Run the station over `--replay`; 0, 1 or 2 as the module says. `make_inspector`
+    replaces the Inspector the config names; by default it is built from the config with
+    `make_scorer` and `cuda_available`."""
     try:
         loaded = load_config(Path(args.config))
     except ConfigError as exc:
@@ -81,7 +97,12 @@ def main(
         trigger, source = replay_pair(
             config, files, directory.resolve().name, clock=clock, wall=wall
         )
-        inspector = make_inspector(loaded)
+        if make_inspector is None:
+            inspector = build_inspector(
+                loaded, make_scorer=make_scorer, cuda_available=cuda_available
+            )
+        else:
+            inspector = make_inspector(loaded)
     except (ReplayError, ConfigError, StartupRefused) as exc:
         print(str(exc))
         return 2

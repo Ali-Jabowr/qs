@@ -4,6 +4,12 @@ sequence, the main loop of docs/11 §3 and the stop (#68).
 Start-up, each step failing closed: the config is loaded by the caller; `inspector.load()`;
 then, and only then, the sink with a new run; then the camera. The main loop polls the trigger
 and hands each event to the Pipeline until the trigger is exhausted or a stop is requested.
+
+`inspector.type: appearance` is P07's `AppearanceInspector` on the bundles under `models/`,
+never in validation mode: the station runs only a bundle its config names, and never a
+validation-only one (docs/17 §6, ADR-0016). Its scorer factory and CUDA probe are the real
+ones — torch and Anomalib are imported only when a scorer is built — unless a caller passes
+fakes.
 """
 
 from __future__ import annotations
@@ -12,9 +18,13 @@ import time
 from collections.abc import Callable
 from datetime import UTC, datetime
 
+import numpy as np
+
 from qs.config import LoadedConfig
 from qs.contracts import FrameSource, Inspector, TriggerSource
 from qs.errors import ConfigError
+from qs.inspector.appearance import AppearanceInspector
+from qs.inspector.model import Scorer
 from qs.inspector.stub import StubInspector
 from qs.pipeline import (
     Clock,
@@ -27,6 +37,9 @@ from qs.pipeline import (
 )
 
 MakeSink = Callable[[LoadedConfig, str, datetime], StationSink]
+MakeScorer = Callable[[str, np.ndarray], Scorer]
+
+MODELS_ROOT = "models"  # the bundles, relative to the working directory, as `qs train` writes
 
 
 class StartupRefused(Exception):
@@ -38,16 +51,42 @@ def run_id_for(started: datetime) -> str:
     return started.astimezone(UTC).strftime("%Y%m%dT%H%M%S%fZ")
 
 
-def build_inspector(loaded: LoadedConfig) -> Inspector:
-    """The Inspector the config names: one `match` on `inspector.type` (docs/11 §8)."""
+def real_scorer(device: str, bank: np.ndarray) -> Scorer:
+    """The real PatchCore scorer on `device`; torch and Anomalib are imported here only."""
+    from qs.inspector.patchcore import AnomalibPatchCore
+
+    return AnomalibPatchCore(device).scorer(bank)
+
+
+def real_cuda_available() -> bool:
+    """Whether torch sees a CUDA device; torch is imported here only."""
+    from qs.inspector.patchcore import cuda_available
+
+    return cuda_available()
+
+
+def build_inspector(
+    loaded: LoadedConfig,
+    *,
+    make_scorer: MakeScorer = real_scorer,
+    cuda_available: Callable[[], bool] = real_cuda_available,
+) -> Inspector:
+    """The Inspector the config names: one `match` on `inspector.type` (docs/11 §8).
+
+    `appearance` is never built in validation mode: a validation-only bundle is refused by
+    its `load()`, and the station has no way to ask otherwise."""
     match loaded.config.inspector.type:
         case "stub":
             return StubInspector(loaded.config_hash)
-        case other:
-            raise StartupRefused(
-                f"inspector.type {other!r}: the AppearanceInspector is not wired into the "
-                "station yet (#74)"
+        case "appearance":
+            return AppearanceInspector(
+                loaded.config_hash,
+                models_root=MODELS_ROOT,
+                make_scorer=make_scorer,
+                cuda_available=cuda_available,
             )
+        case other:
+            raise StartupRefused(f"inspector.type {other!r}: no such Inspector")
 
 
 class Station:

@@ -34,8 +34,11 @@ VERIFIED = CameraReadback(10000, 0, 4500, 30, verified=True)
 UNVERIFIED = CameraReadback(None, None, None, None, verified=False)
 
 
-def config_mapping(root: Path, *, inspector_type: str = "stub", **latency: Any) -> dict[str, Any]:
-    """The example config, resized to 320×240, with the evidence under `root/evidence`."""
+def config_mapping(
+    root: Path, *, inspector_type: str = "stub", model: str | None = None, **latency: Any
+) -> dict[str, Any]:
+    """The example config, resized to 320×240, with the evidence under `root/evidence`;
+    `model`, when given, is named by `inspector.model` and `threshold.set_on.model`."""
     data: dict[str, Any] = yaml.safe_load(EXAMPLE.read_text(encoding="utf-8"))
     data["camera"]["width"] = WIDTH
     data["camera"]["height"] = HEIGHT
@@ -44,6 +47,9 @@ def config_mapping(root: Path, *, inspector_type: str = "stub", **latency: Any) 
     data["inspector"]["type"] = inspector_type
     data["evidence"]["root"] = str(root / "evidence")
     data["latency"].update(latency)
+    if model is not None:
+        data["inspector"]["model"] = model
+        data["threshold"]["set_on"]["model"] = model
     return data
 
 
@@ -95,6 +101,23 @@ def write_frames_csv(directory: Path, rows: Iterable[Mapping[str, object]]) -> N
         writer.writerow(FRAMES_COLUMNS)
         for row in rows:
             writer.writerow("" if row.get(c) is None else str(row.get(c)) for c in FRAMES_COLUMNS)
+
+
+def write_fake_bundle(
+    models: Path, *, data_source: str = "own", window_px: int = 400, input_px: int = 64
+) -> str:
+    """A bundle written with P07's `write_bundle` on a small random bank, as `qs train` would
+    write one; its `model_id`. Imports torch (to save the bank), never the model."""
+    from qs.inspector.bundle import BundleInfo, ImageRecord, write_bundle
+
+    bank = np.random.default_rng(3).random((20, 8), dtype=np.float32)
+    images = tuple(
+        ImageRecord(f"u{u:03d}_good_G2_r0.png", f"u{u:03d}", f"{u:02d}".ljust(64, "b"))
+        for u in (1, 2, 3)
+    )
+    info = BundleInfo(input_px=input_px, window_px=window_px, coreset_ratio=0.1, seed=42,
+                      device="cuda", data_source=data_source, images=images)
+    return write_bundle(models, "mochi", bank, info)
 
 
 def sha256_file(path: Path) -> str:
