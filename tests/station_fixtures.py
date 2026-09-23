@@ -145,7 +145,27 @@ class StepWall:
 
 
 def event(seq: int, t0: float = 0.0) -> TriggerEvent:
-    return TriggerEvent(seq, t0, datetime(2026, 9, 26, 9, 0, seq, tzinfo=UTC), "test")
+    wall = datetime(2026, 9, 26, 9, 0, 0, tzinfo=UTC) + timedelta(seconds=seq)
+    return TriggerEvent(seq, t0, wall, "test")
+
+
+class CountingTrigger:
+    """Wraps a trigger and counts its polls."""
+
+    def __init__(self, inner: Any) -> None:
+        self.inner = inner
+        self.polls = 0
+
+    def poll(self) -> TriggerEvent | None:
+        self.polls += 1
+        return self.inner.poll()  # type: ignore[no-any-return]
+
+    @property
+    def exhausted(self) -> bool:
+        return bool(self.inner.exhausted)
+
+    def close(self) -> None:
+        self.inner.close()
 
 
 Step = Callable[[TriggerEvent], Frame] | BaseException | str

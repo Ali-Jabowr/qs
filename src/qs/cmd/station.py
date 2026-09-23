@@ -4,25 +4,28 @@ Headless and as fast as the disk allows: `ReplayTrigger` and `ReplaySource` in p
 configured trigger and camera (in memory — the config file is never rewritten, and its hash is
 still the file's), the Inspector the config names, `NullAnnunciator`, and `SqliteSink`. It prints
 one summary and exits 0 when every event has exactly one written record and the run ended
-READY, 1 when the run completed otherwise, and 2 when it could not start. In P04 `--replay` is
-required: the live station is P09, and a stub never faces a live unit.
+READY, 1 when the run completed otherwise, and 2 when it could not start (or stopped itself on
+a camera read-back mismatch). In P04 `--replay` is required: the live station is P09, and a
+stub never faces a live unit. SIGINT is a stop request.
 """
 
 from __future__ import annotations
 
 import argparse
 import os
+import signal
 import time
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
+from types import FrameType
 from typing import Any
 
 from qs.annunciator import NullAnnunciator
 from qs.config import LoadedConfig, load_config
-from qs.contracts import Inspector
+from qs.contracts import FrameSource, Inspector
 from qs.errors import ConfigError
-from qs.pipeline import Clock, Shows, StationSink, WallClock, utc_now
+from qs.pipeline import Clock, Pipeline, Shows, StationSink, WallClock, utc_now
 from qs.sink import SqliteSink
 from qs.sources.replay import ReplayError, replay_files, replay_pair
 from qs.station import StartupRefused, Station, build_inspector
@@ -45,12 +48,17 @@ def default_sink(loaded: LoadedConfig, run_id: str, started: datetime) -> Statio
     return SqliteSink.from_config(loaded, run_id, started)
 
 
+def _identity(source: FrameSource) -> FrameSource:
+    return source
+
+
 def main(
     args: argparse.Namespace,
     *,
     make_inspector: Callable[[LoadedConfig], Inspector] = build_inspector,
     make_sink: Callable[[LoadedConfig, str, datetime], StationSink] = default_sink,
     make_annunciator: Callable[[], Shows] = NullAnnunciator,
+    wrap_source: Callable[[FrameSource], FrameSource] = _identity,
     clock: Clock = time.perf_counter,
     wall: WallClock = utc_now,
 ) -> int:
@@ -80,7 +88,7 @@ def main(
     station = Station(
         loaded,
         trigger=trigger,
-        source=source,
+        source=wrap_source(source),
         inspector=inspector,
         annunciator=make_annunciator(),
         make_sink=make_sink,
@@ -92,18 +100,36 @@ def main(
     except StartupRefused as exc:
         print(str(exc))
         return 2
+
+    def interrupted(signum: int, frame: FrameType | None) -> None:
+        pipeline.request_stop()
+
+    previous = signal.signal(signal.SIGINT, interrupted)
     try:
         station.run()
     finally:
-        station.stop()
+        try:
+            station.stop()
+        finally:
+            signal.signal(signal.SIGINT, previous)
     assert station.sink is not None and station.run_id is not None
+    complete = _summary(pipeline, station.sink, station.run_id, loaded)
+    if pipeline.refusal is not None:
+        print(pipeline.refusal)
+        return 2
+    return 0 if complete and pipeline.final_state == "READY" else 1
+
+
+def _summary(pipeline: Pipeline, sink: StationSink, run_id: str, loaded: LoadedConfig) -> bool:
+    """Print the run's summary; whether every event has exactly one written record."""
     counters = pipeline.counters
-    sink = station.sink.counters()
+    written = sink.counters()
     labels: dict[str, int] = counters["labels"]  # type: ignore[assignment]
     reasons: dict[str, int] = counters["no_verdict"]  # type: ignore[assignment]
+    faults: dict[str, int] = counters["faults"]  # type: ignore[assignment]
     events = int(counters["events"])  # type: ignore[call-overload]
-    database = Path(os.path.abspath(config.evidence.root)) / DB_NAME
-    print(f"run {station.run_id}")
+    database = Path(os.path.abspath(loaded.config.evidence.root)) / DB_NAME
+    print(f"run {run_id}")
     print(f"evidence {database}")
     print(
         f"events {events} · pass {labels['pass']} · defect {labels['defect']}"
@@ -111,16 +137,23 @@ def main(
     )
     if reasons:
         print("no_verdict by reason: " + ", ".join(f"{r} {n}" for r, n in reasons.items()))
+    if faults:
+        print(
+            "faults: " + ", ".join(f"{r} {n}" for r, n in faults.items())
+            + f" · reconnect attempts {counters['reconnect_attempts']}"
+        )
+    print(f"final state {pipeline.final_state}")
     print(
-        f"records written {sink['written']} · held {sink['held']}"
-        f" · images shed {sink['images_shed']} · rejected {sink['rejected']}"
-        f" · lost {sink['lost']}"
+        f"records written {written['written']} · held {written['held']}"
+        f" · images shed {written['images_shed']} · rejected {written['rejected']}"
+        f" · lost {written['lost']}"
     )
-    complete = (
-        sink["written"] == events
-        and sink["lost"] == 0
-        and sink["rejected"] == 0
-        and sink["pending"] == 0
+    if written["lost"]:
+        print(f"{written['lost']} record(s) LOST: storage did not come back before the stop")
+    return (
+        written["written"] == events
+        and written["lost"] == 0
+        and written["rejected"] == 0
+        and written["pending"] == 0
         and counters["sink_errors"] == 0
     )
-    return 0 if complete else 1

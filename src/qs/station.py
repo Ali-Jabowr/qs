@@ -14,8 +14,17 @@ from datetime import UTC, datetime
 
 from qs.config import LoadedConfig
 from qs.contracts import FrameSource, Inspector, TriggerSource
+from qs.errors import ConfigError
 from qs.inspector.stub import StubInspector
-from qs.pipeline import Clock, Pipeline, Shows, State, StationSink, WallClock, utc_now
+from qs.pipeline import (
+    Clock,
+    Pipeline,
+    Shows,
+    StationSink,
+    WallClock,
+    check_config,
+    utc_now,
+)
 
 MakeSink = Callable[[LoadedConfig, str, datetime], StationSink]
 
@@ -73,6 +82,10 @@ class Station:
         the evidence before `inspector.load()` has succeeded."""
         config = self.loaded.config
         try:
+            check_config(config)
+        except ConfigError as exc:
+            raise StartupRefused(f"config: {exc}") from exc
+        try:
             self.inspector.load(config)
         except Exception as exc:
             raise StartupRefused(f"inspector: {exc}") from exc
@@ -98,10 +111,18 @@ class Station:
         return self.pipeline
 
     def run(self) -> None:
-        """The main loop: poll, handle, until the trigger is exhausted."""
+        """The main loop of docs/11 §3: tick, poll, handle — until the trigger is exhausted,
+        a stop is requested, or the station stopped itself."""
         pipeline = self.pipeline
         assert pipeline is not None, "start() first"
-        while not self.trigger.exhausted and pipeline.state is not State.STOPPED:
+        while (
+            not self.trigger.exhausted
+            and not pipeline.stop_requested
+            and not pipeline.stopped
+        ):
+            pipeline.tick()
+            if pipeline.stopped:
+                break
             event = self.trigger.poll()
             if event is not None:
                 pipeline.handle(event)

@@ -241,7 +241,7 @@ def test_a_mixed_run_through_the_real_sink(
                       loaded.config_hash, retry_s=0.01, stop_wait_s=1.0)
     captures: dict[int, object] = {3: CaptureError("timeout"), 6: CameraSettingsDrift("drift"),
                                    9: (0.1, VERIFIED), 12: LightingFault("roi"),
-                                   15: CameraLost("gone")}
+                                   20: CameraLost("gone")}
     script = {4: "defect:appearance", 7: "placement:no unit", 10: "inference", 13: "mislabel",
               17: "defect:geometry", 19: "nonfinite"}
     rig = Rig(loaded, captures=captures, script=script, sink=sink)

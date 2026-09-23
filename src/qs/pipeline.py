@@ -42,10 +42,12 @@ from qs.errors import (
     CameraLost,
     CameraSettingsDrift,
     CaptureError,
+    ConfigError,
     LightingFault,
     PlacementFault,
 )
 from qs.inspector.heatmap import heatmap_png
+from qs.sources.webcam import measure_patch
 from qs.store import encode_frame_jpeg
 
 _log = logging.getLogger(__name__)
@@ -67,6 +69,22 @@ class State(StrEnum):
 
 LIGHTING = "LIGHTING"
 CAMERA_SETTINGS = "CAMERA_SETTINGS"
+
+IN_A_ROW = 3  # capture or inference errors in a row → FAULT (docs/16 §2)
+BACKOFF_S = (0.5, 1.0, 2.0, 4.0, 8.0)  # waits between reconnect attempts (F1) …
+BACKOFF_THEN_S = 10.0  # … then every 10 s
+RETRIED_FAULTS = frozenset({"camera", "capture"})  # FAULT(inference) is never retried (F7)
+BREACH_ACTIONS = ("record_and_continue",)  # the only latency.breach_action known (F8)
+
+
+def check_config(config: StationConfig) -> None:
+    """What the Pipeline refuses to start with, beyond the loader: an unknown
+    `latency.breach_action` (the loader is not changed). `ConfigError`, one line."""
+    action = config.latency.breach_action
+    if action not in BREACH_ACTIONS:
+        raise ConfigError(
+            f"latency.breach_action: {action!r} is not one of: {', '.join(BREACH_ACTIONS)}"
+        )
 
 
 class Shows(Protocol):
@@ -147,12 +165,47 @@ class Pipeline:
         self._lighting = False  # LIGHTING: the last patch read was out of band
         self._drift = False  # CAMERA_SETTINGS raised by drift, cleared by a verified frame
         self._unverifiable = False  # CAMERA_SETTINGS for the rest of the run (FR-13)
+        self._capture_streak = 0  # A2, #63: changed only by events that reach capture
+        self._inference_streak = 0  # … and only by events that reach inspect
+        self._fault_reason: str | None = None
+        self._faults: dict[str, int] = {}
+        self._reconnect_attempts = 0
+        self._attempt = 0  # reconnect attempts in the current FAULT
+        self._next_attempt = 0.0
+        self._stop_requested = False
+        self._stopped = False
+        self._refusal: str | None = None
+        self._final_state = State.STARTING.value
 
     # --- what the screen and the command read ---------------------------------------------------
 
     @property
     def state(self) -> State:
         return self._state
+
+    @property
+    def fault_reason(self) -> str | None:
+        """`camera`, `capture` or `inference` while in FAULT; else None."""
+        return self._fault_reason
+
+    @property
+    def stop_requested(self) -> bool:
+        return self._stop_requested
+
+    @property
+    def stopped(self) -> bool:
+        """True once the stop sequence has run: the state is STOPPED for good."""
+        return self._stopped
+
+    @property
+    def refusal(self) -> str | None:
+        """Why the station stopped itself — a read-back mismatch on a reconnect — or None."""
+        return self._refusal
+
+    @property
+    def final_state(self) -> str:
+        """The state the run ended in, as `READY` or `FAULT(<reason>)`; set by `stop()`."""
+        return self._final_state
 
     @property
     def warnings(self) -> frozenset[str]:
@@ -172,21 +225,107 @@ class Pipeline:
             "events": self._events,
             "labels": dict(self._labels),
             "no_verdict": dict(sorted(self._reasons.items())),
+            "faults": dict(sorted(self._faults.items())),
+            "reconnect_attempts": self._reconnect_attempts,
             "annunciator_errors": self._annunciator_errors,
             "sink_errors": self._sink_errors,
+            "final_state": self._describe(),
         }
+
+    def _describe(self) -> str:
+        if self._state is State.FAULT:
+            return f"FAULT({self._fault_reason})"
+        if self._state is State.STOPPED:
+            return self._final_state
+        return self._state.value
 
     # --- start and stop ---------------------------------------------------------------------
 
     def start(self) -> None:
-        """Open the camera, then READY."""
-        self._source.open()
+        """Start-up steps 3 and 4 of docs/16 §2 (the inspector is already loaded): the camera
+        opens — not found is FAULT(camera), retrying; a value read back different from the one
+        set (`CameraSettingsDrift`) or any other failure is raised, for the caller to stop the
+        station — then the reference patch on the preview, then READY."""
+        self._state = State.STARTING
+        try:
+            self._source.open()
+        except CaptureError as exc:  # CameraLost too: not found, keep retrying
+            _log.warning("camera not found at start: %s", exc)
+            self._enter_fault("camera")
+            return
+        self._ready()
+
+    def _ready(self) -> None:
+        """Step 4, then READY: out of band → start with LIGHTING; no preview → skipped."""
+        self._capture_streak = 0
+        try:
+            preview = self._source.preview()
+            if preview is not None:
+                roi = self._config.lighting.reference_patch.roi
+                self._lighting = not self._in_band(measure_patch(preview, roi))
+        except Exception as exc:  # a preview that cannot be measured is not a lit card
+            _log.warning("the reference patch could not be read at start: %s", exc)
+            self._lighting = True
+        self._fault_reason = None
         self._state = State.READY
 
-    def stop(self) -> None:
-        """The clean stop: `finish_run(ended_utc, counters)`, then `sink.close()` → STOPPED."""
-        if self._state is State.STOPPED:
+    def _enter_fault(self, reason: str) -> None:
+        self._state = State.FAULT
+        self._fault_reason = reason
+        self._faults[reason] = self._faults.get(reason, 0) + 1
+        self._attempt = 0
+        self._next_attempt = self._clock() + BACKOFF_S[0]
+        _log.error("FAULT(%s): the station is not checking", reason)
+
+    def tick(self, now: float | None = None) -> None:
+        """Once per main-loop tick: a camera or capture fault retries on its backoff."""
+        now = self._clock() if now is None else now
+        if (
+            self._state is State.FAULT
+            and self._fault_reason in RETRIED_FAULTS
+            and not self._stop_requested
+            and now >= self._next_attempt
+        ):
+            self._reconnect(now)
+
+    def _reconnect(self, now: float) -> None:
+        """`close()` then `open()`; success → STARTING → steps 3 and 4 → READY. A read-back
+        mismatch stops the station, as at start-up."""
+        self._reconnect_attempts += 1
+        self._attempt += 1
+        try:
+            self._source.close()
+        except Exception as exc:
+            _log.warning("closing the camera before a reconnect failed: %s", exc)
+        self._state = State.STARTING
+        try:
+            self._source.open()
+        except CameraSettingsDrift as exc:
+            self._refusal = f"camera: {exc}"
+            _log.error("read-back mismatch on reconnect, stopping: %s", exc)
+            self._state = State.FAULT
+            self.stop()
             return
+        except Exception as exc:
+            wait = BACKOFF_S[self._attempt] if self._attempt < len(BACKOFF_S) else BACKOFF_THEN_S
+            self._next_attempt = now + wait
+            self._state = State.FAULT
+            _log.warning("reconnect attempt %d failed: %s", self._attempt, exc)
+            return
+        _log.info("camera back after %d attempt(s)", self._attempt)
+        self._ready()
+
+    def request_stop(self) -> None:
+        """Stop after the current event: the main loop polls no more (F13, SIGINT)."""
+        self._stop_requested = True
+
+    def stop(self) -> None:
+        """The clean stop: `finish_run(ended_utc, counters)`, then `sink.close()` → STOPPED.
+        The state it stopped from is kept as `final_state`. Idempotent."""
+        if self._stopped:
+            return
+        self._stopped = True
+        self._final_state = self._describe()
         self._state = State.STOPPED
         try:
             self._sink.finish_run(self._wall(), self.counters)
@@ -205,9 +344,14 @@ class Pipeline:
 
     def handle(self, event: TriggerEvent) -> InspectionRecord:
         """One trigger → exactly one record, shown and written, and returned (C5)."""
+        if self._state is State.FAULT or self._state is State.STOPPED:
+            # Step 1: not checking. Nothing is captured and there is no image.
+            reason = self._fault_reason or "busy"
+            return self._finish(event, _Outcome(self._no_verdict(reason), None))
         self._state = State.INSPECTING
         outcome = self._inspect_event(event)
-        self._state = State.READY
+        if self._state is State.INSPECTING:
+            self._state = State.READY
         return self._finish(event, outcome)
 
     def _inspect_event(self, event: TriggerEvent) -> _Outcome:
@@ -216,6 +360,7 @@ class Pipeline:
         if not isinstance(frame, Frame):
             return frame
         # Step 3: the frame is accepted.
+        self._capture_streak = 0
         if frame.camera.verified is True:
             self._drift = False
         else:
@@ -238,8 +383,22 @@ class Pipeline:
         except Exception as exc:
             inspect_ms = (self._clock() - inspect_start) * 1000.0
             _log.warning("seq %d: inference failed: %s", event.seq, exc)
-            return self._no_verdict_with_frame("inference", frame, inspect_ms)
+            return self._inference_failed(frame, inspect_ms)
         return self._encode(verdict, frame, inspect_ms)
+
+    def _inference_failed(self, frame: Frame, inspect_ms: float) -> _Outcome:
+        """NO_VERDICT(`inference`) with the image; the third in a row is FAULT(inference)."""
+        self._inference_streak += 1
+        if self._inference_streak >= IN_A_ROW:
+            self._enter_fault("inference")
+        return self._no_verdict_with_frame("inference", frame, inspect_ms)
+
+    def _capture_failed(self) -> _Outcome:
+        """NO_VERDICT(`capture`) without an image; the third in a row is FAULT(capture)."""
+        self._capture_streak += 1
+        if self._capture_streak >= IN_A_ROW:
+            self._enter_fault("capture")
+        return _Outcome(self._no_verdict("capture"), None)
 
     def _capture(self, event: TriggerEvent) -> Frame | _Outcome:
         """Step 2: a frame, or the NO_VERDICT its failure means. None of these has an image."""
@@ -247,10 +406,11 @@ class Pipeline:
             frame = self._source.capture(event)
         except CameraLost as exc:
             _log.warning("seq %d: camera lost: %s", event.seq, exc)
+            self._enter_fault("camera")
             return _Outcome(self._no_verdict("camera"), None)
         except CaptureError as exc:
             _log.warning("seq %d: capture failed: %s", event.seq, exc)
-            return _Outcome(self._no_verdict("capture"), None)
+            return self._capture_failed()
         except CameraSettingsDrift as exc:
             _log.warning("seq %d: camera settings drift: %s", event.seq, exc)
             self._drift = True
@@ -261,10 +421,10 @@ class Pipeline:
             return _Outcome(self._no_verdict("lighting"), None)
         except Exception as exc:  # a source that breaks its contract: no frame to trust
             _log.exception("seq %d: the source raised %s", event.seq, type(exc).__name__)
-            return _Outcome(self._no_verdict("capture"), None)
+            return self._capture_failed()
         if not isinstance(frame, Frame) or frame.event != event:
             _log.warning("seq %d: the source returned a frame for another event", event.seq)
-            return _Outcome(self._no_verdict("capture"), None)
+            return self._capture_failed()
         return frame
 
     def _in_band(self, patch: float | None) -> bool:
@@ -319,7 +479,8 @@ class Pipeline:
             )
         except Exception as exc:
             _log.warning("seq %d: encoding failed: %s", frame.event.seq, exc)
-            return self._no_verdict_with_frame("inference", frame, inspect_ms)
+            return self._inference_failed(frame, inspect_ms)
+        self._inference_streak = 0  # a decided verdict, accepted and encoded
         return _Outcome(verdict, frame, image, heat)
 
     def _no_verdict(self, reason: str, inspect_ms: float = 0.0) -> Verdict:
