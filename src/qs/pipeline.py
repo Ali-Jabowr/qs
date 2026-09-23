@@ -15,6 +15,7 @@ from __future__ import annotations
 import logging
 import math
 import time
+from collections import deque
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -69,6 +70,10 @@ class State(StrEnum):
 
 LIGHTING = "LIGHTING"
 CAMERA_SETTINGS = "CAMERA_SETTINGS"
+STORAGE = "STORAGE"
+LATENCY = "LATENCY"
+LATENCY_WINDOW = 50  # inspections (F8)
+LATENCY_SHARE = 0.10  # LATENCY while more than this share of the window broke the budget
 
 IN_A_ROW = 3  # capture or inference errors in a row → FAULT (docs/16 §2)
 BACKOFF_S = (0.5, 1.0, 2.0, 4.0, 8.0)  # waits between reconnect attempts (F1) …
@@ -176,6 +181,12 @@ class Pipeline:
         self._stopped = False
         self._refusal: str | None = None
         self._final_state = State.STARTING.value
+        self._storage_bad = False  # STORAGE: the sink's health() was not ok at the last read
+        self._latencies: deque[float] = deque(maxlen=LATENCY_WINDOW)  # total_ms, inspections
+        self._breaches = 0
+        self._frames_accepted = 0
+        self._last_finished: float | None = None  # clock when the previous handle() returned
+        self._reached_inspect = False  # this event reached step 5
 
     # --- what the screen and the command read ---------------------------------------------------
 
@@ -216,7 +227,24 @@ class Pipeline:
             active.add(LIGHTING)
         if self._drift or self._unverifiable:
             active.add(CAMERA_SETTINGS)
+        if self._storage_bad:
+            active.add(STORAGE)
+        if self._latency_high():
+            active.add(LATENCY)
         return frozenset(active)
+
+    def _latency_high(self) -> bool:
+        """More than 10% of the last 50 inspections (all of them, while fewer) broke the budget."""
+        if not self._latencies:
+            return False
+        budget = self._config.latency.budget_ms
+        over = sum(1 for total in self._latencies if total > budget)
+        return over > LATENCY_SHARE * len(self._latencies)
+
+    def _percentile(self, q: float) -> float | None:
+        if not self._latencies:
+            return None
+        return float(np.percentile(np.asarray(self._latencies, dtype=np.float64), q))
 
     @property
     def counters(self) -> dict[str, object]:
@@ -229,6 +257,15 @@ class Pipeline:
             "reconnect_attempts": self._reconnect_attempts,
             "annunciator_errors": self._annunciator_errors,
             "sink_errors": self._sink_errors,
+            "latency": {
+                "p50_ms": self._percentile(50),
+                "p95_ms": self._percentile(95),
+                "window": len(self._latencies),
+                "budget_ms": self._config.latency.budget_ms,
+                "breaches": self._breaches,
+            },
+            # False until a frame is accepted, and for good once one was unverified (FR-13).
+            "camera_verified": self._frames_accepted > 0 and not self._unverifiable,
             "final_state": self._describe(),
         }
 
@@ -278,8 +315,10 @@ class Pipeline:
         _log.error("FAULT(%s): the station is not checking", reason)
 
     def tick(self, now: float | None = None) -> None:
-        """Once per main-loop tick: a camera or capture fault retries on its backoff."""
+        """Once per main-loop tick: the sink's health is read, and a camera or capture fault
+        retries on its backoff."""
         now = self._clock() if now is None else now
+        self._read_storage()
         if (
             self._state is State.FAULT
             and self._fault_reason in RETRIED_FAULTS
@@ -344,11 +383,18 @@ class Pipeline:
 
     def handle(self, event: TriggerEvent) -> InspectionRecord:
         """One trigger → exactly one record, shown and written, and returned (C5)."""
+        if self._state is State.STARTING or (
+            self._last_finished is not None and event.t0 < self._last_finished
+        ):
+            # Step 0 (F9): a unit trigger while starting or inspecting is accounted for, not
+            # checked. Nothing is captured, and no streak changes.
+            return self._finish(event, _Outcome(self._no_verdict("busy"), None))
         if self._state is State.FAULT or self._state is State.STOPPED:
             # Step 1: not checking. Nothing is captured and there is no image.
             reason = self._fault_reason or "busy"
             return self._finish(event, _Outcome(self._no_verdict(reason), None))
         self._state = State.INSPECTING
+        self._reached_inspect = False
         outcome = self._inspect_event(event)
         if self._state is State.INSPECTING:
             self._state = State.READY
@@ -361,6 +407,7 @@ class Pipeline:
             return frame
         # Step 3: the frame is accepted.
         self._capture_streak = 0
+        self._frames_accepted += 1
         if frame.camera.verified is True:
             self._drift = False
         else:
@@ -371,6 +418,7 @@ class Pipeline:
             return self._no_verdict_with_frame("lighting", frame, 0.0)
         self._lighting = False
         # Step 5: inspect.
+        self._reached_inspect = True
         inspect_start = self._clock()
         try:
             verdict = self._inspector.inspect(frame)
@@ -517,6 +565,11 @@ class Pipeline:
             self._annunciator_errors += 1
             _log.exception("seq %d: the annunciator failed; the record is still written", event.seq)
         total_ms = (self._clock() - event.t0) * 1000.0
+        if self._reached_inspect:  # an inspection: an event that reached step 5 (F8)
+            self._reached_inspect = False
+            self._latencies.append(total_ms)
+            if total_ms > self._config.latency.budget_ms:
+                self._breaches += 1
         record = InspectionRecord(
             run_id=self._run_id,
             event=event,
@@ -537,4 +590,14 @@ class Pipeline:
         except Exception:
             self._sink_errors += 1
             _log.exception("seq %d: the sink raised (C3); counted", event.seq)
+        self._read_storage()
+        self._last_finished = self._clock()
         return record
+
+    def _read_storage(self) -> None:
+        """STORAGE while the sink's `health()` is not ok; a health() that raises is not ok."""
+        try:
+            self._storage_bad = self._sink.health().ok is not True
+        except Exception:
+            _log.exception("the sink's health() raised")
+            self._storage_bad = True

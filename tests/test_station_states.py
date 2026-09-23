@@ -278,7 +278,8 @@ class StopAt(NullAnnunciator):
 def test_request_stop_mid_replay_ends_the_run_cleanly(tmp_path: Path) -> None:
     loaded = loaded_config(tmp_path)
     files = replay_files(write_frames(tmp_path / "shoot", 8)[0].parent)
-    replay, source = replay_pair(loaded.config, files, "shoot", clock=FakeClock(step=0.001))
+    clock = FakeClock(step=0.001)
+    replay, source = replay_pair(loaded.config, files, "shoot", clock=clock)
     trigger = CountingTrigger(replay)
     holder: dict[str, Pipeline] = {}
     station = Station(
@@ -288,7 +289,7 @@ def test_request_stop_mid_replay_ends_the_run_cleanly(tmp_path: Path) -> None:
         inspector=StubInspector(loaded.config_hash, {2: "placement:edge"}),
         annunciator=StopAt(4, lambda: holder["p"].request_stop()),
         make_sink=lambda ld, run, at: SqliteSink.from_config(ld, run, at, retry_s=0.01),
-        clock=FakeClock(step=0.001),
+        clock=clock,
     )
     holder["p"] = station.start()
     station.run()

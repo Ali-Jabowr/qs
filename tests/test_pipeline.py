@@ -38,7 +38,7 @@ class Rehash:
 def _pipeline(
     loaded: LoadedConfig, inspector: object, sink: RecordingSink | None = None
 ) -> tuple[Pipeline, RecordingSink, NullAnnunciator]:
-    clock = FakeClock()
+    clock = FakeClock(start=0.0)  # the events below are stamped t0 = 0
     sink = sink or RecordingSink()
     shown = NullAnnunciator()
     inspector.load(loaded.config)  # type: ignore[attr-defined]

@@ -142,6 +142,14 @@ def _summary(pipeline: Pipeline, sink: StationSink, run_id: str, loaded: LoadedC
             "faults: " + ", ".join(f"{r} {n}" for r, n in faults.items())
             + f" · reconnect attempts {counters['reconnect_attempts']}"
         )
+    latency: dict[str, Any] = counters["latency"]  # type: ignore[assignment]
+    p50, p95 = latency["p50_ms"], latency["p95_ms"]
+    print(
+        "latency "
+        + ("—" if p50 is None else f"p50 {p50:.0f} ms · p95 {p95:.0f} ms")
+        + f" · breaches {latency['breaches']} (budget {latency['budget_ms']} ms)"
+        + f" · camera verified {'yes' if counters['camera_verified'] else 'no'}"
+    )
     print(f"final state {pipeline.final_state}")
     print(
         f"records written {written['written']} · held {written['held']}"
