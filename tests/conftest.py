@@ -145,3 +145,9 @@ def geometry_config() -> GeometryConfig:
 def paint() -> Paint:
     """The synthetic-frame drawing primitives."""
     return Paint()
+
+
+@pytest.fixture(scope="session")
+def mask_dilate_px() -> int:
+    """The example config's `inspector.mask_dilate_px`: 12."""
+    return load_config(EXAMPLE).config.inspector.mask_dilate_px
