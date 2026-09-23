@@ -1,7 +1,7 @@
 """`inspector.type: appearance` through `qs station --replay`: P07's `AppearanceInspector`
 behind the same Pipeline as the stub (docs/11 §4, #68).
 
-The frames are 1920×1080 synthetic discs drawn with P06's `Paint`, with the grey card painted
+The frames are 1920×1080 synthetic discs on P06's black floor, with the grey card painted
 into the reference patch. The example config is rewritten to name a bundle written with a
 fake bank into `tmp_path/models`, and the test runs from `tmp_path`, so the station's
 `models/` and `evidence/` are both there. The scorer is a numpy fake whose anomaly map is one
@@ -18,18 +18,15 @@ import numpy as np
 import pytest
 
 from appearance_fixtures import config_naming
-from conftest import Paint
 from evidence_records import fast_sqlite
 from qs.cmd.station import main
+from qs.config import load_config
 from qs.errors import ConfigError
 from qs.inspector.model import Scored
-from station_fixtures import rows, station_args, write_fake_bundle, write_png
+from station_fixtures import disc_frame, rows, station_args, write_fake_bundle, write_png
 
 LOW = 1.0
 HIGH = 4.0
-CARD_GREY = 158  # 158 / 255 = 0.6196, inside the example's 0.62 ± 5 %
-CARD_ROI = (1780, 40, 100, 100)  # the example's lighting.reference_patch.roi
-MARK_GREY = 250
 # Channel 0 of `window.to_input` is (grey / 255 − 0.485) / 0.229: 1.31 on the unit's grey
 # 200, 2.16 on the mark's 250.
 MARK_LEVEL = 1.8
@@ -57,28 +54,13 @@ class Factory:
         return MarkScorer()
 
 
-def _frame(*, radius: int | None = 190, centre: tuple[int, int] = (960, 540),
-           mark: bool = False) -> np.ndarray:
-    """A floor with the grey card; a pale disc on it unless `radius` is None; with `mark`, a
-    bright spot at the disc's centre."""
-    paint = Paint()
-    pixels = paint.floor()
-    x, y, w, h = CARD_ROI
-    pixels[y : y + h, x : x + w] = CARD_GREY
-    if radius is not None:
-        paint.disc(pixels, centre, radius)
-        if mark:
-            paint.disc(pixels, centre, 20, grey=MARK_GREY)
-    return pixels
-
-
 FRAMES = (  # (file, pixels, expected label, expected reason)
-    ("f01.png", {"radius": 190}, "pass", None),
-    ("f02.png", {"radius": 185, "centre": (930, 520)}, "pass", None),
-    ("f03.png", {"radius": 190, "mark": True}, "defect", None),
-    ("f04.png", {"radius": 195, "centre": (990, 560)}, "pass", None),
-    ("f05.png", {"radius": None}, "no_verdict", "placement"),
-    ("f06.png", {"radius": 188}, "pass", None),
+    ("f01.png", disc_frame(190), "pass", None),
+    ("f02.png", disc_frame(185, (930, 520)), "pass", None),
+    ("f03.png", disc_frame(190, mark=True), "defect", None),
+    ("f04.png", disc_frame(195, (990, 560)), "pass", None),
+    ("f05.png", disc_frame(None), "no_verdict", "placement"),
+    ("f06.png", disc_frame(188), "pass", None),
 )
 
 
@@ -92,8 +74,8 @@ def station(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, str,
     config_naming(tmp_path, model_id)
     shoot = tmp_path / "shoot"
     shoot.mkdir()
-    for name, drawing, _, _ in FRAMES:
-        write_png(shoot / name, _frame(**drawing))  # type: ignore[arg-type]
+    for name, pixels, _, _ in FRAMES:
+        write_png(shoot / name, pixels)
     return tmp_path / "station.yml", model_id, shoot
 
 
@@ -113,7 +95,7 @@ def test_appearance_replay_gives_decided_verdicts_with_the_bundles_model_id(
     assert [(r["label"], r["reason"]) for r in records] == [
         (label, reason) for _, _, label, reason in FRAMES
     ]
-    threshold_id = "cal-2026-09-25-far5-a41c07"
+    threshold_id = load_config(config).config.threshold.id
     assert all(r["model_id"] == model_id for r in records)
     assert all(r["threshold_id"] == threshold_id for r in records)
 

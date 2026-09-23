@@ -30,6 +30,8 @@ EXAMPLE = Path(__file__).resolve().parents[1] / "config" / "station-A-bench.exam
 WIDTH, HEIGHT = 320, 240
 PATCH_ROI = [280, 10, 30, 30]
 PATCH_GREY = 158  # 158 / 255 = 0.6196, inside 0.62 ± 5 %
+CARD_ROI = (1780, 40, 100, 100)  # the example config's lighting.reference_patch.roi
+MARK_GREY = 250  # the bright spot on a unit a fake scorer is scripted to fail
 VERIFIED = CameraReadback(10000, 0, 4500, 30, verified=True)
 UNVERIFIED = CameraReadback(None, None, None, None, verified=False)
 
@@ -72,6 +74,23 @@ def textured(seed: int, *, patch_grey: int = PATCH_GREY) -> np.ndarray:
     pixels = (40 + rng.integers(0, 60, (HEIGHT, WIDTH, 3))).astype(np.uint8)
     x, y, w, h = PATCH_ROI
     pixels[y : y + h, x : x + w] = patch_grey
+    return pixels
+
+
+def disc_frame(
+    radius: int | None = 190, centre: tuple[int, int] = (960, 540), *, mark: bool = False
+) -> np.ndarray:
+    """A 1920×1080 BGR frame for the example config: the black floor (grey 20), the grey card
+    in its reference patch, and a pale disc (grey 200) unless `radius` is None — one unit
+    inside `inspector.localize` and the example's geometry for a radius of 185–195. With
+    `mark`, a bright spot of radius 20 at the disc's centre."""
+    pixels = np.full((1080, 1920, 3), 20, dtype=np.uint8)
+    x, y, w, h = CARD_ROI
+    pixels[y : y + h, x : x + w] = PATCH_GREY
+    if radius is not None:
+        cv2.circle(pixels, centre, radius, (200, 200, 200), -1)
+        if mark:
+            cv2.circle(pixels, centre, 20, (MARK_GREY,) * 3, -1)
     return pixels
 
 
