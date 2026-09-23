@@ -311,7 +311,22 @@ def _recovery(folder: Path) -> str:
 
 
 def main(args: argparse.Namespace) -> int:
-    """Import, or `--check`; 0 done or PASS, 1 refused or FAIL, 2 could not run."""
+    """Import, or `--check`; 0 done or PASS, 1 refused, FAIL or stopped, 2 could not run.
+
+    Ctrl-C prints one line, not a traceback (F5). Once the import writes, it catches Ctrl-C
+    itself and says what it left; before that, nothing is written.
+    """
+    try:
+        return _run(args)
+    except KeyboardInterrupt:
+        where = "" if args.check or args.session is None else (
+            f" to {Path(args.root) / args.session}")
+        print(f"{'check' if args.check else 'import'}: stopped by the operator — nothing was "
+              f"written{where}")
+        return 1
+
+
+def _run(args: argparse.Namespace) -> int:
     try:
         config = load_config(Path(args.config)).config
     except ConfigError as exc:
@@ -451,6 +466,26 @@ def _import(
     except OSError as exc:
         print(f"import: {exc} — stopped part-way; {_recovery(folder)}")
         return 1
+    except KeyboardInterrupt:
+        print(f"import: stopped by the operator — {_recovery(folder)}")
+        return 1
+    try:
+        _report(folder, plan, shot, mapping, photos, path)
+    except KeyboardInterrupt:
+        print(f"import: stopped by the operator — the import is complete in {folder}; copy "
+              "it to the phone now (T11)")
+    return 0
+
+
+def _report(
+    folder: Path,
+    plan: Plan | PilotPlan,
+    shot: Substitution,
+    mapping: Mapping,
+    photos: Sequence[Photo],
+    path: Path,
+) -> None:
+    """The summary of a finished import, and the reminder to back it up."""
     counts = {status: sum(m.status == status for m in mapping.photos)
               for status in ("saved", "rejected", "discarded")}
     print(f"import: {len(photos)} photos → {counts['saved']} frames saved, "
@@ -467,7 +502,6 @@ def _import(
             print(f"import: {unit} broke — {spare} took its place in {split}")
     print(f"Copy {folder}/ to the phone NOW, before anything else (T11) — with its cloud "
           "backup still off (ADR-0022)")
-    return 0
 
 
 def _write(

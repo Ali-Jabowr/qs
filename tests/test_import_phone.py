@@ -19,6 +19,7 @@ import pytest
 import yaml
 from PIL import Image, TiffImagePlugin
 
+import qs.cmd.import_phone
 import qs.session
 from qs.cmd.import_phone import main, redo_list
 from qs.cmd.split_plan import shots_text
@@ -556,6 +557,47 @@ def test_a_finished_import_leaves_no_staging_folder(root: Path) -> None:
     assert main(args(root, shoot(root / "phone", LEAN))) == 0
     assert not (session(root) / ".import").exists()
     assert os.listdir(session(root))  # the session holds the import itself
+
+
+@pytest.mark.parametrize("stage", ["reading", "writing", "moving in"])
+def test_ctrl_c_prints_one_line_with_what_to_do_and_no_traceback(
+    root: Path, stage: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    photos = shoot(root / "phone", LEAN)
+    folder = session(root)
+    target, name = {"reading": (qs.cmd.import_phone, "decode"),
+                    "writing": (qs.session, "_write_png"),
+                    "moving in": (qs.session.os, "link")}[stage]
+    real, calls = getattr(target, name), iter(range(1, 10**6))
+
+    def interrupted(*a: object, **k: object) -> object:
+        if next(calls) == 100:
+            raise KeyboardInterrupt
+        return real(*a, **k)
+
+    monkeypatch.setattr(target, name, interrupted)
+    assert main(args(root, photos)) == 1  # returned, not raised: no traceback
+    [line] = capsys.readouterr().out.strip().splitlines()
+    assert line.startswith("import: stopped by the operator — ")
+    assert {"reading": f"nothing was written to {folder}",
+            "writing": f"delete {folder / '.import'}",
+            "moving in": f"Move everything in {folder / '.import'}"}[stage] in line
+
+
+def test_ctrl_c_during_the_check_says_nothing_was_written(
+    root: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    photos = shoot(root / "phone", 40)
+
+    def interrupted(path: Path) -> object:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(qs.cmd.import_phone, "decode", interrupted)
+    before = snapshot(root / "raw")
+    assert main(check_args(root, photos, SESSION)) == 1
+    assert capsys.readouterr().out.strip().splitlines()[-1] == (
+        "check: stopped by the operator — nothing was written")
+    assert snapshot(root / "raw") == before
 
 
 # --- order, formats, config ----------------------------------------------------------------
