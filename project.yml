@@ -694,7 +694,9 @@ open_questions:
   - id: OQ-8
     issue: 10
     owner: us
-    status: open
+    status: closed
+    answer_en: "Lean — 64 units (6 pilot + 58 dataset). Ali, 2026-09-23."
+    answer_ru: "Экономный — 64 изделия (6 пилот + 58 датасет). Али, 2026-09-23."
     text_en: Standard (83 units) or lean (64 units) for the MVP shoot? Ali leans lean, deciding at the shop.
     text_ru: Стандартный (83 изделия) или экономный (64 изделия) вариант для съёмки MVP? Али склоняется к экономному, решение — в магазине.
     blocks_en: The purchase (S0.5) and the width of every indicative bound (14 §9).

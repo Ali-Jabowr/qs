@@ -2,7 +2,7 @@
 # QS — status
 
 **Automated visual quality inspection for a food production line**  
-Owner: Ali, Volgograd · Rendered 2026-09-22
+Owner: Ali, Volgograd · Rendered 2026-09-23
 
 Overall: **18/60 tasks** `███████·················` 30%
 
@@ -153,7 +153,6 @@ Overall: **18/60 tasks** `███████················�
 | `OQ-4` | client | **never** | What is meant by "foreign objects"? What is already on the line — metal detector, X-ray? | Liability scope. Never accept foreign-object detection inside a 95% acceptance clause. |
 | `OQ-5` | client | **never** | Units per shift, shifts per day, and what one return costs in rubles? | Pricing and the entire business case. "2% per day" of an unknown base is not a number. |
 | `OQ-6` | client | **never** | Who signs off food safety, and what must they approve to allow equipment over open product? | This person can veto the installation after the hardware has been bought. |
-| `OQ-8` | us | **never** | Standard (83 units) or lean (64 units) for the MVP shoot? Ali leans lean, deciding at the shop. | The purchase (S0.5) and the width of every indicative bound (14 §9). |
 | `OQ-9` | client | **never** | Is your моти chilled, room-temperature or frozen; what sizes and flavours; which defects actually occur? | Assumptions A-01 and A-07 — the shoot protocol and the defect classes. Deferred for the MVP week. |
 | `OQ-10` | us | **never** | Are ImageNet-pretrained backbone weights usable in a commercial deliverable, and are incidental images of hands personal data under 152-ФЗ? | Shipping anything to the client. A question for the lawyer budget line, not for us to answer. |
 
