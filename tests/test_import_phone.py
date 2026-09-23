@@ -18,8 +18,9 @@ import yaml
 from PIL import Image, TiffImagePlugin
 
 from qs.cmd.import_phone import main
+from qs.cmd.split_plan import shots_text
 from qs.phone import decode
-from qs.session import write_plan
+from qs.session import write_plan, write_shot_list
 from qs.splitplan import Plan, Shot, make_plan, shot_list
 
 EXAMPLE = Path(__file__).resolve().parents[1] / "config" / "station-A-bench.example.yml"
@@ -104,9 +105,12 @@ def phone_config(tmp_path: Path, camera_type: str = "phone") -> Path:
     return path
 
 
-def plan_session(root: Path) -> Plan:
+def plan_session(root: Path, printed: tuple[str, ...] = ("G2",)) -> Plan:
+    """The lean plan, and the photo list printed for each geometry in `printed`."""
     plan = make_plan("lean", 20260925)
     write_plan(root / SESSION, plan, "sheet\n")
+    for geometry in printed:
+        write_shot_list(root / SESSION, geometry, shots_text(SESSION, plan, geometry))
     return plan
 
 
@@ -454,6 +458,26 @@ def test_a_session_without_a_plan_is_refused(
     assert main(args(tmp_path, shoot(tmp_path / "phone", 3))) == 1
     assert "qs split-plan" in capsys.readouterr().out
     assert not (tmp_path / "raw").exists()
+
+
+@pytest.mark.parametrize(("printed", "named"), [
+    (("G3",), "shots-G3.md"),  # printed under G3, the config says G2
+    ((), "no photo list"),
+    (("G2", "G3"), "shots-G3.md"),  # which one is in Ali's hand is a guess
+])
+def test_a_config_geometry_that_is_not_the_printed_lists_refuses_and_writes_nothing(
+    tmp_path: Path, printed: tuple[str, ...], named: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    plan_session(tmp_path / "raw", printed)
+    photos = shoot(tmp_path / "phone", LEAN)
+    before = snapshot(tmp_path / "raw")
+    assert main(args(tmp_path, photos)) == 1
+    out = capsys.readouterr().out
+    assert "lighting.geometry G2" in out and named in out
+    assert snapshot(tmp_path / "raw") == before
+    assert main(check_args(tmp_path, photos, SESSION)) == 1
+    assert named in capsys.readouterr().out
+    assert snapshot(tmp_path / "raw") == before
 
 
 # --- --check ---------------------------------------------------------------------------------

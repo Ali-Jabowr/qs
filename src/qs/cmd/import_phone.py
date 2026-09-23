@@ -215,6 +215,29 @@ def _plan(folder: Path, session: str) -> Plan | PilotPlan | None:
         return None
 
 
+def _printed_list(folder: Path, geometry: str) -> str | None:
+    """Why a dataset session cannot be mapped under the config's `geometry`, or None.
+
+    Photo k is row k of the printed `shots-<G>.md`, and G is in every frame name, so the list
+    in Ali's hand and `lighting.geometry` must be the same, and the only one (F1).
+    """
+    printed = sorted(path.name for path in folder.glob("shots-*.md"))
+    wanted = f"shots-{geometry}.md"
+    if printed == [wanted]:
+        return None
+    if not printed:
+        return (f"no photo list in {folder} for lighting.geometry {geometry} — the import maps "
+                f"photo k to row k of the printed list: qs split-plan --shot-list --geometry "
+                f"{geometry}")
+    if wanted not in printed:
+        return (f"the config's lighting.geometry {geometry} has no printed list — {folder} "
+                f"has {', '.join(printed)}; set lighting.geometry to the geometry you shot "
+                "under, or every frame is named under the wrong one")
+    return (f"{folder} has {' and '.join(printed)} — which one was shot is a guess; the "
+            f"config's lighting.geometry {geometry} says {wanted}, so remove the list that was "
+            "not printed")
+
+
 def main(args: argparse.Namespace) -> int:
     """Import, or `--check`; 0 done or PASS, 1 refused or FAIL, 2 could not run."""
     try:
@@ -266,6 +289,11 @@ def main(args: argparse.Namespace) -> int:
     plan = _plan(folder, args.session)
     if plan is None:  # the session must hold plan.yml, or the import refuses (#53)
         return 1
+    if isinstance(plan, Plan):
+        problem = _printed_list(folder, config.lighting.geometry)
+        if problem is not None:
+            print(f"plan: {problem} — nothing written")
+            return 1
     try:
         if isinstance(plan, PilotPlan):
             # The pilot carries its own geometries; the config's lighting.geometry is the
