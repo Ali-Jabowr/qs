@@ -14,7 +14,7 @@ import cv2
 import numpy as np
 import pytest
 
-from qs.config import LocalizeConfig, load_config
+from qs.config import GeometryConfig, LocalizeConfig, load_config
 
 EXAMPLE = Path(__file__).resolve().parents[1] / "config" / "station-A-bench.example.yml"
 
@@ -76,6 +76,18 @@ class Paint:
         """A filled ellipse: `axes` the half-sizes, `angle` the rotation in degrees."""
         cv2.ellipse(pixels, centre, axes, angle, 0, 360, _bgr(grey), -1)
 
+    def wedge_disc(
+        self,
+        pixels: np.ndarray,
+        centre: tuple[int, int],
+        radius: int,
+        degrees: int = 30,
+        grey: int = UNIT_GREY,
+    ) -> None:
+        """A disc with a wedge of `degrees` cut out to its centre — the notched unit."""
+        half = degrees / 2
+        cv2.ellipse(pixels, centre, (radius, radius), 0, half, 360 - half, _bgr(grey), -1)
+
     def blob(
         self, pixels: np.ndarray, box: tuple[int, int, int, int], grey: int = UNIT_GREY
     ) -> None:
@@ -120,6 +132,13 @@ def localize_config() -> LocalizeConfig:
     """The example config's `inspector.localize`: roi [360, 0, 1200, 1080], threshold 70,
     min_area_px 20000, border_margin_px 10."""
     return load_config(EXAMPLE).config.inspector.localize
+
+
+@pytest.fixture(scope="session")
+def geometry_config() -> GeometryConfig:
+    """The example config's `threshold.geometry`: area_px [98000, 131000], axis_ratio_min 0.90,
+    solidity_min 0.96."""
+    return load_config(EXAMPLE).config.threshold.geometry
 
 
 @pytest.fixture
