@@ -3,9 +3,10 @@ data/*
 evidence/
 models/
 wheelhouse/
-.torch/
-.hf/
+.torch
+.hf
 __pycache__/
 *.pyc
 .pytest_cache/
-.venv/
+.venv
+.claude/worktrees/

@@ -448,7 +448,7 @@ def test_nothing_under_the_data_directories_is_tracked(work_tree: Path) -> None:
     assert done.stdout.splitlines() == ["data/.gitkeep"]
 
 
-@pytest.mark.parametrize("dropped", ["models/", ".hf/", "data/*"])
+@pytest.mark.parametrize("dropped", ["models/", ".hf", "data/*"])
 def test_a_gitignore_missing_a_line_leaves_its_paths_unignored(
     work_tree: Path, tmp_path: Path, dropped: str
 ) -> None:
