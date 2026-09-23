@@ -7,6 +7,7 @@ a camera, a display or a GPU, and nothing is written anywhere.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -15,6 +16,7 @@ import numpy as np
 import pytest
 
 from qs.config import GeometryConfig, LocalizeConfig, load_config
+from qs.inspector.model import FitSettings, Fitted, Scored
 
 EXAMPLE = Path(__file__).resolve().parents[1] / "config" / "station-A-bench.example.yml"
 
@@ -151,3 +153,39 @@ def paint() -> Paint:
 def mask_dilate_px() -> int:
     """The example config's `inspector.mask_dilate_px`: 12."""
     return load_config(EXAMPLE).config.inspector.mask_dilate_px
+
+
+class FakeScorer:
+    """A numpy scorer: each input pixel's distance to the nearest bank row, as the map."""
+
+    def __init__(self, bank: np.ndarray) -> None:
+        self.bank = bank
+
+    def score(self, window_input: np.ndarray) -> Scored:
+        pixels = window_input.reshape(3, -1).T  # (H·W, 3)
+        distances = np.sqrt(((pixels[:, None, :] - self.bank[None, :, :]) ** 2).sum(axis=2))
+        anomaly_map = distances.min(axis=1).reshape(window_input.shape[1:]).astype(np.float32)
+        return Scored(anomaly_map, float(anomaly_map.max()), backbone_ms=1.0, search_ms=2.0)
+
+
+class FakePatchCore:
+    """The model seam in numpy (`qs.inspector.model.PatchCore`): the bank is each window's
+    mean colour, so a window unlike the training windows scores high. It records every
+    fit's windows and settings for the tests to inspect."""
+
+    def __init__(self) -> None:
+        self.fits: list[tuple[list[np.ndarray], FitSettings]] = []
+
+    def fit(self, windows: Sequence[np.ndarray], settings: FitSettings) -> Fitted:
+        self.fits.append((list(windows), settings))
+        bank = np.stack([w.reshape(3, -1).mean(axis=1) for w in windows]).astype(np.float32)
+        return Fitted(bank=bank, peak_gpu_bytes=None)
+
+    def scorer(self, bank: np.ndarray) -> FakeScorer:
+        return FakeScorer(bank)
+
+
+@pytest.fixture
+def fake_patchcore() -> FakePatchCore:
+    """A fresh numpy stand-in for the real PatchCore module."""
+    return FakePatchCore()

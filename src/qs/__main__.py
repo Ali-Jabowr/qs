@@ -143,6 +143,35 @@ def build_parser() -> argparse.ArgumentParser:
     phone.add_argument(
         "--root", default="data/raw", metavar="DIR", help="where session folders live"
     )
+
+    from qs.cmd.train import coreset, positive_int, product, seed
+
+    train = commands.add_parser(
+        "train", help="PatchCore on a dataset's train/good → a model bundle (FR-53, docs/15 §8)"
+    )
+    train.add_argument("--config", required=True, metavar="PATH", help="the station config")
+    train.add_argument(
+        "--dataset", required=True, metavar="DIR", help="the dataset; only DIR/train/good is read"
+    )
+    train.add_argument(
+        "--window-px", required=True, type=positive_int, metavar="N",
+        help="the window around each unit, from the pilot report",
+    )
+    train.add_argument(
+        "--product", required=True, type=product, metavar="P", help="for the model_id, e.g. mochi"
+    )
+    train.add_argument("--seed", type=seed, default=42, metavar="N", help="coreset seed (42)")
+    train.add_argument(
+        "--coreset", type=coreset, default=0.1, metavar="R",
+        help="coreset share (0.1; 0.01 is the first latency fallback, docs/15 §10)",
+    )
+    train.add_argument(
+        "--input-px", type=positive_int, default=256, metavar="N",
+        help="the model input (256; 224 is a latency fallback, docs/15 §10)",
+    )
+    train.add_argument(
+        "--models", default="models", metavar="DIR", help="where bundles are written (models)"
+    )
     return parser
 
 
@@ -173,6 +202,10 @@ def run(argv: Sequence[str] | None = None) -> int:
         from qs.cmd import import_phone
 
         return import_phone.main(args)
+    if args.command == "train":
+        from qs.cmd import train
+
+        return train.main(args)
     raise AssertionError(f"unhandled command {args.command!r}")
 
 
