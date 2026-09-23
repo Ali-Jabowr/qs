@@ -48,14 +48,21 @@ from qs.session import (
     Product,
     SessionRecord,
     copy_original,
-    read_plan,
+    read_session_plan,
     save_frame,
     save_rejected,
     session_started,
     write_session,
 )
 from qs.sources.webcam import measure_patch
-from qs.splitplan import Plan, PlanError, Substitution, substitute_spares
+from qs.splitplan import (
+    PilotPlan,
+    Plan,
+    PlanError,
+    Substitution,
+    discard_broken,
+    substitute_spares,
+)
 
 _SOURCE_ID = "phone"
 
@@ -80,11 +87,12 @@ def redo_list(text: str) -> list[int]:
 
 
 def broken_unit(text: str) -> tuple[str, int]:
-    """argparse type: `--broken uNNN:N`, the unit and the photos it was shot in."""
+    """argparse type: `--broken uNNN:N` or `pNN:N`, the unit and the photos it was shot in."""
     unit, _, count = text.partition(":")
-    if not unit.startswith("u") or not count.isdigit():
+    if not unit.startswith(("u", "p")) or not count.isdigit():
         raise argparse.ArgumentTypeError(
-            f"{text!r}: a dataset unit and its photos before it broke, e.g. u012:2"
+            f"{text!r}: a dataset or pilot unit and its photos before it broke, e.g. u012:2 "
+            "or p03:4"
         )
     return unit, int(count)
 
@@ -196,12 +204,12 @@ def _product(args: argparse.Namespace) -> Product | None:
     )
 
 
-def _plan(folder: Path, session: str) -> Plan | None:
+def _plan(folder: Path, session: str) -> Plan | PilotPlan | None:
     if not (folder / PLAN_FILE).is_file():
         print(f"plan: no {folder / PLAN_FILE} — run qs split-plan --session {session} first")
         return None
     try:
-        return read_plan(folder)
+        return read_session_plan(folder)
     except PlanError as exc:
         print(f"plan: {exc}")
         return None
@@ -259,7 +267,12 @@ def main(args: argparse.Namespace) -> int:
     if plan is None:  # the session must hold plan.yml, or the import refuses (#53)
         return 1
     try:
-        shot = substitute_spares(plan, config.lighting.geometry, args.broken)
+        if isinstance(plan, PilotPlan):
+            # The pilot carries its own geometries; the config's lighting.geometry is the
+            # dataset's, and is not used here (#34). No spares: a broken unit is discarded.
+            shot = discard_broken(plan, args.broken)
+        else:
+            shot = substitute_spares(plan, config.lighting.geometry, args.broken)
     except PlanError as exc:
         print(f"broken: {exc}")
         return 2
@@ -282,7 +295,7 @@ def _import(
     args: argparse.Namespace,
     folder: Path,
     config: StationConfig,
-    plan: Plan,
+    plan: Plan | PilotPlan,
     shot: Substitution,
     redo: Sequence[int],
     photos: list[Photo],
@@ -304,7 +317,9 @@ def _import(
     # refuses the whole import; the write pass decodes it again rather than hold hundreds of
     # full-size frames in memory. Decoding is deterministic, so both passes see equal pixels.
     readings = _readings(photos, config)
-    for line in gap_warnings(mapping, photos):
+    # The paired-shooting check (ADR-0014) is the dataset's: a pilot unit's good and dmg
+    # photos are a whole lamp round apart by design (docs/13 §5).
+    for line in [] if isinstance(plan, PilotPlan) else gap_warnings(mapping, photos):
         print(line)
 
     first = photos[0]
@@ -338,6 +353,9 @@ def _import(
           f"{counts['rejected']} rejected, {counts['discarded']} discarded · {path.name} in "
           f"{folder}")
     for unit, spare in shot.replaced.items():
+        if isinstance(plan, PilotPlan):
+            print(f"import: {unit} broke — discarded, because the pilot has no spares")
+            continue
         split = _split(unit, plan, shot)
         if spare is None:
             print(f"import: {unit} broke and no spare was left — {split} is one short")

@@ -4,9 +4,14 @@ Run before any frame. Assigns every unit to one split by seed, gives each test u
 fixes the shooting order, writes `plan.yml` and a printable `plan.md` into `raw/<session>/`, and
 prints the tray sheet. Refuses to overwrite a plan (exit 1).
 
+`--kind pilot` plans the lighting pilot instead (docs/13 §5, ADR-0013): units p01…, which are
+dented and torn, the geometries (`--geometries G1,G2,G3` or `G1,G3`) and the order.
+
 `--shot-list --geometry G` plans nothing: it reads `plan.yml` and writes `shots-<G>.md`, the
-numbered photo list for the phone path (ADR-0022). Row k is the k-th `Shot` of `shot_list`, the
-function `qs shoot` and `qs import-phone` use, so paper and import cannot disagree.
+numbered photo list for the phone path (ADR-0022); on a pilot plan it writes `shots-pilot.md`,
+and the plan's geometries replace `--geometry`. Row k is the k-th `Shot` of `shot_list` (or
+`pilot_shot_list`), the functions `qs shoot` and `qs import-phone` use, so paper and import
+cannot disagree.
 """
 
 from __future__ import annotations
@@ -21,19 +26,25 @@ from qs.session import (
     PLAN_FILE,
     PlanExists,
     ShotListDiffers,
-    read_plan,
+    read_session_plan,
     write_plan,
     write_shot_list,
 )
 from qs.splitplan import (
+    PILOT_GEOMETRIES,
     PLACEMENT_EDGE,
     PLACEMENT_EMPTY,
+    PilotPlan,
     Plan,
     PlanError,
     Prompt,
     Shot,
+    Step,
     cell,
+    make_pilot_plan,
     make_plan,
+    pilot_geometries,
+    pilot_shot_list,
     shot_list,
 )
 
@@ -48,6 +59,14 @@ def session_id(text: str) -> str:
             f"{text!r}: letters, digits, '.', '_' and '-' only, e.g. 2026-09-25-mvp"
         )
     return text
+
+
+def geometry_list(text: str) -> tuple[str, ...]:
+    """argparse type: the pilot's geometries, `G1,G2,G3` or `G1,G3` (docs/13 §5)."""
+    try:
+        return pilot_geometries(text)
+    except PlanError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from None
 
 
 def default_seed(session: str, today: date | None = None) -> int:
@@ -137,6 +156,37 @@ def sheet(session: str, plan: Plan) -> str:
     return "\n".join(text) + "\n"
 
 
+def pilot_sheet(session: str, plan: PilotPlan) -> str:
+    """The printable pilot sheet: cell → unit → damage, then the order (docs/13 §5)."""
+    rows = ["| Cell | Unit | Pilot |", "|---:|---|---|"]
+    for unit in plan.units:
+        rows.append(f"| {cell(unit)} | {unit} | {plan.damage.get(unit, 'kept good')} |")
+    geometries = ", ".join(plan.geometries)
+    order = ", ".join(plan.order)
+    damaged = [u for u in plan.order if u in plan.damage]
+    text = [
+        f"# Pilot plan — {session}",
+        "",
+        f"Size {plan.size} · seed {plan.seed} · {len(plan.units)} units · "
+        f"{sum(d == 'dent' for d in plan.damage.values())} dent · "
+        f"{sum(d == 'tear' for d in plan.damage.values())} tear · "
+        f"{len(plan.good)} kept good · geometries {geometries}",
+        "",
+        "## Tray sheet",
+        "",
+        *rows,
+        "",
+        "## Shooting order",
+        "",
+        f"1. For each of {geometries}: move the lamps, then every unit good, 3 rotations, "
+        f"in this order: {order}",
+        f"2. Damage {', '.join(f'{u} ({plan.damage[u]})' for u in damaged)}",
+        f"3. For each of {geometries}: move the lamps, then {', '.join(damaged)} dmg, "
+        "3 rotations",
+    ]
+    return "\n".join(text) + "\n"
+
+
 _CHECK = (
     "**CHECK — {n} photos so far. Copy the photos over USB, run `qs import-phone --check`, "
     "then carry on.**"
@@ -163,9 +213,29 @@ def shots_text(session: str, plan: Plan, geometry: str) -> str:
     steps = shot_list(plan, geometry)
     photos = [step for step in steps if isinstance(step, Shot)]
     # The CHECK rows follow the last photo of the controls' pass 1 and of their pass 2.
-    last_of_pass = {
-        pass_: max(i for i, s in enumerate(photos) if s.frame.pass_ == pass_) for pass_ in (1, 2)
+    checks = {
+        max(i for i, s in enumerate(photos) if s.frame.pass_ == pass_) + 1 for pass_ in (1, 2)
     }
+    about = f"size {plan.size} · geometry {geometry}"
+    return _photo_list(f"{session} · {geometry}", session, plan.seed, about, steps, checks)
+
+
+def pilot_shots_text(session: str, plan: PilotPlan) -> str:
+    """The printable pilot list: lamp and damage steps in bold, one CHECK row after the first
+    geometry's last good photo."""
+    steps = pilot_shot_list(plan)
+    photos = [step for step in steps if isinstance(step, Shot)]
+    first = plan.geometries[0]
+    checks = {max(i for i, s in enumerate(photos)
+                  if s.frame.geometry == first and s.frame.state == "good") + 1}
+    about = f"size {plan.size} · pilot · geometries {', '.join(plan.geometries)}"
+    return _photo_list(f"{session} · pilot", session, plan.seed, about, steps, checks)
+
+
+def _photo_list(title: str, session: str, seed: int, about: str,
+                steps: tuple[Step, ...], checks: set[int]) -> str:
+    """One numbered row per photo, prompts in bold, a CHECK row after each photo in `checks`."""
+    photos = [step for step in steps if isinstance(step, Shot)]
     table = ["| # | ✓ | redo | Unit · cell | State | Rotation | File |",
              "|---:|---|---|---|---|---:|---|"]
     n = 0
@@ -179,13 +249,12 @@ def shots_text(session: str, plan: Plan, geometry: str) -> str:
             f"| {n} | | | {_what(step)} | {frame.state} | {DEGREES[frame.rotation]}° "
             f"| `{step.file}` |"
         )
-        if n - 1 in last_of_pass.values():
+        if n in checks:
             table.append(f"| | | | {_CHECK.format(n=n)} | | | |")
     text = [
-        f"# Shot list — {session} · {geometry}",
+        f"# Shot list — {title}",
         "",
-        f"Session {session} · seed {plan.seed} · size {plan.size} · geometry {geometry} · "
-        f"**{len(photos)} photos**",
+        f"Session {session} · seed {seed} · {about} · **{len(photos)} photos**",
         "",
         "**Never delete a photo on the phone — retake it at once and tick `redo` on its row.**",
         "",
@@ -196,13 +265,10 @@ def shots_text(session: str, plan: Plan, geometry: str) -> str:
     return "\n".join(text) + "\n"
 
 
-def _shot_list(args: argparse.Namespace) -> int:
+def _shot_list(args: argparse.Namespace, kind: str) -> int:
     """Write the session's photo list; 0 written or already there, 1 differs, 2 cannot run."""
     if args.size is not None or args.seed is not None:
         print("shots: --shot-list reads the existing plan — drop --size and --seed")
-        return 2
-    if args.geometry is None:
-        print(f"shots: --shot-list needs --geometry, one of {', '.join(GEOMETRIES)}")
         return 2
     folder = Path(args.root) / args.session
     if not (folder / PLAN_FILE).is_file():
@@ -210,20 +276,34 @@ def _shot_list(args: argparse.Namespace) -> int:
               "session first")
         return 2
     try:
-        plan = read_plan(folder)
+        plan = read_session_plan(folder)
     except PlanError as exc:
         print(f"shots: {exc}")
         return 2
-    text = shots_text(args.session, plan, args.geometry)
+    if kind == "pilot" and not isinstance(plan, PilotPlan):
+        print(f"shots: {folder / PLAN_FILE} is a dataset plan, not a pilot — drop --kind pilot")
+        return 2
+    if isinstance(plan, PilotPlan):
+        if args.geometry is not None:
+            print(f"shots: a pilot plan carries its geometries ({', '.join(plan.geometries)}) "
+                  "— drop --geometry")
+            return 2
+        label, text = "pilot", pilot_shots_text(args.session, plan)
+        count = sum(isinstance(step, Shot) for step in pilot_shot_list(plan))
+    else:
+        if args.geometry is None:
+            print(f"shots: --shot-list needs --geometry, one of {', '.join(GEOMETRIES)}")
+            return 2
+        label, text = args.geometry, shots_text(args.session, plan, args.geometry)
+        count = sum(isinstance(step, Shot) for step in shot_list(plan, args.geometry))
     try:
-        path, fresh = write_shot_list(folder, args.geometry, text)
+        path, fresh = write_shot_list(folder, label, text)
     except ShotListDiffers as exc:
         print(f"shots: {exc}")
         return 1
     except OSError as exc:
         print(f"shots: {exc}")
         return 2
-    count = sum(isinstance(step, Shot) for step in shot_list(plan, args.geometry))
     if fresh:
         print(f"shots: {path} · {count} photos — print it")
     else:
@@ -236,21 +316,34 @@ def main(args: argparse.Namespace) -> int:
 
     0 written, 1 refused, 2 could not run.
     """
+    kind = getattr(args, "kind", "dataset")
+    geometries = getattr(args, "geometries", None)
     if args.shot_list:
-        return _shot_list(args)
+        if geometries is not None:
+            print("shots: --shot-list reads the geometries from plan.yml — drop --geometries")
+            return 2
+        return _shot_list(args, kind)
     if args.geometry is not None:
         print("plan: --geometry goes with --shot-list")
+        return 2
+    if geometries is not None and kind != "pilot":
+        print("plan: --geometries goes with --kind pilot")
         return 2
     if args.size is None:
         print("plan: --size is required to plan a session (standard or lean)")
         return 2
     seed = args.seed if args.seed is not None else default_seed(args.session)
+    plan: Plan | PilotPlan
     try:
-        plan = make_plan(args.size, seed)
+        if kind == "pilot":
+            plan = make_pilot_plan(args.size, seed, geometries or PILOT_GEOMETRIES[0])
+        else:
+            plan = make_plan(args.size, seed)
     except PlanError as exc:
         print(f"plan: {exc}")
-        return 1
-    text = sheet(args.session, plan)
+        return 2 if kind == "pilot" else 1
+    text = pilot_sheet(args.session, plan) if isinstance(plan, PilotPlan) else sheet(
+        args.session, plan)
     try:
         path = write_plan(Path(args.root) / args.session, plan, text)
     except PlanExists as exc:

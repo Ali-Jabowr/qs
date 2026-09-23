@@ -1,9 +1,11 @@
 """The split plan: which unit goes to which split, how it is damaged, and the shooting order.
 
-Pure: `make_plan(size, seed) -> Plan` and `shot_list(plan, geometry) -> steps`. No I/O, no
-clock. Every unit's split is fixed by the seed before the first frame, so the shooting order can
-be random without any split being tied to time (docs/13 §6, ADR-0014). A `Plan` with a unit in
-two splits cannot be constructed (FR-52).
+Pure: `make_plan(size, seed) -> Plan` and `shot_list(plan, geometry) -> steps`; for the
+lighting pilot, `make_pilot_plan(size, seed, geometries) -> PilotPlan` and
+`pilot_shot_list(plan) -> steps` (docs/13 §5). No I/O, no clock. Every unit's split is fixed
+by the seed before the first frame, so the shooting order can be random without any split being
+tied to time (docs/13 §6, ADR-0014). A `Plan` with a unit in two splits cannot be constructed
+(FR-52).
 """
 
 from __future__ import annotations
@@ -167,6 +169,100 @@ def make_plan(size: str, seed: int) -> Plan:
     )
 
 
+# --- the lighting pilot (docs/13 §5, ADR-0013) ----------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class PilotSizes:
+    """One pilot size of docs/13 §5: the units, and how many of them are damaged."""
+
+    units: int
+    dent: int
+    tear: int
+
+
+PILOT_SIZES = {
+    "standard": PilotSizes(units=10, dent=2, tear=2),
+    "lean": PilotSizes(units=6, dent=1, tear=1),
+}
+# G1, G2, G3; or G1 and G3 when the house has one lamp — G2 needs two (docs/13 §3, §5).
+PILOT_GEOMETRIES = (("G1", "G2", "G3"), ("G1", "G3"))
+PILOT_DAMAGES = ("dent", "tear")
+
+
+def pilot_geometries(text: str) -> tuple[str, ...]:
+    """`G1,G2,G3` or `G1,G3` as a tuple; anything else is refused, the allowed lists named."""
+    geometries = tuple(part.strip() for part in text.split(","))
+    if geometries not in PILOT_GEOMETRIES:
+        allowed = " or ".join(",".join(g) for g in PILOT_GEOMETRIES)
+        raise PlanError(f"geometries {text!r}: the pilot compares {allowed} (docs/13 §5)")
+    return geometries
+
+
+@dataclass(frozen=True, slots=True)
+class PilotPlan:
+    """A lighting-pilot session's plan: units `p01`…, which of them are damaged how, the
+    geometries in the order they are shot, and the seeded shooting order of the units.
+    Constructing one that breaks a pilot rule raises."""
+
+    size: str
+    seed: int
+    geometries: tuple[str, ...]
+    units: tuple[str, ...]
+    damage: dict[str, str] = field(hash=False)  # damaged unit → dent | tear
+    order: tuple[str, ...]  # every pilot unit once, in the order it is shot
+
+    def __post_init__(self) -> None:
+        sizes = PILOT_SIZES.get(self.size)
+        if sizes is None:
+            raise PlanError(f"size {self.size!r}: one of {', '.join(PILOT_SIZES)}")
+        pilot_geometries(",".join(self.geometries))
+        if self.units != tuple(f"p{n:02d}" for n in range(1, sizes.units + 1)):
+            raise PlanError(f"units are p01…p{sizes.units:02d} for a {self.size} pilot")
+        if sorted(self.order) != list(self.units):
+            raise PlanError("order: every pilot unit exactly once")
+        if not set(self.damage) <= set(self.units):
+            raise PlanError("damage: only pilot units are damaged")
+        got = Counter(self.damage.values())
+        if set(got) - set(PILOT_DAMAGES):
+            raise PlanError(f"damage: one of {', '.join(PILOT_DAMAGES)}")
+        for kind in PILOT_DAMAGES:
+            if got[kind] != getattr(sizes, kind):
+                raise PlanError(
+                    f"damage: {got[kind]} {kind}; a {self.size} pilot is {getattr(sizes, kind)}"
+                )
+
+    @property
+    def good(self) -> tuple[str, ...]:
+        """The units kept good all through."""
+        return tuple(u for u in self.units if u not in self.damage)
+
+
+def make_pilot_plan(
+    size: str, seed: int, geometries: tuple[str, ...] = PILOT_GEOMETRIES[0]
+) -> PilotPlan:
+    """The pilot plan for this size, seed and geometries; the same seed gives the same plan."""
+    sizes = PILOT_SIZES.get(size)
+    if sizes is None:
+        raise PlanError(f"size {size!r}: one of {', '.join(PILOT_SIZES)}")
+    rng = random.Random(seed)
+    units = tuple(f"p{n:02d}" for n in range(1, sizes.units + 1))
+    shuffled = list(units)
+    rng.shuffle(shuffled)
+    damage = dict.fromkeys(shuffled[: sizes.dent], "dent")
+    damage |= dict.fromkeys(shuffled[sizes.dent : sizes.dent + sizes.tear], "tear")
+    order = list(units)
+    rng.shuffle(order)
+    return PilotPlan(
+        size=size,
+        seed=seed,
+        geometries=tuple(geometries),
+        units=units,
+        damage=dict(sorted(damage.items())),
+        order=tuple(order),
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class Shot:
     """One frame to take: its name and what the screen tells Ali."""
@@ -256,6 +352,78 @@ def shot_list(plan: Plan, geometry: str) -> tuple[Step, ...]:
     )
 
 
+# docs/13 §5, the "How" column, verbatim: where the lamps go for each geometry.
+LAMPS = {
+    "G1": "Low-angle, one side: one lamp 20–30° above the floor, from the left",
+    "G2": "Low-angle, two sides: two lamps at the same angle, opposite each other",
+    "G3": "Diffuse: the lamp aimed at white card or through a tracing-paper tent",
+}
+
+
+def _lamps(geometry: str, round_: str) -> Prompt:
+    return Prompt(
+        "lamps", None,
+        f"Lamps to {geometry} — {LAMPS[geometry]}. Then leave them for every {round_} photo "
+        f"under {geometry}.",
+    )
+
+
+def pilot_shot_list(plan: PilotPlan) -> tuple[Step, ...]:
+    """The pilot session, step by step (docs/13 §5, ADR-0013).
+
+    For each geometry: a lamp step, then every unit good in 3 rotations, in the plan order.
+    Then one damage step for the damaged units. Then for each geometry again: a lamp step and
+    the damaged units dmg in 3 rotations. The lamps move per geometry, not per unit; no
+    controls, no placement frames.
+    """
+    return _pilot_steps(plan, {})[0]
+
+
+def _pilot_steps(
+    plan: PilotPlan, after: dict[str, int]
+) -> tuple[tuple[Step, ...], dict[str, tuple[str, ...]]]:
+    """The pilot steps with each unit in `after` cut after its first n frames; the steps, and
+    each cut unit's frame files as shot."""
+    shot_of: Counter[str] = Counter()
+    kept: dict[str, list[str]] = {unit: [] for unit in after}
+    steps: list[Step] = []
+
+    def rotations(unit: str, state: str, geometry: str) -> None:
+        what = f"{unit} · cell {cell(unit)} · pilot"
+        if unit in plan.damage:
+            what += f" · {plan.damage[unit]}"
+        for step in _rotations(unit, state, geometry, what, None):
+            assert isinstance(step, Shot)
+            if unit in after:
+                if shot_of[unit] >= after[unit]:
+                    continue
+                kept[unit].append(step.file)
+            shot_of[unit] += 1
+            steps.append(step)
+
+    damaged = [unit for unit in plan.order if unit in plan.damage]
+    for geometry in plan.geometries:
+        steps.append(_lamps(geometry, "good"))
+        for unit in plan.order:
+            rotations(unit, "good", geometry)
+    goods = 3 * len(plan.geometries)
+    # A unit that broke before the damage step is not damaged: it is out of the session.
+    to_damage = [u for u in damaged if u not in after or after[u] > goods]
+    if to_damage:
+        recipes = "; ".join(f"{u} — {plan.damage[u]}: {RECIPES[plan.damage[u]]}"
+                            for u in to_damage)
+        steps.append(Prompt(
+            "damage", None,
+            f"Take {', '.join(to_damage)} out and damage each on the board — {recipes}. "
+            "Put each back in its cell.",
+        ))
+    for geometry in plan.geometries:
+        steps.append(_lamps(geometry, "dmg"))
+        for unit in damaged:
+            rotations(unit, "dmg", geometry)
+    return tuple(steps), {unit: tuple(files) for unit, files in kept.items()}
+
+
 @dataclass(frozen=True, slots=True)
 class Substitution:
     """The session as shot when units broke (assumption A1, #28).
@@ -343,4 +511,34 @@ def substitute_spares(
         damage=dict(sorted(damage.items())),
         discarded=discarded,
         replaced=replaced,
+    )
+
+
+def discard_broken(plan: PilotPlan, broken: Sequence[tuple[str, int]]) -> Substitution:
+    """The pilot as shot when units broke after their first n frames; pure.
+
+    The pilot has no spares, so a broken unit is discarded whole: its frames so far are kept on
+    disk and listed under `discarded`, its later shots leave the list, and it leaves
+    `units.pilot` and `damage` (A1, #28). The `Substitution` shape is `substitute_spares`'s,
+    so `qs import-phone` treats both alike; `replaced` maps every broken unit to None.
+    """
+    after: dict[str, int] = {}
+    for unit, n in broken:
+        if unit in after:
+            raise PlanError(f"{unit} is marked broken twice")
+        if unit not in plan.units:
+            raise PlanError(f"{unit} is not shot in this session — the pilot units are "
+                            f"{plan.units[0]}…{plan.units[-1]}")
+        frames = 3 * len(plan.geometries) * (2 if unit in plan.damage else 1)
+        if not 0 <= n < frames:
+            raise PlanError(f"{unit} broke after {n} photos: it has {frames}, so 0 to "
+                            f"{frames - 1}")
+        after[unit] = n
+    steps, discarded = _pilot_steps(plan, after)
+    return Substitution(
+        steps=steps,
+        units={"pilot": tuple(u for u in plan.units if u not in after)},
+        damage={u: d for u, d in plan.damage.items() if u not in after},
+        discarded=discarded,
+        replaced=dict.fromkeys(after),
     )

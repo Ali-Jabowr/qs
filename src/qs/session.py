@@ -3,8 +3,9 @@
 - `plan.yml`, the split plan as data, and `plan.md`, its printable tray sheet. A plan is written
   once — never overwritten, because units already sitting in trays must not be silently
   reassigned — and read back through `Plan`, which refuses a unit in two splits (FR-52).
-- `shots-<geometry>.md`, the numbered photo list for the phone path (ADR-0022), written once:
-  the paper in Ali's hand and `qs import-phone` must read the same order.
+- `shots-<geometry>.md` (a pilot: `shots-pilot.md`), the numbered photo list for the phone
+  path (ADR-0022), written once: the paper in Ali's hand and `qs import-phone` must read the
+  same order.
 - The frames, PNG under the name rule (docs/12 §2), each written once and never overwritten.
 - `frames.csv`, one row per frame as it is saved (assumption A2, #29): what was recorded at the
   shot cannot be recovered after it (FR-15, docs/11 §6).
@@ -30,7 +31,14 @@ import yaml
 
 from qs.contracts import CameraReadback, Frame, TriggerEvent
 from qs.names import FrameName, format_name
-from qs.splitplan import PLACEMENT_EDGE, PLACEMENT_EMPTY, Plan, PlanError, Substitution
+from qs.splitplan import (
+    PLACEMENT_EDGE,
+    PLACEMENT_EMPTY,
+    PilotPlan,
+    Plan,
+    PlanError,
+    Substitution,
+)
 
 PLAN_FILE = "plan.yml"
 SHEET_FILE = "plan.md"
@@ -59,7 +67,17 @@ class ShotListDiffers(Exception):
     """The session has a shot list for this geometry that differs; it is left as it is."""
 
 
-def _plan_data(plan: Plan) -> dict[str, Any]:
+def _plan_data(plan: Plan | PilotPlan) -> dict[str, Any]:
+    if isinstance(plan, PilotPlan):
+        return {
+            "kind": "pilot",
+            "size": plan.size,
+            "seed": plan.seed,
+            "geometries": list(plan.geometries),
+            "units": {"pilot": list(plan.units)},
+            "damage": dict(plan.damage),
+            "order": list(plan.order),
+        }
     return {
         "kind": "dataset",
         "size": plan.size,
@@ -70,7 +88,7 @@ def _plan_data(plan: Plan) -> dict[str, Any]:
     }
 
 
-def write_plan(folder: Path, plan: Plan, sheet: str) -> Path:
+def write_plan(folder: Path, plan: Plan | PilotPlan, sheet: str) -> Path:
     """Write `plan.yml` and `plan.md` into `folder`; refuse if `plan.yml` exists."""
     folder.mkdir(parents=True, exist_ok=True)
     path = folder / PLAN_FILE
@@ -88,14 +106,15 @@ def write_plan(folder: Path, plan: Plan, sheet: str) -> Path:
     return path
 
 
-def write_shot_list(folder: Path, geometry: str, text: str) -> tuple[Path, bool]:
-    """Write `shots-<geometry>.md` into `folder` once; the path, and whether it was written.
+def write_shot_list(folder: Path, label: str, text: str) -> tuple[Path, bool]:
+    """Write `shots-<label>.md` into `folder` once — the label is the geometry, or `pilot`;
+    the path, and whether it was written.
 
     A list already on disk is never replaced: byte-identical → `(path, False)`; different →
     `ShotListDiffers`, because a printed copy may already be at the bench and the import maps
     photo k to row k.
     """
-    path = folder / f"shots-{geometry}.md"
+    path = folder / f"shots-{label}.md"
     data = text.encode("utf-8")
     try:
         with path.open("xb") as out:  # exclusive: never overwrites
@@ -117,26 +136,42 @@ def _strings(value: object, where: str) -> tuple[str, ...]:
 
 
 def read_plan(folder: Path) -> Plan:
-    """The plan in `folder`; refuses a file that is not a valid plan."""
+    """The dataset plan in `folder`; refuses a pilot plan and a file that is not a valid plan."""
+    plan = read_session_plan(folder)
+    if isinstance(plan, PilotPlan):
+        raise PlanError(f"{folder / PLAN_FILE}: a pilot plan — this takes a dataset plan; the "
+                        "pilot is shot by phone and imported with qs import-phone (ADR-0022)")
+    return plan
+
+
+def _dict_of_strings(value: object, where: str) -> dict[str, str]:
+    if not isinstance(value, dict) or not all(
+        isinstance(k, str) and isinstance(v, str) for k, v in value.items()
+    ):
+        raise PlanError(f"{where}: damage maps a unit to its damage")
+    return dict(value)
+
+
+def read_session_plan(folder: Path) -> Plan | PilotPlan:
+    """The plan in `folder`, dataset or pilot by its `kind`; refuses a file that is not a
+    valid plan."""
     path = folder / PLAN_FILE
     try:
         data = yaml.safe_load(path.read_text(encoding="utf-8"))
     except (OSError, yaml.YAMLError) as exc:
         raise PlanError(f"{path}: {exc}") from None
-    if not isinstance(data, dict) or sorted(data) != sorted(
-        ("kind", "size", "seed", "units", "damage", "order")
-    ):
+    if not isinstance(data, dict):
+        raise PlanError(f"{path}: not a plan")
+    if data.get("kind") == "pilot":
+        return _read_pilot(path, data)
+    if sorted(data) != sorted(("kind", "size", "seed", "units", "damage", "order")):
         raise PlanError(f"{path}: keys are kind, size, seed, units, damage, order")
     if data["kind"] != "dataset":
-        raise PlanError(f"{path}: kind {data['kind']!r} — this reads dataset plans")
+        raise PlanError(f"{path}: kind {data['kind']!r} — dataset or pilot")
     units = data["units"]
     if not isinstance(units, dict) or sorted(units) != sorted(_SPLITS):
         raise PlanError(f"{path}: units are {', '.join(_SPLITS)}")
-    damage = data["damage"]
-    if not isinstance(damage, dict) or not all(
-        isinstance(k, str) and isinstance(v, str) for k, v in damage.items()
-    ):
-        raise PlanError(f"{path}: damage maps a test unit to its damage")
+    damage = _dict_of_strings(data["damage"], str(path))
     if not isinstance(data["size"], str) or type(data["seed"]) is not int:
         raise PlanError(f"{path}: size is a word, seed an integer")
     return Plan(
@@ -147,7 +182,26 @@ def read_plan(folder: Path) -> Plan:
         test=_strings(units["test"], "units.test"),
         control=_strings(units["control"], "units.control"),
         spare=_strings(units["spare"], "units.spare"),
-        damage=dict(damage),
+        damage=damage,
+        order=_strings(data["order"], "order"),
+    )
+
+
+def _read_pilot(path: Path, data: dict[Any, Any]) -> PilotPlan:
+    keys = ("kind", "size", "seed", "geometries", "units", "damage", "order")
+    if sorted(data) != sorted(keys):
+        raise PlanError(f"{path}: a pilot plan's keys are {', '.join(keys)}")
+    units = data["units"]
+    if not isinstance(units, dict) or list(units) != ["pilot"]:
+        raise PlanError(f"{path}: units has one list, pilot")
+    if not isinstance(data["size"], str) or type(data["seed"]) is not int:
+        raise PlanError(f"{path}: size is a word, seed an integer")
+    return PilotPlan(
+        size=data["size"],
+        seed=data["seed"],
+        geometries=_strings(data["geometries"], "geometries"),
+        units=_strings(units["pilot"], "units.pilot"),
+        damage=_dict_of_strings(data["damage"], str(path)),
         order=_strings(data["order"], "order"),
     )
 
@@ -325,7 +379,8 @@ class SessionRecord:
     """What `session.yml` records; `frames` are the saved frames, first to last.
 
     `substitution`, when units broke, gives the splits as shot and the `discarded` units
-    (A1, #28); without it the splits are the plan's.
+    (A1, #28); without it the splits are the plan's. A pilot plan records `kind: pilot`, its
+    own geometries (`geometry` is then not used) and `units: {pilot: […]}`.
     """
 
     session_id: str
@@ -333,7 +388,7 @@ class SessionRecord:
     product: Product
     device: str
     camera_at_open: CameraReadback | None
-    plan: Plan
+    plan: Plan | PilotPlan
     frames: tuple[Recorded, ...]
     substitution: Substitution | None = None
 
@@ -348,18 +403,23 @@ def _session_data(record: SessionRecord) -> dict[str, Any]:
     at_open = record.camera_at_open
     first, last = record.frames[0], record.frames[-1]
     shot = record.substitution
-    units: dict[str, Any] = {
-        name: list(getattr(record.plan, name) if shot is None else shot.units[name])
-        for name in _SPLITS
-    }
-    units["placement"] = [*PLACEMENT_EMPTY, *PLACEMENT_EDGE]
-    damage = record.plan.damage if shot is None else shot.damage
+    plan = record.plan
+    units: dict[str, Any]
+    if isinstance(plan, PilotPlan):
+        kind, geometries = "pilot", list(plan.geometries)
+        units = {"pilot": list(plan.units if shot is None else shot.units["pilot"])}
+    else:
+        kind, geometries = "dataset", [record.geometry]
+        units = {name: list(getattr(plan, name) if shot is None else shot.units[name])
+                 for name in _SPLITS}
+        units["placement"] = [*PLACEMENT_EMPTY, *PLACEMENT_EDGE]
+    damage = plan.damage if shot is None else shot.damage
     discarded = {} if shot is None else {unit: list(files)
                                           for unit, files in shot.discarded.items()}
     data: dict[str, Any] = {
         "session_id": record.session_id,
-        "kind": "dataset",
-        "geometries": [record.geometry],
+        "kind": kind,
+        "geometries": geometries,
         "product": about,
         "purchased_at": product.purchased_at,
         "started_at": first.event.wall,

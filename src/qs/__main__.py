@@ -29,11 +29,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     camera.add_argument("--no-screen", action="store_true", help="run without the window")
 
-    from qs.cmd.split_plan import session_id
+    from qs.cmd.split_plan import geometry_list, session_id
     from qs.names import GEOMETRIES
 
     plan = commands.add_parser(
-        "split-plan", help="the seeded split plan and tray sheet (docs/13-data-collection.md §6)"
+        "split-plan",
+        help="the seeded split plan and tray sheet, dataset or pilot (docs/13 §5, §6)",
     )
     plan.add_argument(
         "--session", required=True, type=session_id, metavar="ID", help="e.g. 2026-09-25-mvp"
@@ -47,6 +48,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     plan.add_argument(
         "--root", default="data/raw", metavar="DIR", help="where session folders live"
+    )
+    plan.add_argument(
+        "--kind", choices=("dataset", "pilot"), default="dataset",
+        help="the MVP dataset (default) or the lighting pilot (docs/13 §5)",
+    )
+    plan.add_argument(
+        "--geometries", type=geometry_list, default=None, metavar="G1,G2,G3",
+        help="with --kind pilot: G1,G2,G3 (default) or G1,G3 when the house has one lamp",
     )
     plan.add_argument(
         "--shot-list", action="store_true",
@@ -89,7 +98,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     phone = commands.add_parser(
         "import-phone",
-        help="phone photos into a dataset session, or --check the phone's lock (ADR-0022)",
+        help="phone photos into a dataset or pilot session, or --check the phone's lock "
+        "(ADR-0022)",
     )
     phone.add_argument("--config", required=True, metavar="PATH", help="the phone config")
     phone.add_argument(
@@ -122,7 +132,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     phone.add_argument(
         "--broken", type=broken_unit, action="append", default=[], metavar="UNIT:N",
-        help="the unit broke after N of its photos; the next spare takes its place (A1)",
+        help="the unit broke after N of its photos; the next spare takes its place — in a "
+        "pilot, which has no spares, the unit is discarded (A1)",
     )
     phone.add_argument(
         "--utc-offset", type=offset, default=None, metavar="±HH:MM",
