@@ -27,7 +27,7 @@ QS/
   docs/10–17             Phase 2 — architecture, contracts, data model, data collection,
                          evaluation, model, failure model, security
   docs/01–04             history (survey kit, hardware tree, survey answers, old build plan)
-  decisions/             ADR-0001 … ADR-0021; README.md is the index
+  decisions/             ADR-0001 … ADR-0023; README.md is the index
   reviews/GATE-2.md      the design review, with the requirement → design → check matrix
   plans/ROADMAP.md       nine executor plans and the week; plans/Pxx-*/ one folder per plan
   src/ · tests/ · tools/ code (from P02) · tests · state renderer, bounds, diagram checker
@@ -82,7 +82,7 @@ Everything else in the survey sheet — line speed, field of view, sizes, enviro
 
 ## 7. Decisions
 
-The log is `decisions/README.md` — ADR-0001 to ADR-0021, each with context, alternatives and consequences. Do not re-open one without new facts; supersede it with a new ADR. The ones that shape this week:
+The log is `decisions/README.md` — ADR-0001 to ADR-0023, each with context, alternatives and consequences. Do not re-open one without new facts; supersede it with a new ADR. The ones that shape this week:
 
 | ADR | Decision |
 |---|---|
@@ -95,7 +95,7 @@ The log is `decisions/README.md` — ADR-0001 to ADR-0021, each with context, al
 | 0017 | Gate B judged on a conservative N100 estimate until an N100 exists |
 | 0018 | Operator screen is a Tk window; OpenCV headless everywhere |
 | 0020 | PatchCore's backbone weights are timm's `wide_resnet50_2.racm_in1k`, named by full tag and hash-checked |
-| 0021 | Claude Code executes the plans (from P05); one independent Claude agent reviews each. Supersedes 0019 (OpenCode, which ran P01–P02) |
+| 0023 | OpenCode implements each ticket again (glm-5.3-flash; glm-5.3 for P07); Claude Code reviews, runs `make check` and commits. Supersedes 0021 (Claude Code wrote P05–P05b) |
 
 ## 8. Stack
 
