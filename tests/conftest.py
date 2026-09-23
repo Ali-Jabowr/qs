@@ -189,3 +189,34 @@ class FakePatchCore:
 def fake_patchcore() -> FakePatchCore:
     """A fresh numpy stand-in for the real PatchCore module."""
     return FakePatchCore()
+
+
+class BlotScorer:
+    """A numpy scorer whose map is each pixel's distance to the nearest bank row."""
+
+    def score(self, window_input: np.ndarray) -> Scored:
+        pixels = window_input.reshape(3, -1).T  # (H·W, 3)
+        distances = np.sqrt(((pixels[:, None, :] - self.bank[None, :, :]) ** 2).sum(axis=2))
+        anomaly_map = distances.min(axis=1).reshape(window_input.shape[1:]).astype(np.float32)
+        return Scored(anomaly_map, float(anomaly_map.max()), backbone_ms=1.0, search_ms=2.0)
+
+    def __init__(self, bank: np.ndarray) -> None:
+        self.bank = bank
+
+
+class BlotPatchCore:
+    """The model seam for the pilot's blot fixtures: the bank is each fit window's brightest
+    pixel — the unit's own grey — so a plain unit scores low away from the floor rim inside
+    the dilated mask, and a dark blot on the unit scores far higher. It records every fit's
+    windows and settings for the tests to inspect."""
+
+    def __init__(self) -> None:
+        self.fits: list[tuple[list[np.ndarray], FitSettings]] = []
+
+    def fit(self, windows: Sequence[np.ndarray], settings: FitSettings) -> Fitted:
+        self.fits.append((list(windows), settings))
+        bank = np.stack([w.max(axis=(1, 2)) for w in windows]).astype(np.float32)
+        return Fitted(bank=bank, peak_gpu_bytes=None)
+
+    def scorer(self, bank: np.ndarray) -> BlotScorer:
+        return BlotScorer(bank)

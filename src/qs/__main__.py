@@ -144,6 +144,19 @@ def build_parser() -> argparse.ArgumentParser:
         "--root", default="data/raw", metavar="DIR", help="where session folders live"
     )
 
+    pilot_report = commands.add_parser(
+        "pilot-report",
+        help="the lighting pilot's numbers: localization, threshold, silhouette, window, "
+        "separation, ranking (docs/13 §5, ADR-0013)",
+    )
+    pilot_report.add_argument("--config", required=True, metavar="PATH", help="the station config")
+    pilot_report.add_argument(
+        "--session", required=True, metavar="DIR", help="the pilot session folder"
+    )
+    pilot_report.add_argument(
+        "--report-dir", metavar="DIR", default="reports/pilot", help="where the report goes"
+    )
+
     from qs.cmd.train import coreset, positive_int, product, seed
 
     train = commands.add_parser(
@@ -202,6 +215,10 @@ def run(argv: Sequence[str] | None = None) -> int:
         from qs.cmd import import_phone
 
         return import_phone.main(args)
+    if args.command == "pilot-report":
+        from qs.cmd import pilot_report
+
+        return pilot_report.main(args)
     if args.command == "train":
         from qs.cmd import train
 
