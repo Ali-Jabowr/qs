@@ -38,6 +38,13 @@ from qs.contracts import (
     Verdict,
     derive_label,
 )
+from qs.errors import (
+    CameraLost,
+    CameraSettingsDrift,
+    CaptureError,
+    LightingFault,
+    PlacementFault,
+)
 from qs.inspector.heatmap import heatmap_png
 from qs.store import encode_frame_jpeg
 
@@ -56,6 +63,10 @@ class State(StrEnum):
     INSPECTING = "INSPECTING"
     FAULT = "FAULT"
     STOPPED = "STOPPED"
+
+
+LIGHTING = "LIGHTING"
+CAMERA_SETTINGS = "CAMERA_SETTINGS"
 
 
 class Shows(Protocol):
@@ -133,12 +144,26 @@ class Pipeline:
         self._reasons: dict[str, int] = {}
         self._annunciator_errors = 0
         self._sink_errors = 0
+        self._lighting = False  # LIGHTING: the last patch read was out of band
+        self._drift = False  # CAMERA_SETTINGS raised by drift, cleared by a verified frame
+        self._unverifiable = False  # CAMERA_SETTINGS for the rest of the run (FR-13)
 
     # --- what the screen and the command read ---------------------------------------------------
 
     @property
     def state(self) -> State:
         return self._state
+
+    @property
+    def warnings(self) -> frozenset[str]:
+        """The active warnings (docs/16 §2): any number at once; they change what the screen
+        shows, not what the station does."""
+        active = set()
+        if self._lighting:
+            active.add(LIGHTING)
+        if self._drift or self._unverifiable:
+            active.add(CAMERA_SETTINGS)
+        return frozenset(active)
 
     @property
     def counters(self) -> dict[str, object]:
@@ -186,17 +211,70 @@ class Pipeline:
         return self._finish(event, outcome)
 
     def _inspect_event(self, event: TriggerEvent) -> _Outcome:
-        frame = self._source.capture(event)
+        """Steps 2–7 for one event in READY."""
+        frame = self._capture(event)
+        if not isinstance(frame, Frame):
+            return frame
+        # Step 3: the frame is accepted.
+        if frame.camera.verified is True:
+            self._drift = False
+        else:
+            self._unverifiable = True
+        # Step 4: the reference patch (A1, #62).
+        if not self._in_band(frame.reference_patch):
+            self._lighting = True
+            return self._no_verdict_with_frame("lighting", frame, 0.0)
+        self._lighting = False
+        # Step 5: inspect.
         inspect_start = self._clock()
         try:
             verdict = self._inspector.inspect(frame)
             inspect_ms = (self._clock() - inspect_start) * 1000.0
             self._guard(verdict)
+        except PlacementFault as exc:
+            inspect_ms = (self._clock() - inspect_start) * 1000.0
+            _log.info("seq %d: placement: %s", event.seq, exc)
+            return self._no_verdict_with_frame("placement", frame, inspect_ms)
         except Exception as exc:
             inspect_ms = (self._clock() - inspect_start) * 1000.0
             _log.warning("seq %d: inference failed: %s", event.seq, exc)
             return self._no_verdict_with_frame("inference", frame, inspect_ms)
         return self._encode(verdict, frame, inspect_ms)
+
+    def _capture(self, event: TriggerEvent) -> Frame | _Outcome:
+        """Step 2: a frame, or the NO_VERDICT its failure means. None of these has an image."""
+        try:
+            frame = self._source.capture(event)
+        except CameraLost as exc:
+            _log.warning("seq %d: camera lost: %s", event.seq, exc)
+            return _Outcome(self._no_verdict("camera"), None)
+        except CaptureError as exc:
+            _log.warning("seq %d: capture failed: %s", event.seq, exc)
+            return _Outcome(self._no_verdict("capture"), None)
+        except CameraSettingsDrift as exc:
+            _log.warning("seq %d: camera settings drift: %s", event.seq, exc)
+            self._drift = True
+            return _Outcome(self._no_verdict("camera_settings"), None)
+        except LightingFault as exc:
+            _log.warning("seq %d: lighting: %s", event.seq, exc)
+            self._lighting = True
+            return _Outcome(self._no_verdict("lighting"), None)
+        except Exception as exc:  # a source that breaks its contract: no frame to trust
+            _log.exception("seq %d: the source raised %s", event.seq, type(exc).__name__)
+            return _Outcome(self._no_verdict("capture"), None)
+        if not isinstance(frame, Frame) or frame.event != event:
+            _log.warning("seq %d: the source returned a frame for another event", event.seq)
+            return _Outcome(self._no_verdict("capture"), None)
+        return frame
+
+    def _in_band(self, patch: float | None) -> bool:
+        """`|patch − expect| ≤ band × expect`, the boundary included; None is out of band."""
+        reference = self._config.lighting.reference_patch
+        if not _finite_or_none(patch) or patch is None:
+            return False
+        low = reference.expect * (1 - reference.band)
+        high = reference.expect * (1 + reference.band)
+        return low <= float(patch) <= high
 
     def _guard(self, verdict: object) -> None:
         """Step 6: accept a returned verdict only if nothing about it can hide a failed check."""
