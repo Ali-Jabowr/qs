@@ -190,7 +190,9 @@ def test_capture_returns_the_earliest_frame_after_trigger_plus_exposure(sources:
     source, _ = make(sources, FakeCapture(script))
     source.open()
     frame = source.capture(event(base))
-    assert frame.grabbed_at == base + 0.020
+    # through milliseconds and back (ts*1000/1000) may move the last bit; frames are
+    # 10 ms apart, so 1 ns still names exactly one of them
+    assert frame.grabbed_at == pytest.approx(base + 0.020, abs=1e-9)
     assert int(frame.pixels[0, 0, 0]) == 40
     assert frame.camera.verified is True
     assert frame.capture_ms >= 0
@@ -264,7 +266,7 @@ def test_two_read_failures_do_not_lose_the_camera(sources: list) -> None:
     script = [(base, image()), FAIL, FAIL, (base + 0.02, image())]
     source, _ = make(sources, FakeCapture(script))
     source.open()
-    assert source.capture(event(base)).grabbed_at == base + 0.02
+    assert source.capture(event(base)).grabbed_at == pytest.approx(base + 0.02, abs=1e-9)
 
 
 def test_the_reference_patch_is_the_mean_luminance_of_its_roi(sources: list) -> None:
