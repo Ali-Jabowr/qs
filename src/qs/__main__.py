@@ -186,6 +186,37 @@ def build_parser() -> argparse.ArgumentParser:
         "--models", default="models", metavar="DIR", help="where bundles are written (models)"
     )
 
+    from qs.cmd.mvtec_check import category
+
+    mvtec = commands.add_parser(
+        "mvtec-check",
+        help="the MVTec AD check on one category: AUROC against the published number, "
+        "latency, a validation-only bundle (docs/15 §5)",
+    )
+    mvtec.add_argument(
+        "--root", required=True, metavar="DIR",
+        help="the MVTec AD root; DIR/<category>/train/good and DIR/<category>/test/<class>",
+    )
+    mvtec.add_argument(
+        "--category", required=True, type=category, metavar="NAME", help="e.g. bottle"
+    )
+    mvtec.add_argument(
+        "--device", choices=("cuda", "cpu"), default="cuda",
+        help="cuda fits a validation-only bundle; cpu scores an existing bundle only",
+    )
+    mvtec.add_argument(
+        "--bundle", default=None, metavar="MODEL_ID",
+        help="reuse this bundle, in validation mode, instead of fitting "
+        "(required with --device cpu)",
+    )
+    mvtec.add_argument(
+        "--models", default="models", metavar="DIR",
+        help="where bundles are written and read (models)",
+    )
+    mvtec.add_argument(
+        "--report-dir", metavar="DIR", default="reports/mvtec", help="where the report goes"
+    )
+
     from qs.cmd import station as station_cmd  # P04: qs station --replay
 
     station_cmd.add_parser(commands)
@@ -227,6 +258,10 @@ def run(argv: Sequence[str] | None = None) -> int:
         from qs.cmd import train
 
         return train.main(args)
+    if args.command == "mvtec-check":
+        from qs.cmd import mvtec_check
+
+        return mvtec_check.main(args)
     if args.command == "station":  # P04
         from qs.cmd import station
 
