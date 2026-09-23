@@ -17,7 +17,7 @@ import pytest
 import yaml
 from PIL import Image, TiffImagePlugin
 
-from qs.cmd.import_phone import main
+from qs.cmd.import_phone import main, redo_list
 from qs.cmd.split_plan import shots_text
 from qs.phone import decode
 from qs.session import write_plan, write_shot_list
@@ -380,6 +380,87 @@ def test_with_no_spare_left_the_split_is_one_short_and_says_so(
         capsys.readouterr().out)
 
 
+def broken_first_test_unit(plan: Plan) -> tuple[str, str, int]:
+    """The first test unit in the order, broken after 2 of its 6 photos: the unit, the spare
+    that takes its place, and the unit's first row on the printed list (from 1)."""
+    unit = next(u for u in plan.order if u in plan.damage)
+    row = next(n for n, s in enumerate(shots(plan), start=1) if s.frame.unit == unit)
+    return unit, plan.spare[0], row
+
+
+def test_redo_k_after_a_broken_unit_is_row_k_of_the_printed_list(root: Path) -> None:
+    plan = plan_session(root / "again")
+    unit, _, row = broken_first_test_unit(plan)
+    # a later test unit's dmg r1: after the broken unit, the paper and the as-shot list differ
+    later = next(u for u in plan.order[plan.order.index(unit) + 1:] if u in plan.damage)
+    k = next(n for n, s in enumerate(shots(plan), start=1)
+             if s.file == f"{later}_dmg_G2_r1.png")
+    assert k > row + 6
+    # 6 photos become 2, the spare adds 6, and the redo 1: before row k, 2 more photos
+    photos = shoot(root / "phone", LEAN + 3)
+    assert main(args(root, photos, broken=[(unit, 2)], redo=[[k]])) == 0
+    folder, file = session(root), f"{later}_dmg_G2_r1.png"
+    assert sorted(p.name for p in (folder / "rejected").iterdir()) == [file]
+    assert np.array_equal(cv2.imread(str(folder / "rejected" / file), cv2.IMREAD_UNCHANGED),
+                          decode(photos / f"IMG_{k + 2:04d}.jpg"))
+    assert np.array_equal(cv2.imread(str(folder / file), cv2.IMREAD_UNCHANGED),
+                          decode(photos / f"IMG_{k + 3:04d}.jpg"))
+    # every frame of the later unit is the photo the paper says it is, shifted by 2
+    for n, shot in enumerate(shots(plan), start=1):
+        if shot.frame.unit == later and n < k:
+            assert np.array_equal(
+                cv2.imread(str(folder / shot.file), cv2.IMREAD_UNCHANGED),
+                decode(photos / f"IMG_{n + 2:04d}.jpg"))
+
+
+def test_a_spares_photo_has_no_printed_row_and_is_redone_by_its_frame_name(root: Path) -> None:
+    plan = plan_session(root / "again")
+    unit, spare, row = broken_first_test_unit(plan)
+    photos = shoot(root / "phone", LEAN + 3)
+    # the broken unit's 2 photos are rows row, row+1; the spare's good r0, r1 follow them
+    assert main(args(root, photos, broken=[(unit, 2)],
+                     redo=[redo_list(f"{spare}_good_G2_r1")])) == 0
+    folder, file = session(root), f"{spare}_good_G2_r1.png"
+    assert sorted(p.name for p in (folder / "rejected").iterdir()) == [file]
+    assert np.array_equal(cv2.imread(str(folder / file), cv2.IMREAD_UNCHANGED),
+                          decode(photos / f"IMG_{row + 4:04d}.jpg"))
+
+
+@pytest.mark.parametrize("redo", ["row", "u099_good_G2_r0", "beyond"])
+def test_a_redo_of_a_shot_that_was_never_taken_refuses_and_writes_nothing(
+    root: Path, redo: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    plan = plan_session(root / "again")
+    unit, _, row = broken_first_test_unit(plan)
+    # row+2 is the broken unit's good r2: printed, but never shot
+    given = {"row": str(row + 2), "beyond": str(LEAN + 1)}.get(redo, redo)
+    before = snapshot(session(root))
+    assert main(args(root, shoot(root / "phone", LEAN + 3), broken=[(unit, 2)],
+                     redo=[redo_list(given)])) == 1
+    out = capsys.readouterr().out
+    assert f"--redo {given}" in out and "nothing written" in out
+    if redo == "row":
+        assert f"{unit}_good_G2_r2.png" in out
+    assert snapshot(session(root)) == before
+
+
+def test_the_mid_session_check_names_the_next_photo_by_its_printed_row(
+    root: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    plan = plan_session(root / "again")
+    unit, spare, row = broken_first_test_unit(plan)
+    # everything before the unit, its 2 photos, and 5 of the spare's 6
+    photos = shoot(root / "phone", row - 1 + 2 + 5)
+    capsys.readouterr()
+    assert main(check_args(root, photos, SESSION, broken=[(unit, 2)])) == 0
+    out = capsys.readouterr().out
+    assert f"next: {spare} dmg 240° — a spare's photo, not on the printed list" in out
+    photos = shoot(root / "more", row - 1 + 2 + 6)
+    assert main(check_args(root, photos, SESSION, broken=[(unit, 2)])) == 0
+    following = shots(plan)[row + 5].frame  # printed row row+6, the unit after the broken one
+    assert f"next: #{row + 6} {following.unit} {following.state}" in capsys.readouterr().out
+
+
 # --- order, formats, config ----------------------------------------------------------------
 
 
@@ -483,9 +564,10 @@ def test_a_config_geometry_that_is_not_the_printed_lists_refuses_and_writes_noth
 # --- --check ---------------------------------------------------------------------------------
 
 
-def check_args(root: Path, photos: Path, session_id: str | None = None) -> argparse.Namespace:
+def check_args(root: Path, photos: Path, session_id: str | None = None,
+               **changes: object) -> argparse.Namespace:
     return args(root, photos, check=True, session=session_id, flavour=None, shop=None,
-                best_before=None, purchased_at=None, brand=None)
+                best_before=None, purchased_at=None, brand=None, **changes)
 
 
 def test_the_day_zero_check_passes_on_10_locked_photos_and_writes_nothing(
@@ -550,13 +632,16 @@ def test_the_cli_lists_import_phone_and_parses_its_options(
         "import-phone", "--config", "c.yml", "--from", "data/phone/x", "--session", SESSION,
         "--flavour", "манго", "--shop", "Ашан", "--best-before", "2026-09-28",
         "--purchased-at", "2026-09-25T09:10+03:00", "--brand", "X", "--redo", "40,41",
-        "--redo", "40", "--broken", "u012:2", "--utc-offset", "+03:00",
+        "--redo", "40", "--redo", "u049_dmg_G2_r1,u053_good_G2_r0.png", "--broken", "u012:2",
+        "--utc-offset", "+03:00",
     ])
-    assert parsed.source == "data/phone/x" and parsed.redo == [[40, 41], [40]]
+    assert parsed.source == "data/phone/x"
+    assert parsed.redo == [[40, 41], [40], ["u049_dmg_G2_r1.png", "u053_good_G2_r0.png"]]
     assert parsed.broken == [("u012", 2)]
     assert parsed.utc_offset == timezone(timedelta(hours=3))
     assert parsed.check is False and parsed.root == "data/raw"
-    for bad in (["--redo", "0"], ["--broken", "u012"], ["--utc-offset", "3"]):
+    for bad in (["--redo", "0"], ["--redo", "u049_dmg"], ["--redo", "40,u049"],
+                ["--broken", "u012"], ["--utc-offset", "3"]):
         with pytest.raises(SystemExit):
             parser.parse_args(["import-phone", "--config", "c", "--from", "d", *bad])
 

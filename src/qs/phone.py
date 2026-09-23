@@ -369,20 +369,22 @@ class Mapping:
 
 
 def map_photos(
-    count: int, steps: Sequence[Step], redo: Sequence[int], discarded: frozenset[str]
+    count: int, steps: Sequence[Step], redo: Sequence[str], discarded: frozenset[str]
 ) -> Mapping:
-    """Photo k is shot k. `redo` lists shot numbers once per spoiled take: the first photo of
-    such a shot goes to `rejected/`, and the next is the shot. `PhoneRefused` for a redo of a
-    shot that does not exist. Fewer photos than the list map partly; the caller decides."""
+    """Photo k is shot k. `redo` names a shot's frame file once per spoiled take — a file,
+    not a number, because the printed rows and the shots as shot differ once a unit breaks:
+    the first photo of such a shot goes to `rejected/`, and the next is the shot.
+    `PhoneRefused` for a redo of a shot that is not in `steps`. Fewer photos than the list
+    map partly; the caller decides."""
     shots = [step for step in steps if isinstance(step, Shot)]
     spoiled = Counter(redo)
-    wrong = sorted(k for k in spoiled if not 1 <= k <= len(shots))
+    wrong = sorted(set(spoiled) - {shot.file for shot in shots})
     if wrong:
-        raise PhoneRefused(f"--redo {wrong[0]}: the shots are numbered 1 to {len(shots)}")
+        raise PhoneRefused(f"--redo {wrong[0]}: no such shot in this session")
     mapped: list[Mapped] = []
     taken = 0
     for number, shot in enumerate(shots, start=1):
-        for nth in range(1, spoiled[number] + 1):
+        for nth in range(1, spoiled[shot.file] + 1):
             if len(mapped) == count:
                 break
             mapped.append(Mapped(len(mapped), shot, number, rejected_file(shot.frame, nth),

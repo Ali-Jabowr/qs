@@ -128,7 +128,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     phone.add_argument(
         "--redo", type=redo_list, action="append", default=[], metavar="K[,K…]",
-        help="shot K's first photo was spoiled and retaken; repeat K for each redo (A1)",
+        help="row K of the printed list was spoiled and retaken — a spare's photo, which has "
+        "no row, by its frame name (u053_good_G2_r1); repeat it for each redo (A1)",
     )
     phone.add_argument(
         "--broken", type=broken_unit, action="append", default=[], metavar="UNIT:N",

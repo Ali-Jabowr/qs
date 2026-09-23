@@ -23,7 +23,7 @@ from pathlib import Path
 from qs.config import StationConfig, load_config
 from qs.contracts import CameraReadback, TriggerEvent
 from qs.errors import ConfigError, LightingFault
-from qs.names import DEGREES
+from qs.names import DEGREES, SUFFIX, FrameNameError, parse_name
 from qs.phone import (
     PATCH_LIMIT,
     Mapping,
@@ -59,8 +59,11 @@ from qs.splitplan import (
     PilotPlan,
     Plan,
     PlanError,
+    Shot,
     Substitution,
     discard_broken,
+    pilot_shot_list,
+    shot_list,
     substitute_spares,
 )
 
@@ -75,15 +78,24 @@ def offset(text: str) -> timezone:
         raise argparse.ArgumentTypeError(str(exc)) from None
 
 
-def redo_list(text: str) -> list[int]:
-    """argparse type: `--redo K[,K…]`, shot numbers from 1."""
-    try:
-        numbers = [int(part) for part in text.split(",")]
-    except ValueError:
-        numbers = []
-    if not numbers or any(n < 1 for n in numbers):
-        raise argparse.ArgumentTypeError(f"{text!r}: shot numbers from 1, e.g. 40 or 40,41")
-    return numbers
+def redo_list(text: str) -> list[int | str]:
+    """argparse type: `--redo K[,K…]` — row K of the printed list, from 1 — or a frame name
+    (`u053_good_G2_r1`), for a spare's photo, which has no row; a name is kept with `.png`."""
+    items: list[int | str] = []
+    for part in text.split(","):
+        if part.isdigit() and int(part) >= 1:
+            items.append(int(part))
+            continue
+        file = part if part.endswith(SUFFIX) else part + SUFFIX
+        try:
+            parse_name(file)
+        except FrameNameError:
+            raise argparse.ArgumentTypeError(
+                f"{text!r}: rows of the printed list from 1, or frame names — e.g. 40,41 or "
+                "u053_good_G2_r1"
+            ) from None
+        items.append(file)
+    return items
 
 
 def broken_unit(text: str) -> tuple[str, int]:
@@ -157,10 +169,45 @@ def _day_zero(photos: list[Photo], config: StationConfig) -> int:
     return 0 if lock.passed and patch_ok else 1
 
 
+def _printed_rows(plan: Plan | PilotPlan, geometry: str) -> list[str]:
+    """The frame file of each row of the printed list, row 1 first — the list as planned,
+    before any unit broke, because that is the paper in Ali's hand (F2)."""
+    steps = pilot_shot_list(plan) if isinstance(plan, PilotPlan) else shot_list(plan, geometry)
+    return [step.file for step in steps if isinstance(step, Shot)]
+
+
+def _redo_files(
+    redo: Sequence[int | str], printed: Sequence[str], shot: Substitution
+) -> list[str]:
+    """Each `--redo` as the frame it spoiled. Row K is the printed row, not the K-th shot as
+    shot: after a broken unit the two differ, and a guess would misname every frame after the
+    redo. `PhoneRefused` for a row past the list, or a frame this session never shot."""
+    shot_files = {step.file for step in shot.steps if isinstance(step, Shot)}
+    files: list[str] = []
+    for item in redo:
+        if isinstance(item, int):
+            if item > len(printed):
+                raise PhoneRefused(f"--redo {item}: the printed list has rows 1 to "
+                                   f"{len(printed)}")
+            file = printed[item - 1]
+            if file not in shot_files:
+                raise PhoneRefused(f"--redo {item}: row {item} is {file}, which was never shot "
+                                   "— its unit broke before it")
+        else:
+            file = item
+            if file not in shot_files:
+                raise PhoneRefused(f"--redo {file.removesuffix(SUFFIX)}: no such shot in this "
+                                   "session")
+        files.append(file)
+    return files
+
+
 def _where_am_i(
-    photos: list[Photo], config: StationConfig, shot: Substitution, redo: Sequence[int]
+    photos: list[Photo], config: StationConfig, shot: Substitution, redo: Sequence[str],
+    printed: Sequence[str],
 ) -> int:
-    """The mid-session check: the lock so far, the mapping, the next photo, the drift."""
+    """The mid-session check: the lock so far, the mapping, the next photo, the drift. A shot
+    is named by its printed row, as the paper numbers it."""
     lock = check_lock(photos, config.camera)
     print("\n".join(lock.lines))
     if not lock.passed:
@@ -171,15 +218,19 @@ def _where_am_i(
               "— more photos than shots")
         return 1
     prompts, following = next_step(shot.steps, mapping.shots_taken)
+    row = {file: n for n, file in enumerate(printed, start=1)}
     line = f"{mapping.shots_taken} of {mapping.shots_total} photos mapped"
     if following is None:
         line += " — every shot is taken"
     else:
         frame = following.frame
-        line += (f" — next: #{mapping.shots_taken + 1} {frame.unit} {frame.state} "
-                 f"{DEGREES[frame.rotation]}°")
+        what = f"{frame.unit} {frame.state} {DEGREES[frame.rotation]}°"
+        n = row.get(following.file)
+        line += (f" — next: #{n} {what}" if n is not None else
+                 f" — next: {what} — a spare's photo, not on the printed list")
     if mapping.photos and mapping.photos[-1].status == "rejected":
-        line += f" (a retake of #{mapping.photos[-1].number})"
+        spoiled = mapping.photos[-1].shot.file
+        line += f" (a retake of {'#' + str(row[spoiled]) if spoiled in row else spoiled})"
     print(line)
     for prompt in prompts:
         print(f"first: {prompt.instruction}")
@@ -304,11 +355,12 @@ def main(args: argparse.Namespace) -> int:
     except PlanError as exc:
         print(f"broken: {exc}")
         return 2
-    redo = [k for group in args.redo for k in group]
+    printed = _printed_rows(plan, config.lighting.geometry)
     try:
+        redo = _redo_files([k for group in args.redo for k in group], printed, shot)
         photos = _read(paths, args)
         if args.check:
-            return _where_am_i(photos, config, shot, redo)
+            return _where_am_i(photos, config, shot, redo, printed)
         if session_started(folder):
             print(f"import: {folder} already has frames — refusing to import over a started "
                   "session")
@@ -325,7 +377,7 @@ def _import(
     config: StationConfig,
     plan: Plan | PilotPlan,
     shot: Substitution,
-    redo: Sequence[int],
+    redo: Sequence[str],
     photos: list[Photo],
     product: Product | None,
 ) -> int:
