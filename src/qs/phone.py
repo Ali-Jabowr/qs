@@ -11,6 +11,7 @@ photo is the only I/O; the checks and the mapping are pure.
 
 from __future__ import annotations
 
+import hashlib
 import re
 from collections import Counter
 from collections.abc import Callable, Sequence
@@ -69,6 +70,7 @@ class Photo:
     model: str | None
     orientation: int | None
     size: tuple[int, int]
+    subsec: bool = False  # the capture time carries sub-seconds (SubSecTimeOriginal)
 
     @property
     def name(self) -> str:
@@ -122,6 +124,11 @@ def _text(value: object) -> str | None:
     if not isinstance(value, str):
         return None
     return value.strip("\x00 \t") or None
+
+
+def _has_subsec(sub: dict[int, object]) -> bool:
+    subsec = _text(sub.get(_SUBSEC_ORIGINAL))
+    return subsec is not None and subsec.isdigit()
 
 
 def _taken(sub: dict[int, object], fallback: tzinfo | None) -> tuple[datetime | None, str | None]:
@@ -185,6 +192,7 @@ def read_photo(path: Path, fallback_offset: tzinfo | None = None) -> Photo:
         model=_text(exif.get(_MODEL)),
         orientation=orientation,
         size=(width, height),
+        subsec=_has_subsec(sub),
     )
 
 
@@ -195,6 +203,39 @@ def decode(path: Path) -> np.ndarray:
         upright = ImageOps.exif_transpose(image)
         rgb = upright.convert("RGB")
     return np.ascontiguousarray(np.asarray(rgb, dtype=np.uint8)[:, :, ::-1])
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as data:
+        for block in iter(lambda: data.read(1 << 20), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def refuse_duplicates(photos: Sequence[Photo]) -> None:
+    """`PhoneRefused`, naming both files, if two photos are one: the same bytes, or the same
+    capture time to the sub-second. A copy merged in twice ("keep both") would pass the count
+    with one real photo missing and shift every frame after it by one (F3)."""
+    seen: dict[str, Photo] = {}
+    for photo in photos:
+        first = seen.setdefault(_sha256(photo.path), photo)
+        if first is not photo:
+            raise PhoneRefused(
+                f"duplicate: {first.name} and {photo.name} are the same photo, byte for byte "
+                "— copy the phone's folder once, into an empty folder; never merge copies"
+            )
+    stamped: dict[datetime, Photo] = {}
+    for photo in photos:
+        if photo.taken is None or not photo.subsec:
+            continue  # without sub-seconds, a burst puts two real photos in one second
+        first = stamped.setdefault(photo.taken, photo)
+        if first is not photo:
+            raise PhoneRefused(
+                f"duplicate: {first.name} and {photo.name} were taken at the same sub-second, "
+                f"{photo.taken.isoformat()} — one photo copied twice? Copy the phone's folder "
+                "once, into an empty folder"
+            )
 
 
 def in_order(photos: Sequence[Photo]) -> list[Photo]:

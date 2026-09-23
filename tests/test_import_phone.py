@@ -49,6 +49,7 @@ class Tags:
     orientation: int | None = 1
     offset: str | None = "+03:00"
     size: tuple[int, int] = (W, H)
+    subsec: str | None = None
 
 
 LOCKED = Tags()
@@ -68,6 +69,7 @@ def write_photo(path: Path, n: int, taken: datetime, tags: Tags = LOCKED,
     for ifd, tag, value in (
         (exif, 0x010F, tags.make), (exif, 0x0110, tags.model), (exif, 0x0112, tags.orientation),
         (sub, 0x8827, tags.iso), (sub, 0xA403, tags.wb), (sub, 0x9011, tags.offset),
+        (sub, 0x9291, tags.subsec),
     ):
         if value is not None:
             ifd[tag] = value
@@ -459,6 +461,33 @@ def test_the_mid_session_check_names_the_next_photo_by_its_printed_row(
     assert main(check_args(root, photos, SESSION, broken=[(unit, 2)])) == 0
     following = shots(plan)[row + 5].frame  # printed row row+6, the unit after the broken one
     assert f"next: #{row + 6} {following.unit} {following.state}" in capsys.readouterr().out
+
+
+def test_a_photo_copied_twice_refuses_naming_both_and_writes_nothing(
+    root: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    photos = shoot(root / "phone", LEAN - 1)  # one photo short, and one copied twice
+    (photos / "IMG_0010 (1).jpg").write_bytes((photos / "IMG_0010.jpg").read_bytes())
+    before = snapshot(session(root))
+    assert main(args(root, photos)) == 1
+    out = capsys.readouterr().out
+    assert "IMG_0010 (1).jpg" in out and "IMG_0010.jpg" in out and "nothing written" in out
+    assert snapshot(session(root)) == before
+    assert main(check_args(root, photos, SESSION)) == 1
+    assert "IMG_0010 (1).jpg" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(("subsec", "code"), [("123", 1), (None, 0)])
+def test_two_photos_taken_at_the_same_sub_second_refuse_but_the_same_second_does_not(
+    root: Path, subsec: str | None, code: int, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # photo 11 is stamped with photo 10's time; with sub-seconds that cannot be two shots
+    photos = shoot(root / "phone", LEAN, every=Tags(subsec=subsec), gaps={11: -5})
+    assert main(args(root, photos)) == code
+    if code:
+        out = capsys.readouterr().out
+        assert "IMG_0010.jpg" in out and "IMG_0011.jpg" in out and "sub-second" in out
+        assert not (session(root) / "phone").exists()
 
 
 # --- order, formats, config ----------------------------------------------------------------

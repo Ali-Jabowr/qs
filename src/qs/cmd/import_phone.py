@@ -39,6 +39,7 @@ from qs.phone import (
     next_step,
     patch_variation,
     read_photo,
+    refuse_duplicates,
     utc_offset,
 )
 from qs.session import (
@@ -119,7 +120,9 @@ class _PhoneFrame:
 
 
 def _read(paths: Sequence[Path], args: argparse.Namespace) -> list[Photo]:
-    return in_order([read_photo(path, args.utc_offset) for path in paths])
+    photos = [read_photo(path, args.utc_offset) for path in paths]
+    refuse_duplicates(photos)  # before the order: a copy's name may sort anywhere
+    return in_order(photos)
 
 
 def _readings(photos: Sequence[Photo], config: StationConfig) -> list[float]:
