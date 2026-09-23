@@ -32,3 +32,18 @@ P06, P07, P03, P04, P08 and P09 still to build, Ali asked:
 - OpenRouter bills per token. P01 cost $2.66 under OpenCode (ADR-0021). The cost of each run is in its
   `result.json`.
 - The review is now structural: the model that writes the code is never the one that judges it.
+
+## Amendment: the work is split between Claude and GLM (2026-09-23, Ali)
+
+Ali's Claude limits reset, and he wants to keep GLM budget for another project. The split is by risk:
+
+- **A fresh Claude agent implements** the tickets where a quiet bug gives a wrong ГОДЕН or a broken
+  record: #46 (PatchCore, bundle, `qs train`), #49 (`AppearanceInspector`), P03 #58–#61 (evidence
+  store), and P04 #69–#75 (pipeline). The orchestrator reviews each one, so the author is never the
+  reviewer.
+- **OpenCode implements** the bounded tickets, on `glm-5.3-flash`: #47, #48, #50, P08 #80–#83, and
+  the P09 tickets. #45 had already started on `glm-5.3`. A ticket moves up to `glm-5.3` only if flash
+  fails review twice.
+- P03 is built in parallel, in its own git worktree, while P07 runs on `mvp/bench`. It is merged into
+  `mvp/bench` once it is reviewed.
+- Estimated OpenRouter cost for the rest drops from about $18 to about $6.

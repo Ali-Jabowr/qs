@@ -95,7 +95,7 @@ The log is `decisions/README.md` — ADR-0001 to ADR-0023, each with context, al
 | 0017 | Gate B judged on a conservative N100 estimate until an N100 exists |
 | 0018 | Operator screen is a Tk window; OpenCV headless everywhere |
 | 0020 | PatchCore's backbone weights are timm's `wide_resnet50_2.racm_in1k`, named by full tag and hash-checked |
-| 0023 | OpenCode implements each ticket again (glm-5.3-flash; glm-5.3 for P07); Claude Code reviews, runs `make check` and commits. Supersedes 0021 (Claude Code wrote P05–P05b) |
+| 0023 | Split by risk: a Claude agent implements #46, #49, P03 and P04; OpenCode (glm-5.3-flash) implements the rest. Claude Code reviews every ticket and commits. Supersedes 0021 |
 
 ## 8. Stack
 
