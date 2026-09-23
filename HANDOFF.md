@@ -43,9 +43,12 @@ Also done: #35 lock-test prep; ADR-0022 (bench capture by phone, amends ADR-0010
 
 > Turn plan P09 (ROADMAP row: ScreenAnnunciator, KeyboardTrigger, live `qs station`, NFR-01 measured, non-author test NFR-09; sources docs/11 §3, docs/16 §5, ADR-0018, docs/06) into a spec issue + tickets. Follow `~/.agents/skills/to-spec` and `to-tickets`, and mirror spec #76 and its tickets. It depends on P05 (built) and P08 (#76). The webcam hasn't arrived (ADR-0022), so live-camera checks are `bench-pending`; say whether the station runs on replay or a phone session until then. When editing #26, fetch its body fresh; never write it empty.
 
+## Since the handoff (2026-09-23)
+
+- **Guide:** `docs/18-shoot-and-train-guide.md` is Ali's step-by-step for the phone and the lean size. When #46, #47 and #80–#83 are built, **write their exact commands and flags into its Parts E and G.**
+- **OQ-8 decided: lean** (#10 closed). The phone is the Xiaomi, in Pro mode, JPEG.
+- **Build order serves the shoot:** P06 #39–#41 and P07 #45–#47 first, because `qs pilot-report` decides the lighting before the dataset shoot.
+
 ## Waiting on Ali (none of these block the code)
 
-- **Phone shoot decisions:** #51. Wayfinder questions: #28–#30, #37, #38, #43, #44, #55–#57, #62, #63, #77–#79.
-- **The step-by-step shooting + training guide:** requested, needed before the shoot.
-- **CLAUDE.md §6 purchase rule vs the webcam order:** needs recording.
-- **OQ-8** standard/lean (#10).
+- **Phone shoot decisions:** #51 (Xiaomi chosen; the rest to confirm). Wayfinder questions: #28–#30, #37, #38, #43, #44, #55–#57, #62, #63, #77–#79.
