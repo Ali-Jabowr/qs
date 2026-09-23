@@ -2,6 +2,10 @@
 
 **Status:** Proposed · 2026-09-21 · confirmed or reversed by the settings-lock test on the first build day
 
+**Amended by [ADR-0022](ADR-0022-bench-capture-by-phone.md)** (2026-09-23): the webcam has not arrived, so the
+training shoots are taken by phone offline and imported under an EXIF lock check. The webcam stays the
+station camera, and this lock test waits for it (#25).
+
 ## Context
 
 FR-13 requires exposure, white balance and focus to be set manually **and read back**; a camera

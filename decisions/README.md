@@ -14,7 +14,7 @@ Numbers are never reused. A superseded ADR stays, with its status changed and a 
 | [0007](ADR-0007-mvp-is-demo-grade.md) | The MVP is demo-grade; Gate A stays a separate claim | Accepted | 2026-09-21 |
 | [0008](ADR-0008-geometry-check-in-code.md) | Size and shape are measured in code, not left to the anomaly model | Accepted | 2026-09-21 |
 | [0009](ADR-0009-inspector-localizes-then-judges.md) | Station A's Inspector localizes the unit, then judges the unit — never the frame | Accepted | 2026-09-21 |
-| [0010](ADR-0010-bench-camera-usb-webcam.md) | Bench camera: USB webcam over V4L2; phone as fallback | Proposed — lock test | 2026-09-21 |
+| [0010](ADR-0010-bench-camera-usb-webcam.md) | Bench camera: USB webcam over V4L2; phone as fallback | Proposed — lock test; amended by 0022 | 2026-09-21 |
 | [0011](ADR-0011-operator-screen-opencv-pillow.md) | Operator screen: one OpenCV window, text by Pillow | Superseded in part by 0018 | 2026-09-21 |
 | [0012](ADR-0012-storage-failure-verdict-wins.md) | When storage fails, the verdict wins and the record outlives the image | Accepted | 2026-09-21 |
 | [0013](ADR-0013-pilot-geometries-one-frame.md) | One frame serves both checks; the pilot compares three front-lit geometries | Accepted — winner after the pilot | 2026-09-21 |
@@ -26,5 +26,6 @@ Numbers are never reused. A superseded ADR stays, with its status changed and a 
 | [0019](ADR-0019-executor-model-glm-5-3.md) | The executor runs GLM-5.3 through OpenRouter, only on hosts that do not train on prompts | Superseded by 0021 | 2026-09-22 |
 | [0020](ADR-0020-backbone-weights-racm-in1k.md) | PatchCore's backbone weights are timm's `wide_resnet50_2.racm_in1k`, named by full tag | Accepted | 2026-09-22 |
 | [0021](ADR-0021-executor-is-claude-code.md) | Claude Code executes the plans; OpenCode is withdrawn | Accepted | 2026-09-22 |
+| [0022](ADR-0022-bench-capture-by-phone.md) | Bench capture by phone until the webcam arrives; the lock test becomes an EXIF read-back | Accepted | 2026-09-23 |
 
 New decisions take the next free number.
