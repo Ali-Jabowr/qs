@@ -13,7 +13,10 @@ model loads (docs/15 §9); tests pass a fake through `make_scorer`.
 `inspect(frame)` runs the chain of docs/15 §2–§6 on the frame alone: localize (a
 `PlacementFault` goes straight through), measure and check the geometry against
 `threshold.geometry` (ADR-0008), cut the window centred on the unit, score it and mask the
-map to the unit (ADR-0009), then check the score against `threshold.value`. Both checks
+map to the unit (ADR-0009), then check the score against `threshold.value` — exactly: the
+float32 score, as a float, is compared with the threshold as written, so a score a float32
+rounding puts above the line is never passed, and every record satisfies `passed == (value
+<= limit)`. The model's own `pred_score` is logged beside it and must be finite. Both checks
 always run, and the label comes from them alone (C8). A non-finite score is an
 `InferenceError`; any other exception is left to the Pipeline (docs/11 §7). Pure: no I/O,
 the frame is only ever read, and nothing changes between frames (C1, C2).
