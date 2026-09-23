@@ -465,7 +465,15 @@ class Store:
     def write_record(self, row: InspectionRow) -> None:
         """Files first, then the `inspection` row and its `inspection_check` rows in one
         transaction (docs/16 §4). A failure leaves at most orphan files, never a row without
-        its files."""
+        its files. A `(run_id, seq)` already stored is refused before any file is written, so
+        a duplicate never overwrites the first record's image."""
+        if self._conn.execute(
+            "SELECT 1 FROM inspection WHERE run_id = ? AND seq = ?", (row.run_id, row.seq)
+        ).fetchone():
+            raise sqlite3.IntegrityError(
+                f"UNIQUE constraint failed: inspection.run_id, inspection.seq"
+                f" ({row.run_id}, {row.seq}); no file was written"
+            )
         image_path = image_sha256 = heatmap_path = None
         if row.image_jpeg is not None:
             image_path = row.image_relpath()
