@@ -68,6 +68,13 @@ def _rows(root: Path, sql: str = "SELECT * FROM inspection ORDER BY id") -> list
         conn.close()
 
 
+def _until_drained(sink: SqliteSink, timeout: float = 1.5) -> None:
+    deadline = time.monotonic() + timeout
+    while sink.pending():
+        assert time.monotonic() < deadline, "the sink did not drain"
+        time.sleep(0.002)
+
+
 def _exact(sink: SqliteSink, given: int) -> None:
     """docs/16 §6: every record given to write() is accounted for, exactly once."""
     c = sink.counters()
@@ -93,6 +100,8 @@ def test_300_mixed_records_end_to_end(tmp_path: Path) -> None:
     sink = _sink(tmp_path)
     for record in mixed(1, 300):
         sink.write(record)
+        if record.event.seq % 50 == 0:  # paced like a line, not a burst past the high-water
+            _until_drained(sink)
     sink.finish_run(STARTED + timedelta(minutes=5), {"events": 300, "pass": 75})
     sink.close()
 

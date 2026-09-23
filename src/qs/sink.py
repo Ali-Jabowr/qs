@@ -4,6 +4,12 @@
 returns: it never raises and never blocks (C3). One daemon worker owns the only database
 connection and drains the queue FIFO, so rows are committed in `seq` order. The run row is its
 first item. Errors are swallowed, counted and surfaced through `health()` (docs/11 §7).
+
+When storage fails (ADR-0012) the verdict wins and the record outlives the image: the item at
+the head is retried every `retry_s` and nothing behind it is attempted; rows are held without
+limit; images are shed past `HIGH_WATER` queued, PASS first, then NO_VERDICT, then DEFECT
+(A2, #56). A stop waits until `stop_wait_s` pass with no successful write (A3, #57), then
+counts what is left as lost.
 """
 
 from __future__ import annotations
@@ -13,18 +19,23 @@ import logging
 import os
 import sqlite3
 import threading
+import time
 from collections import deque
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
 
 from qs.config import LoadedConfig
-from qs.contracts import Health, InspectionRecord
+from qs.contracts import Health, InspectionRecord, Label
 from qs.store import InspectionRow, RunRow, Store, inspection_row, run_row, utc_text
 
 _log = logging.getLogger(__name__)
+
+HIGH_WATER = 200  # queued records with images, ~110 MB (ADR-0012)
+SHED_ORDER = (Label.PASS.value, Label.NO_VERDICT.value, Label.DEFECT.value)  # A2, #56
+_ABANDON_JOIN_S = 0.25  # after a stop gives up, how long to wait for the worker to notice
 
 
 class _Kind(Enum):
@@ -65,7 +76,12 @@ class SqliteSink:
         self._cond = threading.Condition()
         self._queue: deque[_Item] = deque([_Item(_Kind.RUN)])
         self._records_queued = 0
+        self._imaged: dict[str, deque[_Item]] = {label: deque() for label in SHED_ORDER}
+        self._images_queued = 0  # queued records still carrying an image
+        self._attempting: _Item | None = None
         self._closing = False
+        self._abandoned = False
+        self._last_success = 0.0  # time.monotonic() of the last successful write
         # counters (docs/16 §6)
         self._written = 0
         self._rejected = 0
@@ -74,8 +90,10 @@ class SqliteSink:
         self._held_resolved = 0
         self._held_queued = 0
         self._images_shed = 0
-        # health
+        # health: degraded from a failed attempt or a shed until the backlog is written
         self._failing = False
+        self._degraded = False
+        self._shedding = False
         self._last_error: str | None = None
         self._last_rejection: str | None = None
         self._worker = threading.Thread(
@@ -119,16 +137,23 @@ class SqliteSink:
             try:
                 row = inspection_row(record, self._run.run_id, self._run.station_id)
             except Exception as exc:  # RecordRejected, or a malformed object
-                self._reject(_seq_of(record), str(exc) or type(exc).__name__)
+                with self._cond:
+                    self._reject_locked(_seq_of(record), str(exc) or type(exc).__name__)
                 return
             item = _Item(_Kind.RECORD, row=row)
             with self._cond:
                 if self._closing:
                     self._lost += 1
+                    _log.error("sink closed: record seq %s not written", row.seq)
                     return
                 item.epoch = self._write_failures
                 self._queue.append(item)
                 self._records_queued += 1
+                if row.image_jpeg is not None:
+                    self._imaged[row.label].append(item)
+                    self._images_queued += 1
+                    if self._images_queued > HIGH_WATER:
+                        self._shed_locked()
                 self._cond.notify_all()
         except Exception:  # never into the Pipeline (docs/11 §7)
             _log.exception("sink write failed unexpectedly")
@@ -141,13 +166,21 @@ class SqliteSink:
             return self._records_queued
 
     def close(self) -> None:
-        """Stop accepting records, drain the queue, join the worker. Idempotent."""
+        """Stop accepting records and drain. Returns once the queue is written, or once
+        `stop_wait_s` pass with the queue non-empty and no successful write (F13, A3): what is
+        left is counted as `lost` and `run.ended_utc` stays NULL. Idempotent."""
         with self._cond:
             self._closing = True
             self._cond.notify_all()
-            while self._queue:
-                self._cond.wait()
-        self._worker.join()
+            start = time.monotonic()
+            while self._queue and not self._abandoned:
+                remaining = max(start, self._last_success) + self._stop_wait_s - time.monotonic()
+                if remaining <= 0:
+                    self._abandon_locked()
+                    break
+                self._cond.wait(remaining)
+            abandoned = self._abandoned
+        self._worker.join(_ABANDON_JOIN_S if abandoned else None)
 
     # --- beyond the protocol ------------------------------------------------------------------
 
@@ -167,6 +200,8 @@ class SqliteSink:
             self._cond.notify_all()
 
     def counters(self) -> dict[str, int]:
+        """The sink's docs/16 §6 counters. `written + rejected + lost + pending` is every record
+        given to `write()`."""
         with self._cond:
             return {
                 "written": self._written,
@@ -179,37 +214,96 @@ class SqliteSink:
             }
 
     def health(self) -> Health:
+        """Not ok for the whole outage — from a failed attempt or a shed until the backlog is
+        written — and for the rest of the run once a record was rejected or lost."""
         with self._cond:
-            ok = not self._failing and self._rejected == 0 and self._lost == 0
+            ok = not (self._failing or self._degraded or self._rejected or self._lost)
             if ok:
                 return Health(True, f"evidence written: {self._written}")
             parts = [
                 f"held {self._held_resolved + self._held_queued}, shed {self._images_shed},"
                 f" rejected {self._rejected}, lost {self._lost}, pending {self._records_queued}"
             ]
-            if self._failing and self._last_error:
+            if self._failing:
                 parts.append(f"storage failing: {self._last_error}")
+            elif self._degraded and self._last_error and not self._shedding:
+                parts.append(f"writing the backlog after: {self._last_error}")
+            if self._shedding:
+                parts.append(f"image backlog past the high-water ({HIGH_WATER}): images shed")
             if self._last_rejection:
                 parts.append(self._last_rejection)
             return Health(False, "; ".join(parts))
 
-    # --- the worker ---------------------------------------------------------------------------
+    # --- queue bookkeeping, all under self._cond ------------------------------------------------
 
-    def _reject(self, seq: object, rule: str) -> None:
+    def _reject_locked(self, seq: object, rule: str) -> None:
         message = f"rejected seq {seq}: {rule}"
         _log.error("evidence record %s", message)
-        with self._cond:
-            self._rejected += 1
-            self._last_rejection = message
+        self._rejected += 1
+        self._last_rejection = message
+
+    def _shed_locked(self) -> None:
+        """Drop images until HIGH_WATER remain: PASS, then NO_VERDICT, then DEFECT, oldest first
+        within each. The record being attempted is not changed mid-attempt."""
+        shed = 0
+        while self._images_queued > HIGH_WATER:
+            victim = self._victim_locked()
+            if victim is None:
+                break
+            assert victim.row is not None
+            victim.row = replace(victim.row, image_jpeg=None, heatmap_png=None, shed=True)
+            self._images_queued -= 1
+            self._images_shed += 1
+            shed += 1
+        if shed:
+            if not self._shedding:
+                _log.warning("evidence backlog past %d images: shedding images", HIGH_WATER)
+            self._degraded = self._shedding = True
+
+    def _victim_locked(self) -> _Item | None:
+        for label in SHED_ORDER:
+            candidates = self._imaged[label]
+            for index, item in enumerate(candidates):
+                if item is not self._attempting:
+                    del candidates[index]
+                    return item
+        return None
 
     def _resolve_locked(self, item: _Item) -> None:
-        """A record leaves the queue: count it as held if it waited through a failed attempt."""
+        """A record leaves the queue: counted as held if it waited through a failed attempt,
+        and no longer a candidate for shedding."""
         self._records_queued -= 1
         if item.epoch < self._write_failures:
             self._held_resolved += 1
             self._held_queued -= 1
+        assert item.row is not None
+        if item.row.image_jpeg is not None:
+            candidates = self._imaged[item.row.label]
+            if candidates and candidates[0] is item:
+                candidates.popleft()
+            else:
+                candidates.remove(item)
+            self._images_queued -= 1
 
-    def _attempt(self, store: Store, item: _Item) -> None:
+    def _abandon_locked(self) -> None:
+        """The stop gave up: every record still queued is lost (F13)."""
+        for item in self._queue:
+            if item.kind is _Kind.RECORD:
+                self._resolve_locked(item)
+                self._lost += 1
+        self._queue.clear()
+        self._abandoned = True
+        self._degraded = True
+        _log.error(
+            "evidence stop gave up after %.1f s without a successful write: %d record(s) lost",
+            self._stop_wait_s,
+            self._lost,
+        )
+        self._cond.notify_all()
+
+    # --- the worker ---------------------------------------------------------------------------
+
+    def _attempt(self, store: Store, item: _Item, row: InspectionRow | None) -> None:
         if item.kind is _Kind.RUN:
             try:
                 store.begin_run(self._run)
@@ -218,8 +312,8 @@ class SqliteSink:
                     f"run {self._run.run_id} already exists in the database"
                 ) from exc
         elif item.kind is _Kind.RECORD:
-            assert item.row is not None
-            store.write_record(item.row)
+            assert row is not None
+            store.write_record(row)
         else:
             assert item.ended_utc is not None and item.counters is not None
             counters = {**item.counters, "sink": self.counters()}
@@ -230,19 +324,24 @@ class SqliteSink:
         try:
             while True:
                 with self._cond:
-                    while not self._queue and not self._closing:
+                    while not self._queue and not self._closing and not self._abandoned:
                         self._cond.wait()
-                    if not self._queue:
+                    if self._abandoned or not self._queue:
                         return
                     item = self._queue[0]
+                    self._attempting = item
+                    row = item.row  # never changed mid-attempt: the shed skips this item
                 failure: Exception | None = None
                 rejection: Exception | None = None
                 try:
                     if store is None:
                         store = Store(self._root)
-                    self._attempt(store, item)
+                    self._attempt(store, item, row)
                 except sqlite3.IntegrityError as exc:
-                    rejection = exc  # this record can never be written (A1)
+                    if item.kind is _Kind.RECORD:
+                        rejection = exc  # this record can never be written (A1)
+                    else:
+                        failure = exc
                 except (OSError, sqlite3.Error) as exc:
                     failure = exc  # storage: hold it and retry (ADR-0012)
                 except Exception as exc:
@@ -253,21 +352,26 @@ class SqliteSink:
                 if failure is not None and store is not None:
                     store.close()
                     store = None
-                if rejection is not None:
-                    assert item.row is not None
-                    self._reject(item.row.seq, f"{type(rejection).__name__}: {rejection}")
                 with self._cond:
+                    self._attempting = None
+                    if self._abandoned:  # the stop already counted this record as lost
+                        if item.kind is _Kind.RECORD and failure is None:
+                            self._lost -= 1
+                            self._record_outcome_locked(row, rejection)
+                        return
                     if failure is None:
                         self._queue.popleft()
                         if item.kind is _Kind.RECORD:
                             self._resolve_locked(item)
-                            if rejection is None:
-                                self._written += 1
+                            self._record_outcome_locked(row, rejection)
                         self._failing = False
+                        self._last_success = time.monotonic()
+                        if not self._queue:
+                            self._degraded = self._shedding = False
                     else:
                         self._write_failures += 1
                         self._held_queued = self._records_queued
-                        self._failing = True
+                        self._failing = self._degraded = True
                         self._last_error = f"{type(failure).__name__}: {failure}"
                         _log.warning("evidence write failed, held: %s", self._last_error)
                     self._cond.notify_all()
@@ -276,6 +380,15 @@ class SqliteSink:
         finally:
             if store is not None:
                 store.close()
+
+    def _record_outcome_locked(
+        self, row: InspectionRow | None, rejection: Exception | None
+    ) -> None:
+        if rejection is None:
+            self._written += 1
+        else:
+            assert row is not None
+            self._reject_locked(row.seq, f"{type(rejection).__name__}: {rejection}")
 
 
 def _seq_of(record: object) -> object:
