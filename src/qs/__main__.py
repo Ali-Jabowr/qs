@@ -185,6 +185,10 @@ def build_parser() -> argparse.ArgumentParser:
     train.add_argument(
         "--models", default="models", metavar="DIR", help="where bundles are written (models)"
     )
+
+    from qs.cmd import station as station_cmd  # P04: qs station --replay
+
+    station_cmd.add_parser(commands)
     return parser
 
 
@@ -223,6 +227,10 @@ def run(argv: Sequence[str] | None = None) -> int:
         from qs.cmd import train
 
         return train.main(args)
+    if args.command == "station":  # P04
+        from qs.cmd import station
+
+        return station.main(args)
     raise AssertionError(f"unhandled command {args.command!r}")
 
 
