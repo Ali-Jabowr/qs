@@ -30,6 +30,7 @@ def build_parser() -> argparse.ArgumentParser:
     camera.add_argument("--no-screen", action="store_true", help="run without the window")
 
     from qs.cmd.split_plan import session_id
+    from qs.names import GEOMETRIES
 
     plan = commands.add_parser(
         "split-plan", help="the seeded split plan and tray sheet (docs/13-data-collection.md §6)"
@@ -38,7 +39,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--session", required=True, type=session_id, metavar="ID", help="e.g. 2026-09-25-mvp"
     )
     plan.add_argument(
-        "--size", required=True, choices=("standard", "lean"), help="docs/13 §1, OQ-8"
+        "--size", choices=("standard", "lean"), help="docs/13 §1, OQ-8 (required to plan)"
     )
     plan.add_argument(
         "--seed", type=int, default=None, metavar="N",
@@ -46,6 +47,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     plan.add_argument(
         "--root", default="data/raw", metavar="DIR", help="where session folders live"
+    )
+    plan.add_argument(
+        "--shot-list", action="store_true",
+        help="plan nothing: write the numbered photo list shots-<G>.md from plan.yml (ADR-0022)",
+    )
+    plan.add_argument(
+        "--geometry", choices=GEOMETRIES, default=None, help="with --shot-list: the lighting"
     )
 
     from qs.cmd.shoot import best_before, purchased_at

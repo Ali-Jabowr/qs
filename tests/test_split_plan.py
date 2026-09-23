@@ -205,7 +205,8 @@ def test_a_floor_brush_step_comes_after_every_tenth_unit(size: str) -> None:
 
 def args(tmp_path: Path, size: str = "lean", seed: int | None = 20260925,
          session: str = "2026-09-25-mvp") -> argparse.Namespace:
-    return argparse.Namespace(session=session, size=size, seed=seed, root=str(tmp_path))
+    return argparse.Namespace(session=session, size=size, seed=seed, root=str(tmp_path),
+                              shot_list=False, geometry=None)
 
 
 def test_main_writes_the_plan_and_the_printable_sheet(

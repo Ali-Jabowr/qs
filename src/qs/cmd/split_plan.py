@@ -3,6 +3,10 @@
 Run before any frame. Assigns every unit to one split by seed, gives each test unit its damage,
 fixes the shooting order, writes `plan.yml` and a printable `plan.md` into `raw/<session>/`, and
 prints the tray sheet. Refuses to overwrite a plan (exit 1).
+
+`--shot-list --geometry G` plans nothing: it reads `plan.yml` and writes `shots-<G>.md`, the
+numbered photo list for the phone path (ADR-0022). Row k is the k-th `Shot` of `shot_list`, the
+function `qs shoot` and `qs import-phone` use, so paper and import cannot disagree.
 """
 
 from __future__ import annotations
@@ -12,8 +16,15 @@ import re
 from datetime import date
 from pathlib import Path
 
-from qs.names import GEOMETRIES
-from qs.session import PlanExists, write_plan
+from qs.names import DEGREES, GEOMETRIES
+from qs.session import (
+    PLAN_FILE,
+    PlanExists,
+    ShotListDiffers,
+    read_plan,
+    write_plan,
+    write_shot_list,
+)
 from qs.splitplan import (
     PLACEMENT_EDGE,
     PLACEMENT_EMPTY,
@@ -126,8 +137,113 @@ def sheet(session: str, plan: Plan) -> str:
     return "\n".join(text) + "\n"
 
 
+_CHECK = (
+    "**CHECK — {n} photos so far. Copy the photos over USB, run `qs import-phone --check`, "
+    "then carry on.**"
+)
+
+
+def _cell_text(text: str) -> str:
+    return text.replace("|", "\\|")
+
+
+def _what(shot: Shot) -> str:
+    """The unit and its tray cell, as the tray sheet names them."""
+    unit = shot.frame.unit
+    if unit.startswith("c"):
+        return f"{unit} · control"
+    if unit.startswith("x"):
+        where = "no unit in view" if shot.frame.state == "empty" else "a unit touching the edge"
+        return f"{unit} · placement, {where}"
+    return f"{unit} · cell {cell(unit)}"
+
+
+def shots_text(session: str, plan: Plan, geometry: str) -> str:
+    """The printable photo list: one numbered row per photo, prompts in bold, two CHECK rows."""
+    steps = shot_list(plan, geometry)
+    photos = [step for step in steps if isinstance(step, Shot)]
+    # The CHECK rows follow the last photo of the controls' pass 1 and of their pass 2.
+    last_of_pass = {
+        pass_: max(i for i, s in enumerate(photos) if s.frame.pass_ == pass_) for pass_ in (1, 2)
+    }
+    table = ["| # | ✓ | redo | Unit · cell | State | Rotation | File |",
+             "|---:|---|---|---|---|---:|---|"]
+    n = 0
+    for step in steps:
+        if isinstance(step, Prompt):
+            table.append(f"| | | | **{_cell_text(step.instruction)}** | | | |")
+            continue
+        n += 1
+        frame = step.frame
+        table.append(
+            f"| {n} | | | {_what(step)} | {frame.state} | {DEGREES[frame.rotation]}° "
+            f"| `{step.file}` |"
+        )
+        if n - 1 in last_of_pass.values():
+            table.append(f"| | | | {_CHECK.format(n=n)} | | | |")
+    text = [
+        f"# Shot list — {session} · {geometry}",
+        "",
+        f"Session {session} · seed {plan.seed} · size {plan.size} · geometry {geometry} · "
+        f"**{len(photos)} photos**",
+        "",
+        "**Never delete a photo on the phone — retake it at once and tick `redo` on its row.**",
+        "",
+        "Photo k on the phone is row k. Bold rows are steps, not photos.",
+        "",
+        *table,
+    ]
+    return "\n".join(text) + "\n"
+
+
+def _shot_list(args: argparse.Namespace) -> int:
+    """Write the session's photo list; 0 written or already there, 1 differs, 2 cannot run."""
+    if args.size is not None or args.seed is not None:
+        print("shots: --shot-list reads the existing plan — drop --size and --seed")
+        return 2
+    if args.geometry is None:
+        print(f"shots: --shot-list needs --geometry, one of {', '.join(GEOMETRIES)}")
+        return 2
+    folder = Path(args.root) / args.session
+    if not (folder / PLAN_FILE).is_file():
+        print(f"shots: {folder / PLAN_FILE} not found — run `qs split-plan` for this "
+              "session first")
+        return 2
+    try:
+        plan = read_plan(folder)
+    except PlanError as exc:
+        print(f"shots: {exc}")
+        return 2
+    text = shots_text(args.session, plan, args.geometry)
+    try:
+        path, fresh = write_shot_list(folder, args.geometry, text)
+    except ShotListDiffers as exc:
+        print(f"shots: {exc}")
+        return 1
+    except OSError as exc:
+        print(f"shots: {exc}")
+        return 2
+    count = sum(isinstance(step, Shot) for step in shot_list(plan, args.geometry))
+    if fresh:
+        print(f"shots: {path} · {count} photos — print it")
+    else:
+        print(f"shots: {path} is already there and identical — print it")
+    return 0
+
+
 def main(args: argparse.Namespace) -> int:
-    """Plan the session; 0 written, 1 refused, 2 could not write."""
+    """Plan the session, or with `--shot-list` write its photo list.
+
+    0 written, 1 refused, 2 could not run.
+    """
+    if args.shot_list:
+        return _shot_list(args)
+    if args.geometry is not None:
+        print("plan: --geometry goes with --shot-list")
+        return 2
+    if args.size is None:
+        print("plan: --size is required to plan a session (standard or lean)")
+        return 2
     seed = args.seed if args.seed is not None else default_seed(args.session)
     try:
         plan = make_plan(args.size, seed)

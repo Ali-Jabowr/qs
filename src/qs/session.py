@@ -3,6 +3,8 @@
 - `plan.yml`, the split plan as data, and `plan.md`, its printable tray sheet. A plan is written
   once — never overwritten, because units already sitting in trays must not be silently
   reassigned — and read back through `Plan`, which refuses a unit in two splits (FR-52).
+- `shots-<geometry>.md`, the numbered photo list for the phone path (ADR-0022), written once:
+  the paper in Ali's hand and `qs import-phone` must read the same order.
 - The frames, PNG under the name rule (docs/12 §2), each written once and never overwritten.
 - `frames.csv`, one row per frame as it is saved (assumption A2, #29): what was recorded at the
   shot cannot be recovered after it (FR-15, docs/11 §6).
@@ -44,6 +46,10 @@ class PlanExists(Exception):
     """The session already has a plan; it is left as it is."""
 
 
+class ShotListDiffers(Exception):
+    """The session has a shot list for this geometry that differs; it is left as it is."""
+
+
 def _plan_data(plan: Plan) -> dict[str, Any]:
     return {
         "kind": "dataset",
@@ -71,6 +77,28 @@ def write_plan(folder: Path, plan: Plan, sheet: str) -> Path:
         ) from None
     (folder / SHEET_FILE).write_text(sheet, encoding="utf-8")
     return path
+
+
+def write_shot_list(folder: Path, geometry: str, text: str) -> tuple[Path, bool]:
+    """Write `shots-<geometry>.md` into `folder` once; the path, and whether it was written.
+
+    A list already on disk is never replaced: byte-identical → `(path, False)`; different →
+    `ShotListDiffers`, because a printed copy may already be at the bench and the import maps
+    photo k to row k.
+    """
+    path = folder / f"shots-{geometry}.md"
+    data = text.encode("utf-8")
+    try:
+        with path.open("xb") as out:  # exclusive: never overwrites
+            out.write(data)
+    except FileExistsError:
+        if path.read_bytes() == data:
+            return path, False
+        raise ShotListDiffers(
+            f"{path} exists and differs from the plan's list — left untouched; a printed copy "
+            "may already be in use"
+        ) from None
+    return path, True
 
 
 def _strings(value: object, where: str) -> tuple[str, ...]:
