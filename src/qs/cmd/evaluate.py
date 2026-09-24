@@ -231,10 +231,11 @@ def _placement(
 
 
 def _report_path(report_dir: Path, stem: str) -> Path:
-    """`<stem>.md`, or the next free `-2`, `-3` — a report is never overwritten."""
+    """`<stem>.md`, or the next free `-2`, `-3` — free meaning neither the `.md` nor its
+    `.csv` exists, so neither a report nor its CSV is ever overwritten."""
     path = report_dir / f"{stem}.md"
     n = 1
-    while path.exists():
+    while path.exists() or path.with_suffix(".csv").exists():
         n += 1
         path = report_dir / f"{stem}-{n}.md"
     return path
@@ -408,9 +409,15 @@ def _evaluate(
     stem = f"{date.today().isoformat()}-{config.product}-{config.lighting.geometry}"
     out = _report_path(report_dir, stem)
     report_dir.mkdir(parents=True, exist_ok=True)
-    out.write_text(rep.markdown(built), encoding="utf-8")
     csv_path = out.with_suffix(".csv")
-    csv_path.write_text(csv_text, encoding="utf-8")
+    try:  # exclusive create: a file that appeared since `_report_path` is never overwritten
+        with out.open("x", encoding="utf-8") as handle:
+            handle.write(rep.markdown(built))
+        with csv_path.open("x", encoding="utf-8") as handle:
+            handle.write(csv_text)
+    except FileExistsError as exc:
+        raise _Refused(f"{exc.filename} appeared while the report was written — a report "
+                       "is never overwritten") from None
     drift_line = drifted.line()
     _summary(out, csv_path, targets, placement_ok, warning, drift_line)
     return 0 if placement_ok and warning is None and drift_line is None else 1

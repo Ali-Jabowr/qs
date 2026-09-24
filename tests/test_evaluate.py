@@ -393,6 +393,24 @@ def test_the_csv_has_one_row_per_unit_and_state(first_report: SimpleNamespace,
     assert control[6] == "good" and control[7] == "9"  # three passes, three rotations
 
 
+def test_a_csv_left_without_its_report_is_never_overwritten(
+    tmp_path: Path, env: SimpleNamespace
+) -> None:
+    """A `<stem>.csv` whose `.md` was deleted still takes the name: the new report is
+    `-2`, and the kept CSV is byte-identical (review P08 N2)."""
+    directory = fresh_reports(tmp_path, env)
+    directory.mkdir(parents=True)
+    stem = f"{date.today().isoformat()}-{PRODUCT}-G2"
+    kept = directory / f"{stem}.csv"
+    kept.write_text("an orphaned per-unit CSV\n", encoding="utf-8")
+    code, out = run(tmp_path, env, report_dir=directory)
+    assert code == 0, out
+    assert kept.read_text(encoding="utf-8") == "an orphaned per-unit CSV\n"
+    assert not (directory / f"{stem}.md").exists()
+    assert (directory / f"{stem}-2.md").is_file()
+    assert (directory / f"{stem}-2.csv").is_file()
+
+
 def test_a_second_run_the_same_day_writes_minus_2(tmp_path: Path, env: SimpleNamespace
                                                   ) -> None:
     """The first report is never overwritten; the second gets `-2`; and no file under the
