@@ -8,6 +8,7 @@ and `preview()` frames), a recording stub inspector under an `appearance` config
 from __future__ import annotations
 
 import json
+import time
 import tkinter
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -18,13 +19,14 @@ import cv2
 import numpy as np
 import pytest
 import yaml
+from PIL import Image
 
 from evidence_records import fast_sqlite
-from qs.config import DisplayConfig, LoadedConfig
+from qs.config import DisplayConfig, LoadedConfig, StationConfig
 from qs.contracts import CameraReadback, Frame, Health, TriggerEvent, Verdict
 from qs.errors import CameraLost, CameraSettingsDrift
 from qs.inspector.stub import StubInspector
-from qs.operator_view import AMBER, BANNER, banner_line, fault_line
+from qs.operator_view import AMBER, BANNER, Status, banner_line, fault_line
 from qs.pipeline import CAMERA_SETTINGS
 from qs.screen import KeyPress, ScreenLike
 from qs.sources.factory import frame_source
@@ -40,7 +42,16 @@ from screen_station import (
     run_row,
     space,
 )
-from station_fixtures import HEIGHT, PATCH_GREY, UNVERIFIED, VERIFIED, WIDTH, config_mapping, rows
+from station_fixtures import (
+    HEIGHT,
+    PATCH_GREY,
+    UNVERIFIED,
+    VERIFIED,
+    WIDTH,
+    FakeClock,
+    config_mapping,
+    rows,
+)
 
 MAGENTA = (255, 0, 255)  # BGR and RGB alike
 CAPTURED = (90, 140, 110)  # BGR: a green-grey
@@ -346,3 +357,98 @@ def test_closing_the_window_in_fault_stops_cleanly_with_exit_1(tmp_path: Path) -
     assert run["ended_utc"] is not None
     assert json.loads(run["counters"])["final_state"] == "FAULT(camera)"
     assert live.rig.screens[0].close_calls == 1
+
+
+# #91: the run report and NFR-01, live -----------------------------------------------------
+
+BLANK = Image.new("RGB", (1, 1))
+
+
+class Counting:
+    """A `Refreshes` that draws nothing. The 200-event run times the loop, the trigger and
+    the Pipeline; on the fake clock drawing takes no time whichever annunciator draws."""
+
+    def __init__(self, config: StationConfig, screen: ScreenLike) -> None:
+        self.screen = screen
+
+    def show(self, frame: Frame | None, verdict: Verdict) -> None:
+        self.screen.present(BLANK)
+
+    def refresh(self, status: Status, live: np.ndarray | None) -> None:
+        self.screen.present(BLANK)
+
+    def close(self) -> None:
+        self.screen.close()
+
+
+class SlowInspector(RecordingInspector):
+    """Every inspection takes 0.40 s of fake time."""
+
+    def __init__(self, config_hash: str, clock: FakeClock) -> None:
+        super().__init__(config_hash)
+        self.clock = clock
+
+    def inspect(self, frame: Frame) -> Verdict:
+        self.clock.advance(0.40)
+        return super().inspect(frame)
+
+
+def test_200_live_presses_on_the_gpu_config_pass_nfr01(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    live = Live()
+    clock = live.rig.clock
+    reports = tmp_path / "reports"
+
+    def two_hundred_written(calls: int) -> bool:
+        return bool(live.sinks) and len(live.sinks[0].written) >= 200
+
+    began = time.perf_counter()
+    code = live.run(
+        live_config(tmp_path),  # appearance on torch-cuda, as the example config
+        report_dir=reports,
+        make_inspector=lambda loaded: SlowInspector(loaded.config_hash, clock),
+        make_screen_annunciator=Counting,
+        screen_options={"held": "space", "close_when": two_hundred_written},
+    )
+    assert time.perf_counter() - began < 10.0
+    assert code == 0
+    assert len(live.sinks[0].written) == 200
+    [report] = list(reports.iterdir())
+    [line] = [x for x in report.read_text(encoding="utf-8").splitlines() if x.startswith("NFR")]
+    assert line.startswith("NFR-01: PASS — p95 ") and line.endswith(" over 200 inspections")
+    p95 = int(line.split("p95 ")[1].split(" ms")[0])
+    assert 400 <= p95 <= 450  # 0.40 s inspecting, plus at most one 30 ms iteration waiting
+    assert capsys.readouterr().out.rstrip("\n").splitlines()[-1] == line
+
+
+def test_the_reports_counters_are_the_runs(tmp_path: Path) -> None:
+    """A run with a FAULT at start, one reconnect and discarded presses: the report's
+    `keys_discarded`, reconnect attempts and evidence counts equal `run.counters`."""
+    live = Live()
+    assert live.camera is not None
+    live.camera.opens = [CameraLost("/dev/video0: cannot open"), None]
+    script: list[list[KeyPress]] = [[], [space(), space()]]  # one event, one discarded
+    script.extend([] for _ in range(40))
+    script.append([space()])
+    script.append([space(), space()])  # both inside the 300 ms after event 2
+    script.extend([] for _ in range(GAP))
+    reports = tmp_path / "reports"
+    code = live.run(
+        live_config(tmp_path), report_dir=reports, screen_options=closing_after(script)
+    )
+    assert code == 0
+    counters = json.loads(run_row(tmp_path)["counters"])
+    sink = counters["sink"]
+    [report] = list(reports.iterdir())
+    text = report.read_text(encoding="utf-8")
+    assert counters["keys_discarded"] == 3
+    assert f"- Keys discarded: {counters['keys_discarded']}" in text
+    assert f"- Reconnect attempts: {counters['reconnect_attempts']}" in text
+    assert counters["reconnect_attempts"] == 1
+    assert (
+        f"- Evidence: written {sink['written']} · held {sink['held']}"
+        f" · images shed {sink['images_shed']} · lost {sink['lost']}"
+    ) in text
+    assert "- FAULT entries by reason: camera 1" in text
+    assert "NFR-01: not measured — 1 inspections, 200 needed" in text  # the camera one is not

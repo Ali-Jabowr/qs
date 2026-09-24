@@ -16,7 +16,7 @@ import pytest
 
 from evidence_records import fast_sqlite
 from qs.__main__ import build_parser
-from qs.config import DisplayConfig, LoadedConfig, StationConfig
+from qs.config import DisplayConfig, LoadedConfig, StationConfig, load_config
 from qs.contracts import Label
 from qs.errors import ConfigError
 from qs.inspector.stub import StubInspector
@@ -360,3 +360,71 @@ def test_a_verdict_is_never_shown_green_unless_it_passed(tmp_path: Path) -> None
         spy.verdicts, [e for e in spy.timeline if e[0] == "show"], strict=True
     ):
         assert (band == GREEN) == (verdict.label is Label.PASS)
+
+
+# #91: the run report ----------------------------------------------------------------------
+
+
+def test_a_screen_replay_leaves_a_report_whose_nfr01_line_ends_the_summary(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config = write_config(tmp_path)
+    shoot = tmp_path / "shoot"
+    write_frames(shoot, 5)
+    reports = tmp_path / "out" / "station"  # created when missing
+    code = Rig().run(
+        config, shoot, report_dir=reports, screen_options=closing_after(presses(5))
+    )
+    assert code == 0
+    run_id = _run_row(tmp_path)["run_id"]
+    [report] = list(reports.iterdir())
+    assert report.name == f"{run_id}.md"
+    text = report.read_text(encoding="utf-8")
+    loaded = load_config(config)
+    assert text.startswith(f"# Station run {run_id}\n")
+    assert "- Mode: replay of shoot" in text
+    assert f"config_hash `{loaded.config_hash}`" in text
+    assert "- Model: `stub`" in text
+    assert "- Events: 5" in text and "- Labels: pass 5 · defect 0 · no_verdict 0" in text
+    nfr = [line for line in text.splitlines() if line.startswith("NFR-01:")]
+    assert len(nfr) == 1
+    assert nfr[0].startswith("NFR-01: not measured — replay has no capture step")
+    out = capsys.readouterr().out.rstrip("\n").splitlines()
+    assert out[-1] == nfr[0]
+
+
+def test_headless_replay_writes_no_report(tmp_path: Path) -> None:
+    config = write_config(tmp_path)
+    shoot = tmp_path / "shoot"
+    write_frames(shoot, 3)
+    reports = tmp_path / "reports"
+    assert Rig().run(config, shoot, screen=False, report_dir=reports) == 0
+    assert not reports.exists()
+
+
+def test_the_report_has_no_image_and_is_never_overwritten(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config = write_config(tmp_path)
+    shoot = tmp_path / "shoot"
+    write_frames(shoot, 2)
+    reports = tmp_path / "reports"
+    assert Rig().run(
+        config, shoot, report_dir=reports, screen_options=closing_after(presses(2))
+    ) == 0
+    [report] = list(reports.iterdir())
+    text = report.read_text(encoding="utf-8").lower()
+    assert all(suffix not in text for suffix in (".png", ".jpg", ".jpeg"))
+
+    # The same run_id again (the same wall clock, another evidence root): exit 1, untouched.
+    again = tmp_path / "again"
+    again.mkdir()
+    before = report.read_bytes()
+    capsys.readouterr()
+    assert Rig().run(
+        write_config(again), shoot, report_dir=reports,
+        screen_options=closing_after(presses(2)),
+    ) == 1
+    assert report.read_bytes() == before
+    assert list(reports.iterdir()) == [report]
+    assert "exists: not overwritten" in capsys.readouterr().out

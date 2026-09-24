@@ -50,6 +50,7 @@ from qs.pipeline import (
 from qs.screen import ScreenLike
 from qs.sources.replay import ReplayTrigger
 from qs.sources.v4l2 import to_readback
+from qs.station_report import EventTiming, timing_of
 
 _log = logging.getLogger(__name__)
 
@@ -205,6 +206,7 @@ class Station:
         self.events = 0  # events the main loop handed to the Pipeline
         self.screen_errors = 0  # refreshes of the screen that raised
         self._unverifiable_open = False  # the camera's settings could not all be read at open
+        self.timings: list[EventTiming] = []  # with a screen: each record's, for the report
 
     def armed(self) -> bool:
         """Whether a key press may make an event: the Pipeline exists and is not STARTING."""
@@ -308,7 +310,7 @@ class Station:
             event = self.trigger.poll()
             if event is not None:
                 self.events += 1
-                pipeline.handle(event)
+                self.timings.append(timing_of(pipeline.handle(event)))
             loop.sleep(max(0.0, ITERATION_S - (clock() - began)))
 
     def _caption(self, loop: ScreenLoop) -> str | None:

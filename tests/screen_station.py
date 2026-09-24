@@ -51,12 +51,17 @@ def presses(count: int, *, then: Sequence[Sequence[KeyPress]] = ()) -> list[list
     return script
 
 
-def args(config: Path, replay: Path | None, *, screen: bool) -> argparse.Namespace:
+def args(
+    config: Path, replay: Path | None, *, screen: bool, report_dir: Path | None = None
+) -> argparse.Namespace:
+    """`qs station` arguments; the report goes to `report_dir`, by default `reports/` beside
+    the config (always under the test's `tmp_path`)."""
     argv = ["station", "--config", str(config)]
     if replay is not None:
         argv += ["--replay", str(replay)]
     if screen:
         argv.append("--screen")
+    argv += ["--report-dir", str(report_dir or config.parent / "reports")]
     return build_parser().parse_args(argv)
 
 
@@ -144,10 +149,11 @@ class Rig:
         a `replay` is P04's headless replay."""
         screen_options = options.pop("screen_options", {})
         screen = options.pop("screen", replay is not None)
+        report_dir = options.pop("report_dir", None)
         return main(
-            args(config, replay, screen=screen),
+            args(config, replay, screen=screen, report_dir=report_dir),
             make_screen=options.pop("make_screen", self.screen_factory(**screen_options)),
-            make_screen_annunciator=self.spy,
+            make_screen_annunciator=options.pop("make_screen_annunciator", self.spy),
             sleep=self.sleep,
             clock=self.clock,
             wall=options.pop("wall", StepWall()),

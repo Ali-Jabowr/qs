@@ -25,6 +25,10 @@ the run ended READY, 1 when the run completed otherwise, and 2 when it could not
 stopped itself on a camera read-back mismatch). With a screen, closing the window or SIGINT
 is a stop request; headless, SIGINT is.
 
+A run with a screen also writes a numbers-only report, `<--report-dir>/<run_id>.md`
+(`qs.station_report`, #91), and its NFR-01 line is the summary's last line. The report is
+never written over an existing file: that run exits 1. Headless replay writes none.
+
 There is no validation mode: `inspector.type: appearance` loads only the bundle the config
 names, verified against its `model_id`, and refuses a validation-only one (docs/17 §6).
 `make_scorer` and `cuda_available` are the model seams P07 defines — the real PatchCore by
@@ -65,6 +69,7 @@ from qs.station import (
     real_cuda_available,
     real_scorer,
 )
+from qs.station_report import RunFacts, nfr01_line, render_report
 from qs.store import DB_NAME
 
 MakeScreen = Callable[[DisplayConfig, str, Clock], ScreenLike]
@@ -89,6 +94,10 @@ def add_parser(commands: Any) -> None:
     station.add_argument(
         "--screen", action="store_true",
         help="with --replay: the operator window; each SPACE press takes the next frame",
+    )
+    station.add_argument(
+        "--report-dir", metavar="DIR", default="reports/station",
+        help="where a run with a screen writes its numbers-only report (reports/station)",
     )
 
 
@@ -163,9 +172,10 @@ def main(
             )
             return 2
         source_id = f"keyboard:{config.trigger.key}"
-    else:
-        directory = Path(args.replay)
-        source_id = f"replay:{directory.resolve().name}"
+    directory = Path(args.replay or ".")
+    replay_name = directory.resolve().name
+    if not live:
+        source_id = f"replay:{replay_name}"
     try:
         if not live:
             files = replay_files(directory)
@@ -173,9 +183,7 @@ def main(
             if screen_mode:
                 source = ReplaySource(config, files, clock=clock)
             else:
-                trigger, source = replay_pair(
-                    config, files, directory.resolve().name, clock=clock, wall=wall
-                )
+                trigger, source = replay_pair(config, files, replay_name, clock=clock, wall=wall)
         if make_inspector is None:
             inspector = build_inspector(
                 loaded, make_scorer=make_scorer, cuda_available=cuda_available
@@ -240,10 +248,60 @@ def main(
         pipeline, station.sink, station.run_id, loaded,
         keys_discarded=station.keys_discarded if loop is not None else None,
     )
+    reported = True
+    if loop is not None:
+        facts = RunFacts(
+            run_id=station.run_id,
+            live=live,
+            mode=f"live, {config.camera.device}" if live else f"replay of {replay_name}",
+            invocation=_invocation(args),
+            config_path=str(args.config),
+            config_hash=loaded.config_hash,
+            model_id=str(inspector.model_id),
+            threshold_id=config.threshold.id,
+            inspector_type=config.inspector.type,
+            backend=config.inspector.backend,
+            budget_ms=config.latency.budget_ms,
+            counters=pipeline.counters,
+            sink=station.sink.counters(),
+            keys_discarded=station.keys_discarded,
+        )
+        reported = _write_report(
+            Path(args.report_dir), station.run_id, render_report(facts, station.timings)
+        )
+        print(nfr01_line(facts, station.timings))  # the summary's last line
     if pipeline.refusal is not None:
         print(pipeline.refusal)
         return 2
-    return 0 if complete and pipeline.final_state == "READY" else 1
+    return 0 if complete and reported and pipeline.final_state == "READY" else 1
+
+
+def _invocation(args: argparse.Namespace) -> str:
+    """The command as it was given, rebuilt from its arguments."""
+    parts = ["qs", "station", "--config", str(args.config)]
+    if args.replay is not None:
+        parts += ["--replay", str(args.replay)]
+    if getattr(args, "screen", False):
+        parts.append("--screen")
+    parts += ["--report-dir", str(args.report_dir)]
+    return " ".join(parts)
+
+
+def _write_report(directory: Path, run_id: str, text: str) -> bool:
+    """`<directory>/<run_id>.md`, never over an existing file; whether it was written."""
+    path = directory / f"{run_id}.md"
+    try:
+        directory.mkdir(parents=True, exist_ok=True)
+        with path.open("x", encoding="utf-8") as handle:
+            handle.write(text)
+    except FileExistsError:
+        print(f"report {path} exists: not overwritten")
+        return False
+    except OSError as exc:
+        print(f"report {path} not written: {exc}")
+        return False
+    print(f"report {path}")
+    return True
 
 
 def _summary(
