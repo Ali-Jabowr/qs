@@ -197,3 +197,62 @@ failed once (`held` 2, not ≥ 100). It passed alone three times, and it passed 
 sink-timing flake, like the known one in `test_webcam.py`.
 
 **Verdict: PASS.**
+
+## Flaky tests (r1b)
+
+Three P04 fault-injection tests failed now and then under load and passed when run alone. In
+each case the test's synchronisation was at fault, not the product, and only the tests changed:
+`tests/test_fault_injection.py`, `tests/test_fault_injection_more.py` and two helpers in
+`tests/station_fixtures.py` (`wait_for`, `every_queued_record_held`). Each fix waits on
+something it can observe, with a 5 s or 8 s deadline, instead of relying on timing. Each test
+still asserts every line it asserted before.
+
+**#75 case 4, `test_4_a_process_killed_mid_run_leaves_evidence_that_verifies`**
+- **Cause.** There were two causes, not just a late `send_signal`.
+  - The stub decides all 600 replay events in about 0.2 s. After that, the child's lifetime
+    is only the time the sink takes to drain them, a few seconds. So the child ends by itself
+    soon after it starts.
+  - The poller could not see the rows being written. The writer commits back to back and holds
+    the database lock almost all the time, so the poller's `SELECT COUNT(*)` got "database is
+    locked" on most tries. In a probe with no load, 5 of the 6 polls made after the database
+    existed were locked out. The 6th saw 600 rows, after the run had ended.
+  - As a result, the poller often first saw 100 rows only once the writer went idle, which is
+    when the run had already ended. The kill then landed after `run.ended_utc` was written (5
+    of the 9 failures), or after the child had already exited 0 (4 of 9).
+- **Fix.**
+  - The test now tracks progress with SQLite's file change counter: header bytes 24–27, which
+    rise by one for each commit in rollback-journal mode. It reads them as plain bytes, with no
+    lock, so the writer cannot starve it.
+  - When the counter shows at least 100 rows (with one to spare), the test sends `SIGSTOP` and
+    waits with `waitid(WSTOPPED | WNOWAIT)` until the child is frozen.
+  - Then it checks that the counter is still below the run's end, and sends `SIGKILL` while
+    the child is still frozen. That is the same as a kill at the instant the child stopped.
+  - The kill therefore always lands mid-run. The post-mortem checks are unchanged: integrity,
+    gapless `1…m` with `m ≥ 100`, `ended_utc` NULL, `verify`, orphans, and file hashes.
+- **Before → after:** 11/20 → 20/20 with 4 CPU burners, and 14/20 → 20/20 with 24 burners.
+
+**#75 case 1, `test_1_enospc_for_events_50_to_149_holds_every_row`, and #73's `test_a_read_only_evidence_directory_for_events_50_to_149`**
+- **Cause.** Both failed the same way: `held` was 99 when it had to be ≥ 100.
+  - A record counts as `held` only if the sink's worker made a failed attempt after that record
+    was queued.
+  - The hook ended the outage inside `show(149)`, straight after the last records of the outage
+    were queued. A 100-event outage on the fake clock lasts a few milliseconds of wall time.
+    Under load, the worker thread was not scheduled for another retry before storage came back.
+  - The earlier "`held` 2" failure was the same thing, with a worker that was starved for
+    longer.
+- **Fix.**
+  - The hook now only asks for the outage to end. The next tick, which runs outside
+    `handle()`, first waits until `held` covers `pending`: the sink has failed on every record
+    it still has queued.
+  - Only then does the tick restore storage and wait for the backlog to drain. This models an
+    outage that outlasts one retry, as a real one does. The NFR-01 timing assertion on
+    `handle()` is untouched.
+  - The same change fixes the same latent race in `test_all_of_it_in_one_run` (`held ≥ 50`)
+    and in #75 case 2. Case 2's `held ≥ 250`, which had 10 rows of slack for this race, is now
+    exact: `held == 260`.
+- **Before → after, case 1:** 20/20 → 20/20 with 4 burners, and 19/20 → 20/20 with 24 burners.
+- **Before → after, read-only:** 20/20 → 20/20 with 4 burners, and 18/20 → 20/20 with 24
+  burners. The old read-only test also went 19/20 with 14 burners. With 4 burners on this
+  12-core laptop, the old versions of these two tests did not fail.
+
+`make check`: **green**. 786 passed and 14 deselected; ruff is clean; mypy passes on 45 files.

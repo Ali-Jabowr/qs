@@ -11,6 +11,7 @@ import argparse
 import csv
 import hashlib
 import sqlite3
+import time
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -157,6 +158,24 @@ def rows(database: Path, sql: str, params: tuple[object, ...] = ()) -> list[sqli
         return conn.execute(sql, params).fetchall()
     finally:
         conn.close()
+
+
+def wait_for(condition: Callable[[], bool], what: str, timeout_s: float = 5.0) -> None:
+    """Poll `condition` every 2 ms until it holds; fail naming `what` if it has not within
+    `timeout_s` of wall time. For the tests that wait on another thread or process."""
+    deadline = time.monotonic() + timeout_s
+    while not condition():
+        assert time.monotonic() < deadline, f"not within {timeout_s} s: {what}"
+        time.sleep(0.002)
+
+
+def every_queued_record_held(sink: Any) -> bool:
+    """Whether the sink has failed on every record it holds queued: its worker made a failed
+    attempt after the last of them was queued, so each counts as `held` (P03, #60). Valid for a
+    run with one storage outage, before storage returns: no held record has been written yet,
+    so `held` counts only queued records."""
+    counters = sink.counters()
+    return bool(counters["held"] >= counters["pending"] > 0)
 
 
 class FakeClock:

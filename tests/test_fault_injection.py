@@ -36,9 +36,11 @@ from station_fixtures import (
     HEIGHT,
     WIDTH,
     FakeClock,
+    every_queued_record_held,
     rows,
     station_args,
     textured,
+    wait_for,
     write_config,
     write_frames,
     write_frames_csv,
@@ -262,28 +264,33 @@ def test_camera_lost_at_event_50_reconnects_on_the_third_attempt(
 
 @dataclass
 class ReadOnly:
-    """The evidence root read-only from `start()` until `restore()`; `restore()` also makes
-    the next tick wait (outside handle()) until the backlog is written, bounded to 5 s."""
+    """The evidence root read-only from `start()` until the tick after `restore()`, which is
+    outside handle(). That tick, each wait bounded to 5 s, first waits until the sink has failed
+    on every record queued so far, so each record of the outage has waited through a failed
+    attempt (`held`) however the sink's worker thread happened to be scheduled — a real outage
+    outlasts a retry, a 100-event one on the fake clock takes a few milliseconds of wall time;
+    then makes the root writable; then waits until the backlog is written."""
 
     root: Path
     spy: Spy
-    restored: bool = False
-    drained: bool = False
+    ending: bool = False
+    done: bool = False
 
     def start(self) -> None:
         self.root.chmod(0o555)
 
     def restore(self) -> None:
-        self.root.chmod(0o755)
-        self.restored = True
+        self.ending = True
 
     def between(self) -> None:
-        if self.restored and not self.drained:
-            assert self.spy.sink is not None
-            deadline = time.monotonic() + 5.0
-            while self.spy.sink.pending() and time.monotonic() < deadline:
-                time.sleep(0.005)
-            self.drained = True
+        if not self.ending or self.done:
+            return
+        sink = self.spy.sink
+        assert sink is not None
+        wait_for(lambda: every_queued_record_held(sink), "a failed attempt on every held record")
+        self.root.chmod(0o755)
+        wait_for(lambda: sink.pending() == 0, "the backlog written after the outage")
+        self.done = True
 
     @contextmanager
     def always_restored(self) -> Iterator[ReadOnly]:

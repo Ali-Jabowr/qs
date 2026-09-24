@@ -54,11 +54,13 @@ from qs.store import Store, verify
 from station_fixtures import (
     UNVERIFIED,
     FakeClock,
+    every_queued_record_held,
     loaded_config,
     rows,
     sha256_file,
     station_args,
     textured,
+    wait_for,
     write_config,
     write_frames,
     write_frames_csv,
@@ -260,23 +262,34 @@ def _stored_files_match(run: Run) -> None:
 
 @dataclass
 class Drain:
-    """After `restore()`, the next tick waits (outside handle()) until the backlog is written,
-    bounded to 5 s, so the events after the outage meet an empty queue."""
+    """Ends a storage outage outside handle(). A hook calls `end()`, which only asks; the next
+    tick then, each wait bounded to 5 s:
+
+    1. waits until the sink has failed on every record queued so far, so each record of the
+       outage has waited through a failed attempt (`held`), however the sink's worker thread
+       happened to be scheduled — a real outage outlasts a retry; a 100-event one on the fake
+       clock takes a few milliseconds of wall time;
+    2. calls `restore`;
+    3. waits until the backlog is written, so the events after the outage meet an empty queue.
+    """
 
     spy: Spy
-    restored: bool = False
-    drained: bool = False
+    restore: Callable[[], None]
+    ending: bool = False
+    done: bool = False
 
-    def restore(self) -> None:
-        self.restored = True
+    def end(self) -> None:
+        self.ending = True
 
     def between(self) -> None:
-        if self.restored and not self.drained:
-            assert self.spy.sink is not None
-            deadline = time.monotonic() + 5.0
-            while self.spy.sink.pending() and time.monotonic() < deadline:
-                time.sleep(0.005)
-            self.drained = True
+        if not self.ending or self.done:
+            return
+        sink = self.spy.sink
+        assert sink is not None
+        wait_for(lambda: every_queued_record_held(sink), "a failed attempt on every held record")
+        self.restore()
+        wait_for(lambda: sink.pending() == 0, "the backlog written after the outage")
+        self.done = True
 
 
 # --- 1 · ENOSPC -------------------------------------------------------------------------------
@@ -298,18 +311,17 @@ def test_1_enospc_for_events_50_to_149_holds_every_row(
 
     monkeypatch.setattr(qs.store, "write_file", no_space)
     spy = Spy()
-    drain = Drain(spy)
     details: list[str] = []
 
     def restore() -> None:
         assert spy.sink is not None
         details.append(spy.sink.health().detail)
         full.clear()
-        drain.restore()
 
+    drain = Drain(spy, restore)
     run = _station(
         tmp_path, capsys, monkeypatch,
-        hooks={49: full.set, 149: restore}, between=drain.between, spy=spy,
+        hooks={49: full.set, 149: drain.end}, between=drain.between, spy=spy,
     )
     _one_record_per_event(run, 200)
     assert run.code == 0
@@ -367,17 +379,12 @@ def test_2_images_are_shed_pass_first_then_no_verdict_then_defect(
         del script[seq]  # unscripted: a pass
     defects = sorted(set(range(1, 261)) - passes - placements)
     spy = Spy()
-    drain = Drain(spy)
     with _read_only(tmp_path / "evidence") as restore:
-
-        def restored() -> None:
-            restore()
-            drain.restore()
-
+        drain = Drain(spy, restore)
         run = _station(
             tmp_path, capsys, monkeypatch,
             events=300, script=script,
-            hooks={260: restored}, between=drain.between, spy=spy,
+            hooks={260: drain.end}, between=drain.between, spy=spy,
         )
     _one_record_per_event(run, 300)
     assert run.code == 0
@@ -403,7 +410,7 @@ def test_2_images_are_shed_pass_first_then_no_verdict_then_defect(
     assert len(on_disk) == (300 - 60) + (220 - 20)  # images, and the kept heatmaps
     sink = run.counters()["sink"]
     assert sink["images_shed"] == 60
-    assert sink["held"] >= 250  # those queued after the last failed retry are not "held"
+    assert sink["held"] == 260  # every row of the outage waited through a failed attempt
     assert run.counters()["labels"] == {"pass": 60, "defect": 220, "no_verdict": 20}
 
 
@@ -462,24 +469,23 @@ def test_3_a_stop_while_storage_is_down_ends_in_10_s_and_counts_the_lost(
 
 SRC = Path(__file__).resolve().parents[1] / "src"
 KILL_AFTER = 100  # rows
-KILL_FRAMES = 600  # far more than are written before the kill
+KILL_FRAMES = 600  # the replay queues all of them in well under a second; the rows take seconds
+SETUP_COMMITS = 2  # the schema and the run row are committed before the first record
 
 
-def _row_count(database: Path) -> int:
-    """Rows committed so far, read-only; 0 until the database exists or its schema is made,
-    and 0 if the writer holds its lock for longer than the reader's 0.5 s busy wait."""
-    if not database.exists():
-        return 0
+def _commits(database: Path) -> int:
+    """Write transactions committed to `database` so far: SQLite's file change counter, bytes
+    24–27 of the header, big-endian, one more per write transaction in the store's rollback
+    journal mode (https://www.sqlite.org/fileformat.html, §1.3.3). Read as plain bytes with no
+    lock: the station's writer commits back to back and holds the database lock nearly all the
+    time, so a reader of the database is starved until the writer goes idle, which is when
+    the run has ended. 0 until the file has its header."""
     try:
-        conn = sqlite3.connect(f"{database.resolve().as_uri()}?mode=ro", uri=True, timeout=0.5)
-    except sqlite3.Error:
+        with database.open("rb") as handle:
+            header = handle.read(28)
+    except FileNotFoundError:
         return 0
-    try:
-        return int(conn.execute("SELECT COUNT(*) FROM inspection").fetchone()[0])
-    except sqlite3.Error:
-        return 0
-    finally:
-        conn.close()
+    return int.from_bytes(header[24:28], "big") if len(header) == 28 else 0
 
 
 def test_4_a_process_killed_mid_run_leaves_evidence_that_verifies(tmp_path: Path) -> None:
@@ -487,7 +493,12 @@ def test_4_a_process_killed_mid_run_leaves_evidence_that_verifies(tmp_path: Path
     rows are committed. The database opens and is intact; its rows are `seq` 1…m with no gap;
     every row's files exist with their hashes; verification lists any orphan, which can only
     be the files of record m+1, written before its row could commit; and the run stays open
-    (`ended_utc` NULL). At most the in-memory backlog is lost."""
+    (`ended_utc` NULL). At most the in-memory backlog is lost.
+
+    The kill must land before the run ends by itself: the stub decides all 600 events in well
+    under a second, and the child exits once its writer has drained them. So the child is
+    frozen with SIGSTOP, its progress is read while it cannot move, and it is killed frozen —
+    the same as a SIGKILL at the instant it stopped, at whatever point its writer was."""
     config = write_config(tmp_path)
     shoot = tmp_path / "shoot"
     [first] = write_frames(shoot, 1)
@@ -504,11 +515,22 @@ def test_4_a_process_killed_mid_run_leaves_evidence_that_verifies(tmp_path: Path
             cwd=tmp_path, env=env, stdout=subprocess.DEVNULL, stderr=stderr,
         )
         try:
+            # One more commit than the rows needed: the last may be rolled back by the kill.
+            wanted = SETUP_COMMITS + KILL_AFTER + 1
             deadline = time.monotonic() + 8.0
-            while _row_count(database) < KILL_AFTER:
+            while _commits(database) < wanted:
                 assert child.poll() is None, "the station ended before it was killed"
                 assert time.monotonic() < deadline, "100 rows were not written within 8 s"
-                time.sleep(0.005)
+                time.sleep(0.002)
+            os.kill(child.pid, signal.SIGSTOP)
+            stopped = os.waitid(os.P_PID, child.pid, os.WSTOPPED | os.WEXITED | os.WNOWAIT)
+            assert stopped is not None and stopped.si_code == os.CLD_STOPPED, (
+                "the station ended before it was frozen"
+            )
+            # Frozen: nothing more is committed. The run's end is committed after every row.
+            assert _commits(database) < SETUP_COMMITS + KILL_FRAMES, (
+                "the station had written every row before it was frozen"
+            )
             child.send_signal(signal.SIGKILL)
         finally:
             child.kill()
