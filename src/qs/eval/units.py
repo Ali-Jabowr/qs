@@ -18,7 +18,9 @@ geometry measures per pass; `pairs` each test unit's damaged − good score (ADR
 `drift` the E9 line by assumption A3 (#79) — shift = the range of a control's unit score
 over its scored passes, the largest of the controls; gap = the median paired difference of
 the dent units scored in both states; drift when shift ≥ gap, gap ≤ 0, or either cannot be
-measured. `latency` gives p50/p95/p99 of the frames that reached the Inspector.
+measured. `latency` gives p50/p95/p99 of the frames that reached the model — as
+`qs latency` does, placement-fault frames are left out and counted, since timing them would
+flatter the percentiles (#50; assumption, question #93).
 """
 
 from __future__ import annotations
@@ -402,7 +404,7 @@ DRIFT_CLASS = "dent"
 
 def drift(controls: Sequence[ControlPass], paired: Sequence[Pair]) -> Drift:
     """Shift against gap (A3, #79). Every case that cannot be measured drifts — a session
-    whose stability is unknown is never read as stable."""
+    whose stability is unknown is never read as stable (#79; the unmeasurable gap, #93)."""
     per: dict[str, list[float]] = {}
     for c in controls:
         per.setdefault(c.unit, [])
@@ -445,20 +447,20 @@ def drift(controls: Sequence[ControlPass], paired: Sequence[Pair]) -> Drift:
 
 @dataclass(frozen=True, slots=True)
 class Latency:
-    """p50/p95/p99 over the frames that reached the Inspector; `None` when none did."""
+    """p50/p95/p99 over the frames that reached the model; `None` when none did.
+    `placement` counts the frames the Inspector refused before the model, left out."""
 
     count: int
     inspect_ms: tuple[float, float, float] | None
     total_ms: tuple[float, float, float] | None
+    placement: int = 0
 
 
-_REACHED = ("placement", "inference")  # the НЕТ РЕШЕНИЯ raised inside the Inspector
-
-
-def reached_inspector(result: FrameResult) -> bool:
-    """Whether the Pipeline called the Inspector on this frame: a verdict, or a
-    НЕТ РЕШЕНИЯ raised inside it (placement, inference) — not one decided before it."""
-    return result.label is not Label.NO_VERDICT or result.reason in _REACHED
+def reached_model(result: FrameResult) -> bool:
+    """Whether the frame reached the model: a verdict, or НЕТ РЕШЕНИЯ(`inference`) raised
+    by it. Not a placement fault (the Inspector refuses before the model, #50), and not a
+    НЕТ РЕШЕНИЯ decided before the Inspector (lighting, capture)."""
+    return result.label is not Label.NO_VERDICT or result.reason == "inference"
 
 
 def _percentiles(samples: Sequence[float]) -> tuple[float, float, float]:
@@ -470,8 +472,10 @@ def _percentiles(samples: Sequence[float]) -> tuple[float, float, float]:
 
 def latency(results: Sequence[FrameResult]) -> Latency:
     """The run's timings — measured, not reproducible; nothing is gated on them."""
-    reached = [r for r in results if reached_inspector(r)]
+    reached = [r for r in results if reached_model(r)]
+    placement = sum(1 for r in results
+                    if r.label is Label.NO_VERDICT and r.reason == "placement")
     if not reached:
-        return Latency(0, None, None)
+        return Latency(0, None, None, placement)
     return Latency(len(reached), _percentiles([r.inspect_ms for r in reached]),
-                   _percentiles([r.total_ms for r in reached]))
+                   _percentiles([r.total_ms for r in reached]), placement)

@@ -834,9 +834,10 @@ def test_pairs_are_damaged_minus_good_with_the_median_per_class() -> None:
     assert "deformed 0.200000 (2 units)" in section
 
 
-def test_latency_is_the_percentiles_of_the_frames_that_reached_the_inspector() -> None:
-    """Verdicts and the НЕТ РЕШЕНИЯ raised inside the Inspector count; one decided before it
-    (lighting) does not. p50/p95/p99 by numpy's linear method, computed here by hand."""
+def test_latency_is_the_percentiles_of_the_frames_that_reached_the_model() -> None:
+    """Verdicts and НЕТ РЕШЕНИЯ(inference) count; a placement fault (refused before the
+    model, as `qs latency` leaves it out) is counted apart; one decided before the
+    Inspector (lighting) is neither. p50/p95/p99 by numpy's linear method, by hand."""
     def timed(file: str, inspect: float, total: float, **kwargs: object) -> FrameResult:
         base = _result(file, **kwargs)  # type: ignore[arg-type]
         return FrameResult(base.file, base.name, base.label, base.reason, base.geometry,
@@ -844,16 +845,18 @@ def test_latency_is_the_percentiles_of_the_frames_that_reached_the_inspector() -
 
     results = [timed(f"u001_good_G2_r{r}.png", 10.0 * (r + 1), 20.0 * (r + 1))
                for r in range(3)]
-    results.append(timed("x01_empty_G2_r0.png", 40.0, 80.0, label=Label.NO_VERDICT,
+    results.append(timed("u001_dmg_G2_r0.png", 40.0, 80.0, label=Label.NO_VERDICT,
+                         score=None, geometry=None, reason="inference"))
+    results.append(timed("x01_empty_G2_r0.png", 1.0, 2.0, label=Label.NO_VERDICT,
                          score=None, geometry=None, reason="placement"))
     results.append(timed("u002_good_G2_r0.png", 0.0, 500.0, label=Label.NO_VERDICT,
                          score=None, geometry=None, reason="lighting"))
     got = latency(results)
-    assert got.count == 4
+    assert (got.count, got.placement) == (4, 1)
     # inspect 10, 20, 30, 40: p50 = 25; p95 = 30 + 0.85 × 10 = 38.5; p99 = 30 + 0.97 × 10
     assert got.inspect_ms == pytest.approx((25.0, 38.5, 39.7))
     assert got.total_ms == pytest.approx((50.0, 77.0, 79.4))
-    assert latency(results[-1:]) == type(got)(0, None, None)
+    assert latency(results[-2:]) == type(got)(0, None, None, 1)
 
 
 # --- ticket #83 through `qs evaluate`: controls, drift, latency, changed units --------------
@@ -910,7 +913,8 @@ def test_latency_is_computed_on_the_runs_own_results(
     tmp_path: Path, env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The p50/p95/p99 in the report are numpy's, over the frames the run itself scored that
-    reached the Inspector; with no `qs latency --cpu` report the command is named."""
+    reached the model — the 10 placement frames left out and counted; with no
+    `qs latency --cpu` report the command is named."""
     seen: list[tuple[FrameResult, ...]] = []
     original = evaluate.score_frames
 
@@ -923,12 +927,12 @@ def test_latency_is_computed_on_the_runs_own_results(
     code, out = run(tmp_path, env)
     assert code == 0, out
     [results] = seen
-    reached = [r for r in results if r.label is not Label.NO_VERDICT
-               or r.reason in ("placement", "inference")]
-    assert len(reached) == len(results) == 211  # calib, test, control and placement frames
+    reached = [r for r in results if r.label is not Label.NO_VERDICT]
+    assert (len(results), len(reached)) == (211, 201)  # every frame but the 10 placement
     text = report_of(tmp_path / "reports" / "eval").read_text(encoding="utf-8")
     section = text.split("## Latency — measured, not reproducible")[1]
-    assert "- backend `torch-cuda`, 211 frames that reached the Inspector" in section
+    assert ("- backend `torch-cuda`, 201 frames that reached the model (10 placement-fault "
+            "frames left out: they never reach the model, as in `qs latency`)") in section
     for name, values in (("inspect_ms", [r.inspect_ms for r in reached]),
                          ("total_ms", [r.total_ms for r in reached])):
         expected = " | ".join(f"{float(np.percentile(values, q)):.1f}" for q in (50, 95, 99))

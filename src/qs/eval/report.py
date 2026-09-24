@@ -309,11 +309,13 @@ def _changes_section(r: Report) -> str:
 
 def _latency_section(r: Report) -> str:
     lat = r.latency
+    left_out = (f" ({lat.placement} placement-fault frames left out: they never reach the "
+                "model, as in `qs latency`)") if lat is not None and lat.placement else ""
     if lat is None or lat.inspect_ms is None or lat.total_ms is None:
-        lines = ["- no frame reached the Inspector: nothing was timed."]
+        lines = [f"- no frame reached the model: nothing was timed{left_out}."]
     else:
         lines = [
-            f"- backend `{r.backend}`, {lat.count} frames that reached the Inspector",
+            f"- backend `{r.backend}`, {lat.count} frames that reached the model{left_out}",
             "",
             "| ms | p50 | p95 | p99 |",
             "|---|---|---|---|",
