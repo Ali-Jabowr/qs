@@ -209,6 +209,33 @@ def build_parser() -> argparse.ArgumentParser:
         "--models", default="models", metavar="DIR", help="where bundles are written (models)"
     )
 
+    calibrate = commands.add_parser(
+        "calibrate",
+        help="derived tolerances and the threshold under one threshold_id (FR-54, docs/15 §7)",
+    )
+    calibrate.add_argument("--config", required=True, metavar="PATH", help="the station config")
+    calibrate.add_argument(
+        "--dataset", required=True, metavar="DIR", help="the built dataset; train and calib "
+        "are read"
+    )
+    calibrate.add_argument(
+        "--model", required=True, metavar="MODEL_ID", help="qs train's model_id"
+    )
+    calibrate.add_argument(
+        "--out", required=True, metavar="PATH",
+        help="the new config (must not exist; the input is only read)",
+    )
+    calibrate.add_argument(
+        "--far", type=int, choices=(1, 5, 10), default=5, metavar="N",
+        help="the target false-alarm rate in %% on the calibration units (5)",
+    )
+    calibrate.add_argument(
+        "--models", default="models", metavar="DIR", help="where bundles are read (models)"
+    )
+    calibrate.add_argument(
+        "--report-dir", metavar="DIR", default="reports/calib", help="where the record goes"
+    )
+
     from qs.cmd.mvtec_check import category
 
     mvtec = commands.add_parser(
@@ -310,6 +337,10 @@ def run(argv: Sequence[str] | None = None) -> int:
         from qs.cmd import train
 
         return train.main(args)
+    if args.command == "calibrate":
+        from qs.cmd import calibrate
+
+        return calibrate.main(args)
     if args.command == "mvtec-check":
         from qs.cmd import mvtec_check
 
