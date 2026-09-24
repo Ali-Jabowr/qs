@@ -26,7 +26,7 @@ meta:
   location: Volgograd
   location_ru: Волгоград
   repo: /home/marxel/PROJECTS/QS
-  updated: 2026-09-22
+  updated: 2026-09-24
   # GitHub is the primary board from 2026-09-22. This file stays the state file and is
   # kept in sync with it; the duplication is accepted. Each migrated question and risk
   # carries its issue number as `issue:`.
@@ -243,7 +243,7 @@ stages:
     name_ru: Проверка пайплайна на публичных данных
     planned_start: 2026-09-24
     planned_end: 2026-09-24
-    status: not_started
+    status: in_progress
     goal_en: Know the installation is correct before our own data can be blamed.
     goal_ru: Убедиться, что окружение установлено правильно, до того как в ошибках можно будет винить наши собственные данные.
     tasks:
@@ -257,14 +257,14 @@ stages:
         text_en: "Run our PatchCore code path on one MVTec AD category and land near Anomalib's published number — plan P07"
         text_ru: "Прогнать наш код PatchCore на одной категории MVTec AD и получить показатель, близкий к опубликованному в Anomalib — план P07"
         plan: P07
-        status: todo
-        evidence: null
+        status: doing
+        evidence: "qs mvtec-check built on mvp/bench (P07 #48, reviews/REVIEW-P07.md PASS); bench-pending: the run on MVTec bottle"
       - id: S1.3
         text_en: "Record inference latency on the RTX 3050 and on the CPU pinned to 4 threads — plan P07"
         text_ru: "Замерить время вывода на RTX 3050 и на центральном процессоре, ограниченном 4 потоками — план P07"
         plan: P07
-        status: todo
-        evidence: null
+        status: doing
+        evidence: "qs latency built on mvp/bench (P07 #50, Gate B on the whole inspection's p95 after review F1); bench-pending: the CPU and GPU runs on the trained bundle"
 
   - id: S2
     track: appearance
@@ -339,7 +339,7 @@ stages:
     name_ru: Обучение и измерение — ориентировочно
     planned_start: 2026-09-25
     planned_end: 2026-09-26
-    status: not_started
+    status: in_progress
     goal_en: Indicative numbers from the frozen MVP golden set, with bounds, stamped INDICATIVE — the method works or it does not (14 §9, ADR-0007).
     goal_ru: Ориентировочные показатели по замороженному эталонному набору MVP, с доверительными границами и пометкой «ОРИЕНТИРОВОЧНО» — метод работает или нет (14 §9, ADR-0007).
     tasks:
@@ -353,26 +353,26 @@ stages:
         text_en: "Calibrate — geometry tolerances and the threshold on the combined verdict, under one threshold_id — plan P08"
         text_ru: "Калибровка — допуски геометрии и порог по совокупному решению, под одним идентификатором калибровки — план P08"
         plan: P08
-        status: todo
-        evidence: null
+        status: doing
+        evidence: "qs build built on mvp/bench (P08 #80, reviews/REVIEW-P08.md PASS); bench-pending: the real session"
       - id: S3.3
         text_en: "Evaluate — the INDICATIVE report per 14 §9, and the early-warning check on dent recall — plan P08"
         text_ru: "Оценка — ориентировочный отчёт по 14 §9 и проверка раннего предупреждения по полноте обнаружения вмятин — план P08"
         plan: P08
-        status: todo
-        evidence: null
+        status: doing
+        evidence: "qs calibrate built on mvp/bench (P08 #81, REVIEW-P08 PASS); bench-pending: the real dataset"
       - id: S3.4
         text_en: Freeze the golden replay set so every future claim is reproducible by one command
         text_ru: Зафиксировать эталонный набор для воспроизведения, чтобы любое дальнейшее утверждение проверялось одной командой
         plan: P08
-        status: todo
-        evidence: null
+        status: doing
+        evidence: "qs evaluate built on mvp/bench (P08 #82-#83, REVIEW-P08 PASS); bench-pending: the real golden set"
       - id: S3.5
         text_en: "Gate B proxy — laptop CPU, 4 threads, p95 inspection time × 3 ≤ 400 ms (ADR-0017) — plan P07"
         text_ru: "Косвенная проверка рубежа B — процессор ноутбука, 4 потока, 95-й процентиль времени проверки × 3 не более 400 мс (ADR-0017) — план P07"
         plan: P07
-        status: todo
-        evidence: null
+        status: doing
+        evidence: "qs latency built on mvp/bench (P07 #50); bench-pending: the Gate B proxy run on the trained bundle"
 
   - id: S4
     track: appearance
@@ -380,7 +380,7 @@ stages:
     name_ru: Оформление демонстрации
     planned_start: 2026-09-26
     planned_end: 2026-09-27
-    status: not_started
+    status: in_progress
     goal_en: Something you can carry into a factory and hand to a stranger.
     goal_ru: Работающая вещь, которую можно принести на производство и дать в руки постороннему человеку.
     tasks:
@@ -388,32 +388,32 @@ stages:
         text_en: Live camera view, trigger to capture to verdict
         text_ru: Живое изображение с камеры, цепочка «срабатывание — съёмка — решение»
         plan: P09
-        status: todo
-        evidence: null
+        status: doing
+        evidence: "live qs station built on mvp/bench (P09 #90); bench-pending: the webcam (ADR-0022); replay on screen works (#89)"
       - id: S4.2
         text_en: "Big ГОДЕН / БРАК / НЕТ РЕШЕНИЯ — green, red, amber — readable across a room"
         text_ru: "Крупные «ГОДЕН» / «БРАК» / «НЕТ РЕШЕНИЯ» — зелёный, красный, янтарный — читаются через всё помещение"
         plan: P09
-        status: todo
-        evidence: null
+        status: doing
+        evidence: "operator view and ScreenAnnunciator built (P09 #86-#87), green only for PASS; bench-pending: readability at 3 m"
       - id: S4.3
         text_en: "Heatmap over the defect, or the failed measurement for a geometry БРАК"
         text_ru: "Тепловая карта поверх дефекта или непройденный замер при браке по геометрии"
         plan: P09
-        status: todo
-        evidence: null
+        status: doing
+        evidence: "heatmap and failed-measurement line drawn (P09 #86); bench-pending: real heatmaps"
       - id: S4.4
         text_en: Every check written to the evidence store, session list visible
         text_ru: Каждая проверка записывается в хранилище доказательств, список за сессию виден на экране
         plan: [P03, P04, P09]
-        status: todo
-        evidence: null
+        status: doing
+        evidence: "evidence store (P03) + pipeline (P04, REVIEW-P04 PASS) + session list (P09 #86); bench-pending: a live run"
       - id: S4.5
         text_en: "Starts with one command, runs fully offline, a stranger uses it without help"
         text_ru: "Запускается одной командой, работает полностью автономно, посторонний человек пользуется без подсказок"
         plan: P09
-        status: todo
-        evidence: null
+        status: doing
+        evidence: "qs station starts with one command, offline (NFR-07); run report with NFR-01 (P09 #91); bench-pending: the non-author test NFR-09"
 
   - id: GA
     track: appearance

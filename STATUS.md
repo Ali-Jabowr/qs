@@ -2,7 +2,7 @@
 # QS — status
 
 **Automated visual quality inspection for a food production line**  
-Owner: Ali, Volgograd · Rendered 2026-09-23
+Owner: Ali, Volgograd · Rendered 2026-09-24
 
 Overall: **18/60 tasks** `███████·················` 30%
 
@@ -30,10 +30,10 @@ Overall: **18/60 tasks** `███████················�
 | | Stage | Window | Progress | Status |
 |---|---|---|---|---|
 | `[~]` | **S0** Environment and моти | 21.09 – 25.09 | `███████·····` 4/7 | in_progress |
-| `[ ]` | **S1** Prove the pipeline on public data | 24.09 – 24.09 | `············` 0/3 | not_started |
+| `[~]` | **S1** Prove the pipeline on public data | 24.09 – 24.09 | `············` 0/3 | in_progress |
 | `[ ]` | **S2** Rig, pilot and MVP shoot | 22.09 – 25.09 | `············` 0/9 | not_started |
-| `[ ]` | **S3** Train and measure — INDICATIVE | 25.09 – 26.09 | `············` 0/5 | not_started |
-| `[ ]` | **S4** Wrap it as a demo | 26.09 – 27.09 | `············` 0/5 | not_started |
+| `[~]` | **S3** Train and measure — INDICATIVE | 25.09 – 26.09 | `············` 0/5 | in_progress |
+| `[~]` | **S4** Wrap it as a demo | 26.09 – 27.09 | `············` 0/5 | in_progress |
 | `[ ]` | **GA** Gate A — the full protocol on fresh моти | 28.09 – 13.10 | `············` 0/3 | not_started |
 | `[!]` | **S5** Site visit with the demo in hand | 26.10 – ? | `············` 0/8 | blocked — blocked on client scheduling — and deferred by decision for the MVP week (2026-09-21) |
 | `[!]` | **S6** Retrain on their product | — | `············` 0/0 | blocked — blocked on S5 |
@@ -88,8 +88,8 @@ Overall: **18/60 tasks** `███████················�
 **S1 · Prove the pipeline on public data** — 0/3
 
 - [ ] `S1.1` Download MVTec AD (CC BY-NC-SA 4.0 — validation only, never ships)
-- [ ] `S1.2` Run our PatchCore code path on one MVTec AD category and land near Anomalib's published number — plan P07
-- [ ] `S1.3` Record inference latency on the RTX 3050 and on the CPU pinned to 4 threads — plan P07
+- [~] `S1.2` Run our PatchCore code path on one MVTec AD category and land near Anomalib's published number — plan P07  ↳ `qs mvtec-check built on mvp/bench (P07 #48, reviews/REVIEW-P07.md PASS); bench-pending: the run on MVTec bottle`
+- [~] `S1.3` Record inference latency on the RTX 3050 and on the CPU pinned to 4 threads — plan P07  ↳ `qs latency built on mvp/bench (P07 #50, Gate B on the whole inspection's p95 after review F1); bench-pending: the CPU and GPU runs on the trained bundle`
 
 **S2 · Rig, pilot and MVP shoot** — 0/9
 
@@ -106,18 +106,18 @@ Overall: **18/60 tasks** `███████················�
 **S3 · Train and measure — INDICATIVE** — 0/5
 
 - [ ] `S3.1` PatchCore, WideResNet-50, trained on train/good only, seeded; one bundle whose model_id carries its hash — plan P07
-- [ ] `S3.2` Calibrate — geometry tolerances and the threshold on the combined verdict, under one threshold_id — plan P08
-- [ ] `S3.3` Evaluate — the INDICATIVE report per 14 §9, and the early-warning check on dent recall — plan P08
-- [ ] `S3.4` Freeze the golden replay set so every future claim is reproducible by one command
-- [ ] `S3.5` Gate B proxy — laptop CPU, 4 threads, p95 inspection time × 3 ≤ 400 ms (ADR-0017) — plan P07
+- [~] `S3.2` Calibrate — geometry tolerances and the threshold on the combined verdict, under one threshold_id — plan P08  ↳ `qs build built on mvp/bench (P08 #80, reviews/REVIEW-P08.md PASS); bench-pending: the real session`
+- [~] `S3.3` Evaluate — the INDICATIVE report per 14 §9, and the early-warning check on dent recall — plan P08  ↳ `qs calibrate built on mvp/bench (P08 #81, REVIEW-P08 PASS); bench-pending: the real dataset`
+- [~] `S3.4` Freeze the golden replay set so every future claim is reproducible by one command  ↳ `qs evaluate built on mvp/bench (P08 #82-#83, REVIEW-P08 PASS); bench-pending: the real golden set`
+- [~] `S3.5` Gate B proxy — laptop CPU, 4 threads, p95 inspection time × 3 ≤ 400 ms (ADR-0017) — plan P07  ↳ `qs latency built on mvp/bench (P07 #50); bench-pending: the Gate B proxy run on the trained bundle`
 
 **S4 · Wrap it as a demo** — 0/5
 
-- [ ] `S4.1` Live camera view, trigger to capture to verdict
-- [ ] `S4.2` Big ГОДЕН / БРАК / НЕТ РЕШЕНИЯ — green, red, amber — readable across a room
-- [ ] `S4.3` Heatmap over the defect, or the failed measurement for a geometry БРАК
-- [ ] `S4.4` Every check written to the evidence store, session list visible
-- [ ] `S4.5` Starts with one command, runs fully offline, a stranger uses it without help
+- [~] `S4.1` Live camera view, trigger to capture to verdict  ↳ `live qs station built on mvp/bench (P09 #90); bench-pending: the webcam (ADR-0022); replay on screen works (#89)`
+- [~] `S4.2` Big ГОДЕН / БРАК / НЕТ РЕШЕНИЯ — green, red, amber — readable across a room  ↳ `operator view and ScreenAnnunciator built (P09 #86-#87), green only for PASS; bench-pending: readability at 3 m`
+- [~] `S4.3` Heatmap over the defect, or the failed measurement for a geometry БРАК  ↳ `heatmap and failed-measurement line drawn (P09 #86); bench-pending: real heatmaps`
+- [~] `S4.4` Every check written to the evidence store, session list visible  ↳ `evidence store (P03) + pipeline (P04, REVIEW-P04 PASS) + session list (P09 #86); bench-pending: a live run`
+- [~] `S4.5` Starts with one command, runs fully offline, a stranger uses it without help  ↳ `qs station starts with one command, offline (NFR-07); run report with NFR-01 (P09 #91); bench-pending: the non-author test NFR-09`
 
 **GA · Gate A — the full protocol on fresh моти** — 0/3
 
