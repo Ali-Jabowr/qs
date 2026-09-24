@@ -1,6 +1,7 @@
 # REVIEW-P04, round 1: pipeline, state machine, replay
 
-**Verdict: FIX.** 0 blocker · 0 major · 3 minor · 3 nit.
+**Verdict: PASS** after the r1 fixes (see "Fixes (r1)"). Round 1 found 0 blocker · 0 major ·
+3 minor · 3 nit.
 
 Spec #68, tickets #69 (339f66b), #70 (4705947), #71 (2c06b58), #72 (31d7d83), #73 (e281221),
 #74 (d9d5d98, 5814f27, fa71159, f750147) and #75 (282bfc5, 97b3ea5, ff43dee) on `mvp/bench`.
@@ -166,8 +167,33 @@ passes and mypy passes on 42 files.
 As #74 says: `qs station --replay` on Friday's frames with Friday's bundle, with its verdicts
 compared against P08's `qs evaluate` on the same frames.
 
-## Verdict
+## Verdict (round 1)
 
 **FIX.** Fix m1 to m3, each with its test, then re-run `make check` once #50's lint is clean.
 The nits are optional. No re-review is needed if the fixes stay inside `pipeline.py` and its
 tests.
+
+## Fixes (r1)
+
+Commits `9c0f825` (m2, m3, n1) and `4f706ef` (m1). Each new test failed before its fix and
+passes after it, except the `not-a-CheckResult` case of m2, which the old path already
+caught; it stays as a regression guard. The fixes touch only `src/qs/pipeline.py`,
+`src/qs/station.py` and their tests. There are no `contracts.py`, `docs/`, `decisions/` or
+`config/` changes.
+
+| Finding | Outcome | Where | Test |
+|---|---|---|---|
+| m1 | **Fixed.** A replay's events are files, not units arriving in time. `Station.run` now ticks a replay on `Pipeline.reconnect_due`: one reopen attempt per tick while in a camera or capture FAULT, with no wait on wall time. Recovery is a function of the frames alone. A reopen that keeps failing still consumes one event per attempt, so the run always ends. Live triggers still tick on the clock. The reopen goes through `ReplaySource.open`, and every frame still goes through capture's checks, so nothing new can become a pass. | `src/qs/pipeline.py:205` (`reconnect_due`), `src/qs/station.py:163-169` | `tests/test_fault_injection.py::test_three_bad_frames_on_the_real_clock_recover_the_same_way_every_time`: `main` on `time.perf_counter`, 3 bad frames then 197 good ones, run twice. Seq 4–200 pass, 1 fault, 1 reconnect, READY, exit 0, and both runs agree record for record. Before the fix, 200 × capture, exit 1. |
+| m2 | **Fixed.** `_guard` refuses `checks` that is not a `tuple` or that holds anything but a `CheckResult` → NO_VERDICT(`inference`). No contracts change was needed. | `src/qs/pipeline.py:530-535` | `tests/test_pipeline.py::test_checks_that_are_not_a_tuple_of_check_results_are_refused[generator-holding-a-failed-check \| list \| not-a-CheckResult]` |
+| m3 | **Fixed.** `handle()` wraps steps 2–7 in `except Exception`. The result is one NO_VERDICT record with no frame attached: `capture` before step 3 accepted the frame, `inference` after. Each counts toward its streak, so three in a row are FAULT. The error is logged as one line with no traceback, and the state leaves INSPECTING. Step 3 now reads the read-back before it counts the frame as accepted. | `src/qs/pipeline.py:412-418`, `:431-433`, `:467-475` (`_unexpected`) | `tests/test_pipeline.py::test_a_frame_that_breaks_its_contract_is_one_no_verdict_record`: `camera=None` → one `capture` record and READY; a good frame then passes; three bad frames in a row → FAULT(capture); 5 events → 5 records, 5 shown. |
+| n1 | **Fixed.** `_guard` refuses a PASS or DEFECT whose `reason` is not None → NO_VERDICT(`inference`). | `src/qs/pipeline.py:526-527` | `tests/test_pipeline.py::test_a_decided_verdict_that_carries_a_reason_is_refused[pass \| defect]` |
+| n2 | **Left as is.** C4 belongs to the source by design (docs/11 §3). | — | — |
+| n3 | **Left as is.** It belongs to P09, with the live `WebcamSource`. | — | — |
+
+`make check`: **green**, with 759 passed and 14 deselected. ruff is clean, and mypy passes on 42
+files. Under full-suite load, `test_fault_injection.py::test_a_read_only_evidence_directory_for_events_50_to_149`
+failed once (`held` 2, not ≥ 100). It passed alone three times, and it passed in the full
+`make check` run. The run never enters FAULT, so the m1 change is not on its path. It is a
+sink-timing flake, like the known one in `test_webcam.py`.
+
+**Verdict: PASS.**

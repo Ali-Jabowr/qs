@@ -35,6 +35,7 @@ from qs.pipeline import (
     check_config,
     utc_now,
 )
+from qs.sources.replay import ReplayTrigger
 
 MakeSink = Callable[[LoadedConfig, str, datetime], StationSink]
 MakeScorer = Callable[[str, np.ndarray], Scorer]
@@ -151,15 +152,21 @@ class Station:
 
     def run(self) -> None:
         """The main loop of docs/11 §3: tick, poll, handle — until the trigger is exhausted,
-        a stop is requested, or the station stopped itself."""
+        a stop is requested, or the station stopped itself.
+
+        A replay's events are files, not units arriving in time, and it polls faster than any
+        backoff: on wall time, a FAULT would outlast the run by a margin set by disk speed. So a
+        replay ticks on the reconnect's own due time — one attempt per tick while in FAULT —
+        and its verdicts depend on the frames alone (NFR-03). Live triggers tick on the clock."""
         pipeline = self.pipeline
         assert pipeline is not None, "start() first"
+        replay = isinstance(self.trigger, ReplayTrigger)
         while (
             not self.trigger.exhausted
             and not pipeline.stop_requested
             and not pipeline.stopped
         ):
-            pipeline.tick()
+            pipeline.tick(pipeline.reconnect_due if replay else None)
             if pipeline.stopped:
                 break
             event = self.trigger.poll()
