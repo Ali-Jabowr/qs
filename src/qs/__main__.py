@@ -217,6 +217,31 @@ def build_parser() -> argparse.ArgumentParser:
         "--report-dir", metavar="DIR", default="reports/mvtec", help="where the report goes"
     )
 
+    from qs.cmd.latency import count as inspection_count
+
+    latency = commands.add_parser(
+        "latency",
+        help="the Gate B proxy: PatchCore's p50/p95/p99 replayed through the inspector, "
+        "p95 × 3 against 400 ms on the CPU (ADR-0017, docs/15 §10)",
+    )
+    latency.add_argument("--config", required=True, metavar="PATH", help="the station config")
+    latency.add_argument(
+        "--frames", required=True, metavar="DIR",
+        help="the frames to replay, looping, in name order",
+    )
+    latency.add_argument(
+        "--cpu", action="store_true",
+        help="CUDA_VISIBLE_DEVICES='', torch on 4 threads, backend torch-cpu in memory — "
+        "the laptop proxy; the threshold is never applied",
+    )
+    latency.add_argument(
+        "--count", type=inspection_count, default=200, metavar="N",
+        help="verdicts to time (200; fewer is not a Gate B result)",
+    )
+    latency.add_argument(
+        "--report-dir", metavar="DIR", default="reports/latency", help="where the report goes"
+    )
+
     from qs.cmd import station as station_cmd  # P04: qs station --replay
 
     station_cmd.add_parser(commands)
@@ -262,6 +287,10 @@ def run(argv: Sequence[str] | None = None) -> int:
         from qs.cmd import mvtec_check
 
         return mvtec_check.main(args)
+    if args.command == "latency":
+        from qs.cmd import latency
+
+        return latency.main(args)
     if args.command == "station":  # P04
         from qs.cmd import station
 
