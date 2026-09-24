@@ -35,7 +35,7 @@ from typing import Any
 
 import yaml
 
-from qs.config import LabelsConfig, StationConfig, load_config
+from qs.config import LabelsConfig, StationConfig, canonical_hash, load_config
 from qs.contracts import Label
 from qs.errors import ConfigError
 from qs.eval import report as rep
@@ -149,6 +149,13 @@ def _calibration_record(
         raise _Refused(f"{path}: {exc}") from None
     if not isinstance(record, dict):
         raise _Refused(f"{path}: not a calibration record")
+    suffix = canonical_hash(record)[:6]
+    if not config.threshold.id.endswith(f"-{suffix}"):
+        raise _Refused(
+            f"{path}: the record hashes to {suffix} but threshold_id "
+            f"{config.threshold.id} names {config.threshold.id.rsplit('-', 1)[-1]} — the "
+            "record was edited after calibration (docs/12 §4)"
+        )
     if record.get("model") != config.inspector.model:
         raise _Refused(
             f"{path}: the record names model {record.get('model')!r} but the config "

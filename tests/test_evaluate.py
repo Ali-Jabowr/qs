@@ -653,6 +653,22 @@ def test_a_missing_calibration_record_is_refused(tmp_path: Path, env: SimpleName
     assert not directory.exists()
 
 
+def test_a_hand_edited_calibration_record_is_refused(tmp_path: Path, env: SimpleNamespace
+                                                     ) -> None:
+    """The record's canonical hash must give the threshold_id's suffix: a record edited
+    after calibration is refused before anything is written (review P08 N1)."""
+    import yaml
+
+    fresh_reports(tmp_path, env)
+    record = tmp_path / "reports" / "calib" / env.record.name
+    data = yaml.safe_load(record.read_text(encoding="utf-8"))
+    data["a"] = data["a"] + 1
+    record.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True),
+                      encoding="utf-8")
+    refused(tmp_path, env, env.threshold_id[-6:], "record was edited",
+            report_dir=tmp_path / "reports" / "eval")
+
+
 def test_a_no_verdict_calib_frame_is_refused(tmp_path: Path, env: SimpleNamespace) -> None:
     """A calib frame out of the lighting band: the threshold would be set on fewer units
     than it claims — refused before anything is written."""
