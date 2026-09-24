@@ -2,6 +2,18 @@
 
 **Written 2026-09-23, updated the same evening.** This is for whichever model picks this up next. Read CLAUDE.md first, then this file.
 
+## 2026-09-24: all code built and reviewed. Read this first; older sections below are history.
+
+- **Every ticket from P03 to P09 is built on `mvp/bench`**, and each plan's review has passed: REVIEW-P03, P04, P05b, P06, P07, P08 and P09. `make check` is green at about 1080 tests.
+- **OpenCode is stopped (Ali, 24.09: "stop opencode and continue yourself").** Fresh Claude agents implement, and the orchestrator reviews, merges and commits. OpenRouter spent about $2.25 on 24.09 before the stop.
+- **One PR, `mvp/bench → master`, is open for Ali to merge.** Never merge it yourself.
+- **Still to do, all needing the bench:**
+  - the phone shoot and `qs import-phone`, then `qs build`, `qs train`, `qs calibrate` and `qs evaluate` on real моти (docs/18);
+  - `qs mvtec-check` and `qs latency` on the trained bundle, for Gate B (S3.5);
+  - the webcam lock test (#25, #33), live `qs station`, NFR-01 and NFR-09.
+- **Open decisions for Ali:** #94, a `run.source_id` column (a schema change), and the wayfinder questions listed in the PR.
+- **Agent worktrees:** `.claude/worktrees/agent-*` are all merged and can be removed.
+
 ## How the work runs
 
 - **Board:** GitHub, repo `Ali-Jabowr/qs`, milestone #1 "Bench MVP (21–27.09)", tracking issue **#26**. `project.yml` is kept in step, but GitHub is primary.
