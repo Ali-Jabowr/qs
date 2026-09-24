@@ -1,0 +1,245 @@
+"""Unit aggregation (docs/14 §4 steps 3–7, §9; E2, A2/#78).
+
+The golden set's manifest rows and the `FrameResult`s of `score_frames` are aggregated per
+unit and state: a frame that came back НЕТ РЕШЕНИЯ is left out; a unit's appearance score is
+the maximum over its scored frames; it is БРАК at a target when any scored frame failed
+geometry or scored above that target's threshold. A unit and state with no scored frame is
+**unscored**: listed with its reasons, missed for recall, left out of the false-alarm
+denominator with its count shown — every choice errs against the flattering number.
+
+`target_result` counts one target's operating row: the threshold from `choose_threshold` on
+the golden calib units, recall per damage class with its lower bound, the false-alarm rate
+on the test units' good state with its upper bound, and which check caught each defective
+unit and flagged each good one. A target whose geometry alone already flags more calib
+units than it allows is not reachable (A2, #78): no threshold, no recall row.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+
+from qs.contracts import Label
+from qs.eval.scoring import FrameResult
+from qs.eval.stats import lower_bound, upper_bound
+from qs.eval.threshold import ThresholdChoice, UnitScore, choose_threshold
+
+_STATE_ORDER = {"good": 0, "dmg": 1}
+
+
+@dataclass(frozen=True, slots=True)
+class Aggregated:
+    """One unit in one state, aggregated over its frames (docs/14 §4 step 3)."""
+
+    unit: str
+    role: str
+    state: str
+    cls: str
+    scored: int
+    score: float | None
+    geometry_failed: bool | None
+    reasons: tuple[str, ...]
+
+    @property
+    def unscored(self) -> bool:
+        """No scored frame: the unit and state is missed for recall and out of the FAR."""
+        return self.score is None
+
+    def flagged(self, threshold: float | None) -> bool | None:
+        """БРАК at `threshold`: a scored frame failed geometry or scored above it.
+
+        `None` when the unit is unscored or the target is not reachable — no label.
+        """
+        if self.score is None or threshold is None:
+            return None
+        return bool(self.geometry_failed) or self.score > threshold
+
+    def caught_by(self, threshold: float | None) -> tuple[bool, bool]:
+        """(geometry, appearance): which of the two checks flagged this unit and state."""
+        if self.score is None or threshold is None:
+            return (False, False)
+        return (bool(self.geometry_failed), self.score > threshold)
+
+
+def aggregate(
+    rows: Sequence[Mapping[str, str]], results: Sequence[FrameResult]
+) -> tuple[Aggregated, ...]:
+    """Per unit and state, in unit order with `good` before `dmg`; placement frames are
+    not aggregated (they are checked, never scored into a rate)."""
+    if len(rows) != len(results):
+        raise ValueError(
+            f"{len(rows)} manifest rows but {len(results)} results — the set and the "
+            "scoring disagree"
+        )
+    per: dict[tuple[str, str, str, str], list[FrameResult]] = {}
+    for row, result in zip(rows, results, strict=True):
+        if row["file"] != result.file.name:
+            raise ValueError(
+                f"{row['file']} was scored as {result.file.name} — the rows and the "
+                "results disagree"
+            )
+        if row["role"] == "placement":
+            continue  # placement frames are checked, never aggregated into a rate
+        per.setdefault((row["unit"], row["role"], row["state"], row["class"]), []).append(
+            result
+        )
+    def key(item: tuple[tuple[str, str, str, str], list[FrameResult]]) -> tuple[str, int]:
+        (unit, _role, state, _cls), _ = item
+        return (unit, _STATE_ORDER.get(state, len(_STATE_ORDER)))
+    return tuple(
+        _one(unit, role, state, cls, frames)
+        for (unit, role, state, cls), frames in sorted(per.items(), key=key)
+    )
+
+
+def _one(
+    unit: str, role: str, state: str, cls: str, frames: list[FrameResult]
+) -> Aggregated:
+    scored = [r for r in frames if r.label is not Label.NO_VERDICT]
+    reasons = tuple(
+        dict.fromkeys(r.reason or "" for r in frames if r.label is Label.NO_VERDICT)
+    )
+    if not scored:
+        return Aggregated(unit, role, state, cls, 0, None, None, reasons)
+    scores = [r.score for r in scored]
+    if any(s is None for s in scores) or any(r.geometry is None for r in scored):
+        raise ValueError(
+            f"{unit} {state}: a scored frame without a score or a geometry result — "
+            "a completed inspection carries both checks (C8)"
+        )
+    return Aggregated(
+        unit,
+        role,
+        state,
+        cls,
+        len(scored),
+        max(s for s in scores if s is not None),
+        any(r.geometry is not None and not r.geometry.passed for r in scored),
+        (),
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class ClassRecall:
+    """One damage class at one target: caught of total, with the lower bound.
+
+    `unscored` units are missed for recall — they sit in `total` and never in `caught`.
+    """
+
+    cls: str
+    caught: int
+    total: int
+    unscored: int
+    lower: float
+
+
+@dataclass(frozen=True, slots=True)
+class FarRate:
+    """One false-alarm row: k flagged of n good test units, with the upper bound."""
+
+    flagged: int
+    total: int
+    upper: float
+
+
+@dataclass(frozen=True, slots=True)
+class TargetResult:
+    """One target's operating row (docs/14 §4 steps 5–7, §9).
+
+    `choice.value` is None when geometry alone already flags more calib units than the
+    target allows (A2, #78): the row is not reachable, and nothing is recalled or counted
+    at it. `caught` names each defective unit and the check that caught it — or `missed`;
+    `flagged_good` names each flagged good unit and the check that flagged it.
+    """
+
+    target: int
+    choice: ThresholdChoice
+    recall: tuple[ClassRecall, ...]
+    far_combined: FarRate
+    far_geometry: FarRate
+    far_appearance: FarRate
+    far_unscored: int
+    caught: tuple[tuple[str, str], ...]
+    flagged_good: tuple[tuple[str, str], ...]
+
+    @property
+    def threshold(self) -> float | None:
+        return self.choice.value
+
+    @property
+    def reachable(self) -> bool:
+        return self.choice.reachable
+
+
+def target_result(target: int, units: Sequence[Aggregated]) -> TargetResult:
+    """One target's operating row over the aggregated units (docs/14 §9)."""
+    calib = [u for u in units if u.role == "calib"]
+    if any(u.unscored for u in calib):
+        missed = ", ".join(u.unit for u in calib if u.unscored)
+        raise ValueError(f"calibration units without a verdict: {missed}")
+    choice = choose_threshold(
+        [UnitScore(u.unit, u.score or 0.0, bool(u.geometry_failed)) for u in calib], target
+    )
+    threshold = choice.value
+    classes = sorted({u.cls for u in units if u.role == "test" and u.state == "dmg"})
+    recall = tuple(
+        _recall(cls, [u for u in units if u.role == "test" and u.state == "dmg"
+                      and u.cls == cls], threshold)
+        for cls in classes
+    )
+    good = [u for u in units if u.role == "test" and u.state == "good"]
+    scored_good = [u for u in good if not u.unscored]
+    n = len(scored_good)
+    geometry_only = [u.unit for u in scored_good if u.caught_by(threshold) == (True, False)]
+    appearance_only = [u.unit for u in scored_good if u.caught_by(threshold) == (False, True)]
+    combined = [u.unit for u in scored_good if u.caught_by(threshold) != (False, False)]
+    caught = tuple(
+        (u.unit, _which(u, threshold))
+        for u in sorted((u for u in units if u.role == "test" and u.state == "dmg"),
+                        key=lambda u: u.unit)
+    )
+    flagged_good = tuple(
+        (u.unit, _which(u, threshold)) for u in sorted(scored_good, key=lambda u: u.unit)
+        if u.caught_by(threshold) != (False, False)
+    )
+    return TargetResult(
+        target=target,
+        choice=choice,
+        recall=recall,
+        far_combined=FarRate(len(combined), n, upper_bound(n, len(combined))),
+        far_geometry=FarRate(len(geometry_only), n, upper_bound(n, len(geometry_only))),
+        far_appearance=FarRate(len(appearance_only), n, upper_bound(n, len(appearance_only))),
+        far_unscored=len(good) - n,
+        caught=caught,
+        flagged_good=flagged_good,
+    )
+
+
+def _recall(cls: str, units: list[Aggregated], threshold: float | None) -> ClassRecall:
+    caught = sum(1 for u in units if u.flagged(threshold) is True)
+    unscored = sum(1 for u in units if u.unscored)
+    return ClassRecall(cls, caught, len(units), unscored, lower_bound(len(units), caught))
+
+
+def _which(unit: Aggregated, threshold: float | None) -> str:
+    geometry, appearance = unit.caught_by(threshold)
+    if geometry and appearance:
+        return "both"
+    if geometry:
+        return "geometry"
+    if appearance:
+        return "appearance"
+    return "missed"
+
+
+def early_warning(targets: Sequence[TargetResult]) -> str | None:
+    """The MVP's one stop signal: dent recall under 70% at the 5% target (docs/06 §4)."""
+    at5 = next((t for t in targets if t.target == 5), None)
+    dent = next((r for r in at5.recall if r.cls == "dent"), None) if at5 else None
+    if dent is None or dent.total == 0 or dent.caught / dent.total >= 0.70:
+        return None
+    return (
+        f"EARLY WARNING: dent recall at the 5% target is {dent.caught} of {dent.total} "
+        f"({dent.caught / dent.total * 100:.1f}%), below 70% — fix the lighting before "
+        "building more of the demo (docs/06 §4)"
+    )

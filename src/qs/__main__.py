@@ -236,6 +236,26 @@ def build_parser() -> argparse.ArgumentParser:
         "--report-dir", metavar="DIR", default="reports/calib", help="where the record goes"
     )
 
+    evaluate = commands.add_parser(
+        "evaluate",
+        help="the INDICATIVE operating table from a frozen golden set and a calibrated "
+        "config (FR-55, FR-56, docs/14 §4, §7, §9)",
+    )
+    evaluate.add_argument("--config", required=True, metavar="PATH", help="the calibrated "
+                          "station config")
+    evaluate.add_argument(
+        "--golden", required=True, metavar="DIR",
+        help="the frozen golden set, as qs build wrote it",
+    )
+    evaluate.add_argument(
+        "--models", default="models", metavar="DIR", help="where bundles are read (models)"
+    )
+    evaluate.add_argument(
+        "--report-dir", metavar="DIR", default="reports/eval",
+        help="where the report and its CSV go; the calibration record is read from the "
+        "calib directory beside it",
+    )
+
     from qs.cmd.mvtec_check import category
 
     mvtec = commands.add_parser(
@@ -341,6 +361,10 @@ def run(argv: Sequence[str] | None = None) -> int:
         from qs.cmd import calibrate
 
         return calibrate.main(args)
+    if args.command == "evaluate":
+        from qs.cmd import evaluate
+
+        return evaluate.main(args)
     if args.command == "mvtec-check":
         from qs.cmd import mvtec_check
 
