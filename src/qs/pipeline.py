@@ -28,6 +28,7 @@ from qs.config import StationConfig
 from qs.contracts import (
     CHECK_APPEARANCE,
     CHECK_GEOMETRY,
+    CheckResult,
     Frame,
     FrameSource,
     Health,
@@ -187,6 +188,7 @@ class Pipeline:
         self._frames_accepted = 0
         self._last_finished: float | None = None  # clock when the previous handle() returned
         self._reached_inspect = False  # this event reached step 5
+        self._accepted = False  # this event's frame passed step 3
 
     # --- what the screen and the command read ---------------------------------------------------
 
@@ -395,7 +397,14 @@ class Pipeline:
             return self._finish(event, _Outcome(self._no_verdict(reason), None))
         self._state = State.INSPECTING
         self._reached_inspect = False
-        outcome = self._inspect_event(event)
+        self._accepted = False
+        try:
+            outcome = self._inspect_event(event)
+        except Exception as exc:
+            # A collaborator broke its contract in a way no step above names. C5 still holds:
+            # one NO_VERDICT record, without the frame, for nothing about it can be trusted.
+            _log.error("seq %d: unexpected %s: %s", event.seq, type(exc).__name__, exc)
+            outcome = self._unexpected()
         if self._state is State.INSPECTING:
             self._state = State.READY
         return self._finish(event, outcome)
@@ -405,10 +414,12 @@ class Pipeline:
         frame = self._capture(event)
         if not isinstance(frame, Frame):
             return frame
-        # Step 3: the frame is accepted.
+        # Step 3: the frame is accepted — once its read-back can be read at all.
+        verified = frame.camera.verified is True
         self._capture_streak = 0
         self._frames_accepted += 1
-        if frame.camera.verified is True:
+        self._accepted = True
+        if verified:
             self._drift = False
         else:
             self._unverifiable = True
@@ -440,6 +451,16 @@ class Pipeline:
         if self._inference_streak >= IN_A_ROW:
             self._enter_fault("inference")
         return self._no_verdict_with_frame("inference", frame, inspect_ms)
+
+    def _unexpected(self) -> _Outcome:
+        """An exception no step names: NO_VERDICT(`capture`) before step 3 accepted the frame,
+        `inference` after; it counts toward its streak like any other of its kind."""
+        if not self._accepted:
+            return self._capture_failed()
+        self._inference_streak += 1
+        if self._inference_streak >= IN_A_ROW:
+            self._enter_fault("inference")
+        return _Outcome(self._no_verdict("inference"), None)
 
     def _capture_failed(self) -> _Outcome:
         """NO_VERDICT(`capture`) without an image; the third in a row is FAULT(capture)."""
@@ -490,6 +511,16 @@ class Pipeline:
             raise _Refused(f"inspect() returned {type(verdict).__name__}, not a Verdict")
         if verdict.label is Label.NO_VERDICT:
             raise _Refused("an inspector returned NO_VERDICT instead of raising")
+        if verdict.reason is not None:
+            raise _Refused(f"a {verdict.label} verdict carries a reason ({verdict.reason!r})")
+        # Read `checks` only as a tuple of CheckResult: a one-shot iterable would be used up
+        # by derive_label and then read as empty below — a pass with a failed check behind it.
+        if not isinstance(verdict.checks, tuple) or not all(
+            isinstance(check, CheckResult) for check in verdict.checks
+        ):
+            raise _Refused(
+                f"checks is a {type(verdict.checks).__name__}, not a tuple of CheckResult"
+            )
         try:
             derived = derive_label(verdict.checks, CONFIGURED_CHECKS)
         except ValueError as exc:
