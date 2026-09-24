@@ -2,13 +2,17 @@
 
 `compose()` is a pure function, so what the window shows can be tested without a display.
 `Screen.tick()` shows one composed image and pumps Tk once; Tk never owns the loop
-(ADR-0018). Key presses are queued with Tk's own timestamps for the trigger's 300 ms rule.
+(ADR-0018). Key presses are queued with Tk's own timestamps, and each is stamped with
+`after_s`: the screen clock when the pump before the one that delivered it ended. The press
+cannot be earlier than that, so the trigger's 300 ms rule runs on the application clock
+(#88, assumption A2); Tk's timestamps only order the presses of one pump.
 """
 
 from __future__ import annotations
 
+import time
 import tkinter as tk
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -27,14 +31,17 @@ _WINDOW = (1280, 800)
 
 @dataclass(frozen=True, slots=True)
 class KeyPress:
-    """One key press: its Tk keysym and the Tk event's own timestamp in ms."""
+    """One key press: its Tk keysym, the Tk event's own timestamp in ms, and `after_s`, the
+    screen clock when the pump before the one that delivered it ended. A press built without
+    `after_s` reads as made at 0.0, which the trigger treats as too early and discards."""
 
     keysym: str
     tk_ms: int
+    after_s: float = 0.0
 
 
 class ScreenLike(Protocol):
-    """The window as the station uses it: the seam the tests fake (#87)."""
+    """The window as the station uses it: the seam the tests fake (#87, #88)."""
 
     def present(self, image: Image.Image) -> None: ...
 
@@ -42,6 +49,9 @@ class ScreenLike(Protocol):
 
     @property
     def closed(self) -> bool: ...
+
+    @property
+    def last_pump_end(self) -> float: ...
 
     def close(self) -> None: ...
 
@@ -75,8 +85,15 @@ def compose(
 class Screen:
     """The Tk window: shows what `compose()` draws and queues key presses."""
 
-    def __init__(self, display: DisplayConfig, title: str) -> None:
+    def __init__(
+        self,
+        display: DisplayConfig,
+        title: str,
+        *,
+        clock: Callable[[], float] = time.perf_counter,
+    ) -> None:
         self._font = Path(display.font)
+        self._clock = clock
         self._keys: list[KeyPress] = []
         self._closed = False
         self._root: tk.Tk | None = tk.Tk()
@@ -87,9 +104,11 @@ class Screen:
         self._label = tk.Label(self._root, bg="black")
         self._label.pack(fill="both", expand=True)
         self._photo: ImageTk.PhotoImage | None = None
+        self._last_pump_end = self._clock()
 
     def _on_key(self, event: tk.Event[tk.Misc]) -> None:
-        self._keys.append(KeyPress(str(event.keysym), int(event.time)))
+        # `_last_pump_end` is still the end of the pump before the one delivering this press.
+        self._keys.append(KeyPress(str(event.keysym), int(event.time), self._last_pump_end))
 
     def _on_close(self) -> None:
         self._closed = True
@@ -107,6 +126,12 @@ class Screen:
         self._photo = ImageTk.PhotoImage(image)
         self._label.configure(image=self._photo)
         self._root.update()
+        self._last_pump_end = self._clock()
+
+    @property
+    def last_pump_end(self) -> float:
+        """The screen clock when the last pump (`tick()` or `present()`) ended."""
+        return self._last_pump_end
 
     def keys(self) -> list[KeyPress]:
         """Every key pressed since the last call, oldest first."""

@@ -86,3 +86,30 @@ def test_a_real_screen_presents_composed_images_and_queues_keys(
         screen.close()
     screen.present(compose(None, [], FONT))  # after close: does nothing
     assert screen.closed is True
+
+
+@pytest.mark.gui
+def test_a_real_screen_stamps_presses_with_the_previous_pump_end(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(ROOT)
+    now = [5.0]
+    screen = Screen(load_config(EXAMPLE).config.display, "QS test", clock=lambda: now[0])
+    try:
+        assert screen.last_pump_end == 5.0
+        now[0] = 10.0
+        screen.tick(None, [])
+        assert screen.last_pump_end == 10.0
+        assert screen._root is not None
+        screen._root.event_generate("<KeyPress>", keysym="space")
+        now[0] = 10.5
+        screen.tick(None, [])
+        keys = screen.keys()
+        assert [key.keysym for key in keys] == ["space"]
+        assert keys[0].after_s == 10.0
+        assert screen.last_pump_end == 10.5
+        now[0] = 11.0
+        screen.present(compose(None, [], FONT))
+        assert screen.last_pump_end == 11.0
+    finally:
+        screen.close()

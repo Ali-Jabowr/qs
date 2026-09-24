@@ -402,13 +402,15 @@ def bench_config(tmp_path_factory: pytest.TempPathFactory) -> Path:
 class FakeScreen:
     """A `ScreenLike` without a display (#87): keeps a copy of every presented image and
     plays scripted batches of key presses, one batch per `keys()` call (empty when none is
-    left). `close()` sets `closed` and counts its calls."""
+    left). `close()` sets `closed` and counts its calls. `last_pump_end` is set by the test
+    (#88); each scripted `KeyPress` carries its own `after_s`."""
 
     def __init__(self, script: Sequence[Sequence[KeyPress]] = ()) -> None:
         self.presented: list[Image.Image] = []
         self.script: list[list[KeyPress]] = [list(batch) for batch in script]
         self.closed = False
         self.close_calls = 0
+        self.last_pump_end = 0.0
 
     def present(self, image: Image.Image) -> None:
         self.presented.append(image.copy())
