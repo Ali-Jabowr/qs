@@ -11,6 +11,7 @@ import tkinter as tk
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Protocol
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont, ImageTk
@@ -30,6 +31,19 @@ class KeyPress:
 
     keysym: str
     tk_ms: int
+
+
+class ScreenLike(Protocol):
+    """The window as the station uses it: the seam the tests fake (#87)."""
+
+    def present(self, image: Image.Image) -> None: ...
+
+    def keys(self) -> list[KeyPress]: ...
+
+    @property
+    def closed(self) -> bool: ...
+
+    def close(self) -> None: ...
 
 
 def compose(
@@ -84,7 +98,13 @@ class Screen:
         """Show one composed frame and pump Tk's events once; nothing after `closed`."""
         if self._closed or self._root is None:
             return
-        self._photo = ImageTk.PhotoImage(compose(image, lines, self._font, _WINDOW))
+        self.present(compose(image, lines, self._font, _WINDOW))
+
+    def present(self, image: Image.Image) -> None:
+        """Show an already composed image and pump Tk's events once; nothing after `closed`."""
+        if self._closed or self._root is None:
+            return
+        self._photo = ImageTk.PhotoImage(image)
         self._label.configure(image=self._photo)
         self._root.update()
 

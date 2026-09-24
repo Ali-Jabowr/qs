@@ -16,10 +16,12 @@ from pathlib import Path
 import cv2
 import numpy as np
 import pytest
+from PIL import Image
 
 from qs.config import GeometryConfig, LocalizeConfig, load_config
 from qs.contracts import CameraReadback, TriggerEvent
 from qs.inspector.model import FitSettings, Fitted, Scored
+from qs.screen import KeyPress
 from qs.session import (
     FrameLog,
     Product,
@@ -395,3 +397,25 @@ def bench_config(tmp_path_factory: pytest.TempPathFactory) -> Path:
     path = tmp_path_factory.mktemp("bench-config") / "station.yml"
     path.write_text(text, encoding="utf-8")
     return path
+
+
+class FakeScreen:
+    """A `ScreenLike` without a display (#87): keeps a copy of every presented image and
+    plays scripted batches of key presses, one batch per `keys()` call (empty when none is
+    left). `close()` sets `closed` and counts its calls."""
+
+    def __init__(self, script: Sequence[Sequence[KeyPress]] = ()) -> None:
+        self.presented: list[Image.Image] = []
+        self.script: list[list[KeyPress]] = [list(batch) for batch in script]
+        self.closed = False
+        self.close_calls = 0
+
+    def present(self, image: Image.Image) -> None:
+        self.presented.append(image.copy())
+
+    def keys(self) -> list[KeyPress]:
+        return self.script.pop(0) if self.script else []
+
+    def close(self) -> None:
+        self.close_calls += 1
+        self.closed = True
