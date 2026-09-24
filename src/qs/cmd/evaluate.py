@@ -205,7 +205,10 @@ def _placement(
     results: tuple[FrameResult, ...], rows: list[dict[str, str]]
 ) -> tuple[bool, tuple[tuple[str, str], ...]]:
     """Every placement frame НЕТ РЕШЕНИЯ(`placement`) → PASS, else each frame and what
-    it got (docs/14 §9)."""
+    it got (docs/14 §9). A set with no placement frame is FAIL with no frame named: no
+    evidence is never a PASS."""
+    if not any(row["role"] == "placement" for row in rows):
+        return (False, ())
     bad: list[tuple[str, str]] = []
     for row, result in zip(rows, results, strict=True):
         if row["role"] != "placement":

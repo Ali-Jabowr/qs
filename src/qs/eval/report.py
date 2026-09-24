@@ -231,6 +231,9 @@ def _counts_lines(r: Report) -> list[str]:
 def _placement_section(r: Report) -> str:
     if r.placement_ok:
         return "- PASS — every placement frame came back НЕТ РЕШЕНИЯ(placement)."
+    if not r.placement_bad:
+        return ("- FAIL — the golden set holds no placement frame, so the placement check "
+                "did not run; no evidence is never a PASS (docs/14 §9).")
     lines = ["- FAIL — a placement frame must come back НЕТ РЕШЕНИЯ(placement):"]
     lines += [f"  - {file} came back {got}." for file, got in r.placement_bad]
     return "\n".join(lines)

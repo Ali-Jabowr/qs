@@ -475,6 +475,38 @@ def test_the_placement_line_fails_on_a_frame_that_localizes(
     assert "FAIL" in placement and file in placement and "came back pass" in placement
 
 
+def test_a_golden_set_with_no_placement_frame_fails_placement(
+    tmp_path: Path, env: SimpleNamespace
+) -> None:
+    """A hand-made golden set with every placement row and frame removed (and its hash
+    made to match): no placement frame is no evidence, so the line is FAIL, never a
+    vacuous PASS, and the exit is 1 (review P08 F3)."""
+    import csv
+
+    golden = tmp_path / "golden"
+    shutil.copytree(env.golden, golden)
+    with (golden / "manifest.csv").open(encoding="utf-8", newline="") as handle:
+        rows = list(csv.reader(handle))
+    kept = [rows[0]] + [row for row in rows[1:] if row[2] != "placement"]
+    assert len(kept) == len(rows) - 10
+    for row in rows[1:]:
+        if row[2] == "placement":
+            (golden / "frames" / row[0]).unlink()
+    manifest = golden / "manifest.csv"
+    with manifest.open("w", encoding="utf-8", newline="") as handle:
+        csv.writer(handle).writerows(kept)
+    (golden / "manifest.sha256").write_text(
+        hashlib.sha256(manifest.read_bytes()).hexdigest() + "\n", encoding="utf-8")
+    code, out = run(tmp_path, env, golden=golden)
+    assert code == 1, out
+    assert "Traceback" not in out
+    assert "placement: FAIL" in out
+    text = report_of(tmp_path / "reports" / "eval").read_text(encoding="utf-8")
+    placement = text.split("## Placement")[1].split("\n## ")[0]
+    assert "FAIL" in placement and "no placement frame" in placement
+    assert "- PASS" not in placement
+
+
 # --- the early warning (docs/06 §4) ----------------------------------------------------------
 
 @pytest.fixture(scope="module")

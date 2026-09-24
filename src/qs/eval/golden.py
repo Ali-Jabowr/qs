@@ -220,6 +220,7 @@ def _check_splits(shot: _Session, plan: Plan) -> None:
             raise BuildRefused(
                 f"{unit} is discarded and in {seen[unit]} — a discarded unit is in no split"
             )
+    _check_complete(shot, plan)
     for unit, cls in shot.damage.items():
         if cls not in DAMAGES:
             raise BuildRefused(f"{unit}: damage {cls!r} — one of {', '.join(DAMAGES)}")
@@ -228,6 +229,52 @@ def _check_splits(shot: _Session, plan: Plan) -> None:
     for unit in shot.units["test"]:
         if unit not in shot.damage:
             raise BuildRefused(f"{unit}: a test unit with no damage class")
+
+
+def _check_complete(shot: _Session, plan: Plan) -> None:
+    """Every unit the plan names is accounted for (FR-52, docs/13 §6): the plan's controls
+    and the ten placement frames exactly; each train, calib and test unit in its split or
+    discarded; each spare unused, standing in a split, or discarded; a split never larger
+    than the plan's. A unit dropped from `session.yml` is refused, never built around."""
+    placement = (*PLACEMENT_EMPTY, *PLACEMENT_EDGE)
+    missing = [unit for unit in placement if unit not in shot.units["placement"]]
+    if missing:
+        raise BuildRefused(
+            f"{missing[0]}: a placement frame of the plan is not in units.placement — the "
+            f"placement check needs all of {placement[0]}…{placement[-1]} (docs/14 §9)"
+        )
+    missing = [unit for unit in plan.control if unit not in shot.units["control"]]
+    if missing:
+        raise BuildRefused(
+            f"{missing[0]}: a control of the plan is not in units.control — the drift "
+            "check needs every control at every pass (E9)"
+        )
+    plan_units = {*plan.train, *plan.calib, *plan.test, *plan.spare}
+    for unit in sorted(shot.discarded):
+        if unit not in plan_units:
+            raise BuildRefused(
+                f"{unit} is discarded but is no train, calib, test or spare unit of the plan"
+            )
+    for name in ("train", "calib", "test"):
+        for unit in getattr(plan, name):
+            if unit not in shot.units[name] and unit not in shot.discarded:
+                raise BuildRefused(
+                    f"{unit} is in the plan's {name} but neither in the {name} split as "
+                    "shot nor discarded — every plan unit is accounted for"
+                )
+        if len(shot.units[name]) > len(getattr(plan, name)):
+            raise BuildRefused(
+                f"the {name} split has {len(shot.units[name])} units but the plan's has "
+                f"{len(getattr(plan, name))} — a spare only takes a broken unit's place"
+            )
+    in_use = {*shot.units["train"], *shot.units["calib"], *shot.units["test"],
+              *shot.units["spare"], *shot.discarded}
+    for unit in plan.spare:
+        if unit not in in_use:
+            raise BuildRefused(
+                f"{unit} is a spare of the plan but is in no split, not in units.spare and "
+                "not discarded — every plan unit is accounted for"
+            )
 
 
 def _rows(session_dir: Path) -> dict[str, dict[str, str]]:

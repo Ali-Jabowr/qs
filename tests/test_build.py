@@ -391,6 +391,66 @@ def test_a_session_unit_not_in_the_plans_split_or_spares_is_refused(
     refused(capsys, session_copy, tmp_path / "data", unit, "train")
 
 
+def drop_frames(session: Path, prefix: str) -> None:
+    """Every frame of the units whose name starts with `prefix`, gone with its row."""
+    for path in sorted(session.glob(f"{prefix}*.png")):
+        path.unlink()
+        drop_row(session, path.name)
+
+
+def test_a_session_with_no_placement_frames_is_refused(
+    tmp_path: Path, session_copy: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`placement: []` with the x-frames deleted: the plan's ten placement frames are
+    missing, so the build is refused (review P08 F3)."""
+    edit_session_yml(session_copy, lambda data: data["units"].update(placement=[]))  # type: ignore[union-attr]
+    drop_frames(session_copy, "x")
+    refused(capsys, session_copy, tmp_path / "data", "placement", "x01")
+
+
+def test_a_session_missing_a_plan_control_is_refused(
+    tmp_path: Path, session_copy: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """One control removed from `units.control` with its frames deleted: the plan's
+    controls are c01, c02, c03, so the build is refused (review P08 F3)."""
+    edit_session_yml(session_copy, lambda data: data["units"]["control"].remove("c03"))  # type: ignore[index]
+    drop_frames(session_copy, "c03_")
+    refused(capsys, session_copy, tmp_path / "data", "c03", "control")
+
+
+@pytest.mark.parametrize("split", ["train", "calib", "test"])
+def test_a_plan_unit_in_no_split_and_not_discarded_is_refused(
+    tmp_path: Path, session_copy: Path, capsys: pytest.CaptureFixture[str], split: str
+) -> None:
+    """A plan unit removed from its split, its frames deleted, not listed as discarded:
+    every plan unit is accounted for, so the build is refused (review P08 F3)."""
+    plan = make_plan("lean", PLAN_SEED)
+    unit = getattr(plan, split)[0]
+
+    def drop(data: dict[str, object]) -> None:
+        units = data["units"]
+        assert isinstance(units, dict)
+        units[split].remove(unit)
+        if split == "test":
+            damage = data["damage"]
+            assert isinstance(damage, dict)
+            del damage[unit]
+
+    edit_session_yml(session_copy, drop)
+    drop_frames(session_copy, f"{unit}_")
+    refused(capsys, session_copy, tmp_path / "data", unit, split, "discarded")
+
+
+def test_a_spare_in_no_list_and_not_discarded_is_refused(
+    tmp_path: Path, session_copy: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """An unused spare dropped from `units.spare`: it is accounted for nowhere."""
+    plan = make_plan("lean", PLAN_SEED)
+    spare = plan.spare[-1]
+    edit_session_yml(session_copy, lambda data: data["units"]["spare"].remove(spare))  # type: ignore[index]
+    refused(capsys, session_copy, tmp_path / "data", spare, "spare")
+
+
 def test_a_golden_target_that_exists_with_a_different_manifest_is_refused(
     tmp_path: Path, session_copy: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
