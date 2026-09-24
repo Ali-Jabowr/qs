@@ -21,13 +21,19 @@ from typing import cast
 
 ROOT = Path(__file__).resolve().parents[3]
 HF_HOME = ROOT / ".hf"
+HUB_DIR = HF_HOME / "hub"  # where the weights are hash-checked, and so where they must load from
 TORCH_HOME = ROOT / ".torch"
 
+# huggingface_hub takes its cache from HF_HUB_CACHE, then HUGGINGFACE_HUB_CACHE, and only then
+# HF_HOME/hub: all three are pinned, or a shell variable would load weights nobody checked.
 os.environ["HF_HOME"] = str(HF_HOME)
+os.environ["HF_HUB_CACHE"] = str(HUB_DIR)
+os.environ["HUGGINGFACE_HUB_CACHE"] = str(HUB_DIR)
 os.environ["TORCH_HOME"] = str(TORCH_HOME)
 os.environ["HF_HUB_OFFLINE"] = "1"
 os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
 
+import huggingface_hub.constants as hf_constants  # noqa: E402
 import numpy as np  # noqa: E402
 import torch  # noqa: E402
 
@@ -37,6 +43,7 @@ with warnings.catch_warnings():
     warnings.simplefilter("ignore", FutureWarning)
     from anomalib.models.image.patchcore.torch_model import PatchcoreModel  # noqa: E402
 
+from qs.errors import ConfigError  # noqa: E402
 from qs.inspector.model import (  # noqa: E402
     BACKBONE,
     LAYERS,
@@ -55,6 +62,21 @@ BATCH = 8  # docs/15 §5: one pass in batches of 8 windows
 def cuda_available() -> bool:
     """Whether torch sees a CUDA device — asked only after the environment above is set."""
     return bool(torch.cuda.is_available())
+
+
+def hub_dir() -> Path:
+    """The cache huggingface_hub will load the backbone from — `HUB_DIR`, the one the hash is
+    checked in, and offline — or `ConfigError`. The pins above hold only if huggingface_hub
+    was first imported after them; this reads what it actually took (ADR-0016, ADR-0020)."""
+    cache = Path(hf_constants.HF_HUB_CACHE).resolve()
+    if cache != HUB_DIR.resolve():
+        raise ConfigError(
+            f"weights: huggingface_hub reads its cache from {cache}, not {HUB_DIR}, where the "
+            "weights are hash-checked — unset HF_HUB_CACHE and HUGGINGFACE_HUB_CACHE (ADR-0020)"
+        )
+    if not hf_constants.is_offline_mode():
+        raise ConfigError("weights: huggingface_hub is not offline — HF_HUB_OFFLINE (NFR-07)")
+    return HUB_DIR
 
 
 def _seed(seed: int) -> None:
@@ -79,7 +101,8 @@ class AnomalibPatchCore:
             torch.backends.cudnn.deterministic = True
             torch.backends.cudnn.benchmark = False
             torch.use_deterministic_algorithms(True)
-        resolver = resolve or (lambda: cached_weights(HF_HOME / "hub"))
+        hub = hub_dir()  # before anything is read: the file checked is the file loaded
+        resolver = resolve or (lambda: cached_weights(hub))
         self._model = load_backbone(
             resolver,
             lambda: PatchcoreModel(

@@ -114,3 +114,14 @@ The Gate B run must not be taken as evidence until F1 and F2 are fixed.
 ## Verdict
 
 **FIX.** F1 and F2 before Saturday's Gate B proxy run. F3–F6 are cheap and belong in the same round. #45–#49 need no change for fail-safe.
+
+## Fixes (r1, F3)
+
+**F3: fixed.**
+
+- **Pins.** Before any import, `HF_HUB_CACHE` and `HUGGINGFACE_HUB_CACHE` are pinned to `.hf/hub`, next to `HF_HOME` and `HF_HUB_OFFLINE=1` (`src/qs/inspector/patchcore.py:30-31`).
+- **Guard.** The pins hold only if `huggingface_hub` is first imported after them. So a guard, `hub_dir()` (`:67`), reads the cache the hub actually took. It raises a one-line `ConfigError` unless that cache is `.hf/hub` and the hub is offline.
+- **Call site.** `AnomalibPatchCore` calls the guard before any weights file is resolved (`:104`). The file that is hash-checked is the file that is loaded, or the model is refused.
+- **Test.** `tests/test_patchcore.py::test_the_weights_load_from_the_cache_they_are_checked_in[pinned | imported-first]` runs in a child interpreter, with no weights and no network. Both cases fail on the old code.
+  - `pinned`: `HF_HUB_CACHE` and `HUGGINGFACE_HUB_CACHE` point elsewhere, and `HF_HUB_OFFLINE=0`. The hub still reads `.hf/hub`, offline.
+  - `imported-first`: the hub took the other cache before the pins. The model is refused before a weights file is looked at.

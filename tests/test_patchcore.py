@@ -1,7 +1,8 @@
 """The PatchCore seam without the model: pins, the weights check, the device, the import rules.
 
-Nothing here imports torch, timm or Anomalib — the real module is exercised by
-`tests/test_patchcore_env.py` under `make env-check`.
+Nothing here imports torch, timm or Anomalib in the test process — the real module is
+exercised by `tests/test_patchcore_env.py` under `make env-check`; the cache-pin test (F3)
+imports it in a child interpreter, with no weights and no network.
 """
 
 from __future__ import annotations
@@ -9,7 +10,10 @@ from __future__ import annotations
 import ast
 import hashlib
 import json
+import os
 import re
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -146,3 +150,58 @@ def test_device_for_each_backend() -> None:
 def test_torch_cuda_without_cuda_never_falls_back() -> None:
     with pytest.raises(ConfigError, match=re.escape("no CPU fallback")):
         device_for("torch-cuda", cuda_available=False)
+
+
+# REVIEW-P07 F3. Each case runs in a fresh interpreter, so that the module's pins meet a
+# huggingface_hub that is imported for the first time, and torch stays out of this process.
+_CACHE_PROBE = """
+import json, sys
+if sys.argv[1] == "imported-first":  # huggingface_hub read the shell's cache before our pins
+    import huggingface_hub.constants
+import qs.inspector.patchcore as p
+import huggingface_hub.constants as c
+from qs.errors import ConfigError
+resolved = []
+def resolve():
+    resolved.append(True)  # the weights would be read: the check was not made first
+    return None
+try:
+    p.AnomalibPatchCore("cpu", resolve=resolve)
+    outcome = "built"
+except ConfigError as exc:
+    outcome = str(exc)
+print(json.dumps({"cache": c.HF_HUB_CACHE, "hub": str(p.HUB_DIR),
+                  "offline": c.is_offline_mode(), "resolved": resolved, "outcome": outcome}))
+"""
+
+
+@pytest.mark.parametrize("order", ["pinned", "imported-first"])
+def test_the_weights_load_from_the_cache_they_are_checked_in(tmp_path: Path, order: str) -> None:
+    """F3: with HF_HUB_CACHE and HUGGINGFACE_HUB_CACHE pointing elsewhere, huggingface_hub
+    still reads `.hf/hub`, where the hash is checked, offline. If it took the other cache
+    before the pins, the model is refused before a weights file is read. No network, no
+    weights: the fake resolver returns nothing, so a real build can never start."""
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("HF_", "HUGGINGFACE_"))}
+    env.update(
+        PYTHONPATH=str(SRC.parent),
+        HF_HUB_CACHE=str(tmp_path / "other-hub"),
+        HUGGINGFACE_HUB_CACHE=str(tmp_path / "legacy-hub"),
+        HF_HUB_OFFLINE="0",
+    )
+    done = subprocess.run(
+        [sys.executable, "-c", _CACHE_PROBE, order],
+        env=env, cwd=tmp_path, capture_output=True, text=True, timeout=120, check=False,
+    )
+    assert done.returncode == 0, done.stderr
+    probe = json.loads(done.stdout.strip().splitlines()[-1])
+    assert probe["hub"] == str(ROOT / ".hf" / "hub")
+    if order == "pinned":
+        assert probe["cache"] == probe["hub"]  # the file checked is the file loaded
+        assert probe["offline"] is True
+        assert probe["resolved"] == [True]  # the check ran on `.hf/hub` …
+        assert "not in the local cache" in probe["outcome"]  # … and refused the empty resolve
+    else:
+        assert probe["cache"] == str(tmp_path / "other-hub")
+        assert probe["resolved"] == []  # refused before any weights file was looked at
+        assert "HF_HUB_CACHE" in probe["outcome"] and "ADR-0020" in probe["outcome"]
+    assert not (tmp_path / "other-hub").exists() and not (tmp_path / "legacy-hub").exists()
