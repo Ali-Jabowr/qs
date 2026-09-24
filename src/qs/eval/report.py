@@ -4,9 +4,11 @@ Pure rendering: everything is computed before this module is called, and it writ
 the command writes the two files, never overwriting one that exists. The report carries no
 wall-clock time; two runs on the same set, bundle and config differ in nothing but the file
 name (NFR-08). **INDICATIVE** is in the title, the E6 sentence is under it, the stop lines
-are at the top, then the set, the operating table at 1%, 5% and 10%, which check caught
-what, the unscored units and placement; the later sections (controls, pairs, changed units,
-latency) are ticket 4's.
+(drift, early warning) are at the top, then the set, the operating table at 1%, 5% and 10%,
+which check caught what, the unscored units, placement, the controls with the drift line
+(E9, A3/#79), the paired differences (ADR-0014), the units changed since the previous run on
+the same golden set, and latency last, in a section titled *measured, not reproducible* —
+the only section two runs may differ in.
 """
 
 from __future__ import annotations
@@ -17,7 +19,41 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 from qs.config import LabelsConfig
-from qs.eval.units import Aggregated, TargetResult
+from qs.eval.units import (
+    Aggregated,
+    ControlPass,
+    Drift,
+    Latency,
+    Pair,
+    TargetResult,
+    class_medians,
+)
+
+TARGETS = (1, 5, 10)
+
+
+@dataclass(frozen=True, slots=True)
+class Change:
+    """One unit and state whose label at one target differs from the previous run's."""
+
+    unit: str
+    state: str
+    target: int
+    old_label: str
+    new_label: str
+    old_score: str
+    new_score: str
+
+
+@dataclass(frozen=True, slots=True)
+class Changes:
+    """The regression list (docs/14 §7): `previous` is None when no earlier CSV in the
+    report directory carries this golden hash."""
+
+    previous: str | None
+    model_id: str
+    threshold_id: str
+    changes: tuple[Change, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,6 +87,14 @@ class Report:
     placement_bad: tuple[tuple[str, str], ...]
     early_warning: str | None
     labels: LabelsConfig
+    controls: tuple[ControlPass, ...] = ()
+    drift: Drift | None = None
+    pairs: tuple[Pair, ...] = ()
+    changes: Changes | None = None
+    latency: Latency | None = None
+    backend: str = ""
+    latency_report: str | None = None
+    latency_command: str = ""
 
 
 def counts(rows: Sequence[Mapping[str, str]]) -> tuple[RoleCount, ...]:
@@ -192,9 +236,104 @@ def _placement_section(r: Report) -> str:
     return "\n".join(lines)
 
 
+def _score(value: float | None) -> str:
+    return "—" if value is None else f"{value:.6f}"
+
+
+_MEASURE_FORMAT = (("area_px", ".1f"), ("diameter_px", ".2f"), ("axis_ratio", ".4f"),
+                   ("solidity", ".4f"))
+
+
+def _controls_section(r: Report) -> str:
+    if not r.controls:
+        return "- no control unit in the set."
+    head = ("| control | pass | rotations scored | score | geometry | "
+            + " | ".join(name for name, _ in _MEASURE_FORMAT) + " |")
+    lines = [head, "|" + "---|" * (5 + len(_MEASURE_FORMAT))]
+    for c in r.controls:
+        if c.score is None:
+            cells = [f"{r.labels.no_verdict} ({', '.join(c.reasons)})", "—"]
+            cells += ["—"] * len(_MEASURE_FORMAT)
+        else:
+            measures = dict(c.measures)
+            cells = [_score(c.score), "failed" if c.geometry_failed else "passed"]
+            cells += [format(measures[name], spec) if name in measures else "—"
+                      for name, spec in _MEASURE_FORMAT]
+        lines.append(f"| {c.unit} | pass{c.pass_} | {c.scored} | " + " | ".join(cells) + " |")
+    if r.drift is not None:
+        lines.append("")
+        lines += [
+            f"- {s.unit}: shift {_score(s.shift)} over {s.passes_scored} scored passes"
+            if s.shift is not None else
+            f"- {s.unit}: shift not measurable — {s.passes_scored} scored pass(es)"
+            for s in r.drift.controls
+        ]
+        lines.append(
+            f"- gap: the median paired difference of the dent units, {_score(r.drift.gap)} "
+            f"over {r.drift.gap_units} units"
+        )
+        line = r.drift.line()
+        lines.append(f"- drift: {line}" if line is not None else
+                     f"- drift: none — the largest shift {_score(r.drift.shift)} "
+                     f"({r.drift.shift_unit}) is below the gap {_score(r.drift.gap)} (E9)")
+    return "\n".join(lines)
+
+
+def _pairs_section(r: Report) -> str:
+    if not r.pairs:
+        return "- no test unit in the set."
+    lines = ["| unit | class | good | damaged | damaged − good |", "|---|---|---|---|---|"]
+    lines += [f"| {p.unit} | {p.cls} | {_score(p.good)} | {_score(p.damaged)} | "
+              f"{_score(p.difference)} |" for p in r.pairs]
+    lines.append("")
+    lines.append("- median per class, over the units scored in both states — " + " · ".join(
+        f"{cls} {_score(m)} ({n} units)" for cls, m, n in class_medians(r.pairs)))
+    return "\n".join(lines)
+
+
+def _changes_section(r: Report) -> str:
+    c = r.changes
+    if c is None or c.previous is None:
+        return "- no previous run on this golden set."
+    since = f"`{c.previous}` (model_id `{c.model_id}`, threshold_id `{c.threshold_id}`)"
+    if not c.changes:
+        return f"- no unit changed since {since}."
+    lines = [f"- since {since}:"]
+    lines += [
+        f"  - {x.unit} {x.state} at {x.target}%: {x.old_label or '—'} → "
+        f"{x.new_label or '—'}, score {x.old_score or '—'} → {x.new_score or '—'}"
+        for x in c.changes
+    ]
+    return "\n".join(lines)
+
+
+def _latency_section(r: Report) -> str:
+    lat = r.latency
+    if lat is None or lat.inspect_ms is None or lat.total_ms is None:
+        lines = ["- no frame reached the Inspector: nothing was timed."]
+    else:
+        lines = [
+            f"- backend `{r.backend}`, {lat.count} frames that reached the Inspector",
+            "",
+            "| ms | p50 | p95 | p99 |",
+            "|---|---|---|---|",
+            "| inspect_ms | " + " | ".join(f"{v:.1f}" for v in lat.inspect_ms) + " |",
+            "| total_ms | " + " | ".join(f"{v:.1f}" for v in lat.total_ms) + " |",
+            "",
+        ]
+    if r.latency_report is not None:
+        lines.append(f"- Gate B proxy (ADR-0017): `{r.latency_report}`")
+    else:
+        lines.append(f"- Gate B proxy (ADR-0017): not measured yet — `{r.latency_command}`")
+    lines.append("- nothing is gated here.")
+    return "\n".join(lines)
+
+
 def markdown(r: Report) -> str:
     """The report's text, in docs/14 §7's order, with no wall-clock time in it."""
-    stop = [f"- {r.early_warning}"] if r.early_warning else ["- none."]
+    drift_line = r.drift.line() if r.drift is not None else None
+    stop = [f"- {line}" for line in (drift_line, r.early_warning) if line is not None]
+    stop = stop or ["- none."]
     sections = [
         f"# INDICATIVE — {r.product}, {r.geometry}, golden {r.golden_name}",
         "",
@@ -224,6 +363,18 @@ def markdown(r: Report) -> str:
         "",
         "## Placement",
         _placement_section(r),
+        "",
+        "## Controls (E9)",
+        _controls_section(r),
+        "",
+        "## Pairs (ADR-0014)",
+        _pairs_section(r),
+        "",
+        "## Changed units",
+        _changes_section(r),
+        "",
+        "## Latency — measured, not reproducible",
+        _latency_section(r),
         "",
     ]
     return "\n".join(sections) + "\n"
@@ -268,3 +419,30 @@ def csv_text(r: Report) -> str:
             label(unit, 10),
         ))
     return buffer.getvalue()
+
+
+def changed_units(previous: str | None, previous_csv: str, new_csv: str) -> Changes:
+    """Every unit and state whose label at 1%, 5% or 10% differs between the previous run's
+    CSV and this one's, with both scores as written; `previous` is that CSV's file name, or
+    None when there is no previous run on this golden set."""
+    if previous is None:
+        return Changes(None, "", "", ())
+    old_rows = list(csv.DictReader(io.StringIO(previous_csv)))
+    old = {(row["unit"], row["state"]): row for row in old_rows}
+    changes: list[Change] = []
+    for row in csv.DictReader(io.StringIO(new_csv)):
+        before = old.get((row["unit"], row["state"]), {})
+        for target in TARGETS:
+            column = f"label_{target}"
+            if before.get(column, "") != row[column]:
+                changes.append(Change(
+                    row["unit"], row["state"], target, before.get(column, ""), row[column],
+                    _as_score(before.get("score", "")), _as_score(row["score"]),
+                ))
+    first = old_rows[0] if old_rows else {}
+    return Changes(previous, first.get("model_id", ""), first.get("threshold_id", ""),
+                   tuple(changes))
+
+
+def _as_score(text: str) -> str:
+    return "" if text == "" else f"{float(text):.6f}"

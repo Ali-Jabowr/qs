@@ -12,12 +12,22 @@ the golden calib units, recall per damage class with its lower bound, the false-
 on the test units' good state with its upper bound, and which check caught each defective
 unit and flagged each good one. A target whose geometry alone already flags more calib
 units than it allows is not reachable (A2, #78): no threshold, no recall row.
+
+The later sections (ticket #83): `control_passes` gives each control unit's score and mean
+geometry measures per pass; `pairs` each test unit's damaged − good score (ADR-0014);
+`drift` the E9 line by assumption A3 (#79) — shift = the range of a control's unit score
+over its scored passes, the largest of the controls; gap = the median paired difference of
+the dent units scored in both states; drift when shift ≥ gap, gap ≤ 0, or either cannot be
+measured. `latency` gives p50/p95/p99 of the frames that reached the Inspector.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from statistics import median
+
+import numpy as np
 
 from qs.contracts import Label
 from qs.eval.scoring import FrameResult
@@ -243,3 +253,225 @@ def early_warning(targets: Sequence[TargetResult]) -> str | None:
         f"({dent.caught / dent.total * 100:.1f}%), below 70% — fix the lighting before "
         "building more of the demo (docs/06 §4)"
     )
+
+
+# --- controls, pairs, drift and latency (ticket #83) ----------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class ControlPass:
+    """One control unit at one pass, aggregated over its rotations (E9, docs/13 §6).
+
+    `score` is the maximum over the scored rotations and `measures` the mean of each
+    geometry measure over them, in the contract's order; a pass whose rotations all came
+    back НЕТ РЕШЕНИЯ has neither, and `reasons` says why.
+    """
+
+    unit: str
+    pass_: int
+    scored: int
+    score: float | None
+    geometry_failed: bool | None
+    measures: tuple[tuple[str, float], ...]
+    reasons: tuple[str, ...]
+
+
+def control_passes(
+    rows: Sequence[Mapping[str, str]], results: Sequence[FrameResult]
+) -> tuple[ControlPass, ...]:
+    """Each control unit's passes, in unit and pass order."""
+    per: dict[tuple[str, int], list[FrameResult]] = {}
+    for row, result in zip(rows, results, strict=True):
+        if row["role"] != "control":
+            continue
+        if result.name.pass_ is None:
+            raise ValueError(f"{row['file']}: a control frame without its pass")
+        per.setdefault((row["unit"], result.name.pass_), []).append(result)
+    return tuple(_control(unit, pass_, frames)
+                 for (unit, pass_), frames in sorted(per.items()))
+
+
+def _control(unit: str, pass_: int, frames: list[FrameResult]) -> ControlPass:
+    scored = [r for r in frames if r.label is not Label.NO_VERDICT]
+    reasons = tuple(
+        dict.fromkeys(r.reason or "" for r in frames if r.label is Label.NO_VERDICT)
+    )
+    if not scored:
+        return ControlPass(unit, pass_, 0, None, None, (), reasons)
+    if any(r.score is None or r.geometry is None for r in scored):
+        raise ValueError(
+            f"{unit} pass{pass_}: a scored frame without a score or a geometry result — "
+            "a completed inspection carries both checks (C8)"
+        )
+    sums: dict[str, list[float]] = {}
+    for r in scored:
+        assert r.geometry is not None
+        for name, value in r.geometry.measures:
+            sums.setdefault(name, []).append(value)
+    return ControlPass(
+        unit,
+        pass_,
+        len(scored),
+        max(r.score for r in scored if r.score is not None),
+        any(r.geometry is not None and not r.geometry.passed for r in scored),
+        tuple((name, sum(values) / len(values)) for name, values in sums.items()),
+        reasons,
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class Pair:
+    """One test unit's two states (ADR-0014); `None` where a state is unscored."""
+
+    unit: str
+    cls: str
+    good: float | None
+    damaged: float | None
+
+    @property
+    def difference(self) -> float | None:
+        """Damaged unit score − good unit score; `None` when either state is unscored."""
+        if self.good is None or self.damaged is None:
+            return None
+        return self.damaged - self.good
+
+
+def pairs(units: Sequence[Aggregated]) -> tuple[Pair, ...]:
+    """One pair per test unit, in unit order; the class is the damaged state's."""
+    good: dict[str, float | None] = {}
+    damaged: dict[str, tuple[str, float | None]] = {}
+    for u in units:
+        if u.role != "test":
+            continue
+        if u.state == "good":
+            good[u.unit] = u.score
+        elif u.state == "dmg":
+            damaged[u.unit] = (u.cls, u.score)
+    return tuple(
+        Pair(unit, damaged.get(unit, ("", None))[0], good.get(unit),
+             damaged.get(unit, ("", None))[1])
+        for unit in sorted(set(good) | set(damaged))
+    )
+
+
+def class_medians(
+    paired: Sequence[Pair],
+) -> tuple[tuple[str, float | None, int], ...]:
+    """Per class: the median paired difference over the units scored in both states, and
+    how many there were; `None` when none was."""
+    classes = sorted({p.cls for p in paired})
+    out: list[tuple[str, float | None, int]] = []
+    for cls in classes:
+        diffs = [d for p in paired if p.cls == cls and (d := p.difference) is not None]
+        out.append((cls, median(diffs) if diffs else None, len(diffs)))
+    return tuple(out)
+
+
+@dataclass(frozen=True, slots=True)
+class ControlShift:
+    """One control's shift: the range of its unit score over its scored passes; `None`
+    when fewer than two passes were scored (not measurable)."""
+
+    unit: str
+    passes_scored: int
+    shift: float | None
+
+
+@dataclass(frozen=True, slots=True)
+class Drift:
+    """The E9 line by assumption A3 (#79)."""
+
+    controls: tuple[ControlShift, ...]
+    shift: float | None
+    shift_unit: str | None
+    gap: float | None
+    gap_units: int
+    drifted: bool
+    why: tuple[str, ...]
+
+    def line(self) -> str | None:
+        """The stop line, or None when the session did not drift."""
+        if not self.drifted:
+            return None
+        return ("the session drifted: the numbers mean nothing (E9) — "
+                + "; ".join(self.why))
+
+
+DRIFT_CLASS = "dent"
+
+
+def drift(controls: Sequence[ControlPass], paired: Sequence[Pair]) -> Drift:
+    """Shift against gap (A3, #79). Every case that cannot be measured drifts — a session
+    whose stability is unknown is never read as stable."""
+    per: dict[str, list[float]] = {}
+    for c in controls:
+        per.setdefault(c.unit, [])
+        if c.score is not None:
+            per[c.unit].append(c.score)
+    shifts = tuple(
+        ControlShift(unit, len(scores), max(scores) - min(scores) if len(scores) >= 2 else None)
+        for unit, scores in sorted(per.items())
+    )
+    measured = [s for s in shifts if s.shift is not None]
+    largest = max(measured, key=lambda s: s.shift or 0.0) if measured else None
+    diffs = [d for p in paired if p.cls == DRIFT_CLASS and (d := p.difference) is not None]
+    gap = median(diffs) if diffs else None
+    why: list[str] = []
+    if not shifts:
+        why.append("no control unit was scored — the shift is not measurable")
+    for s in shifts:
+        if s.shift is None:
+            why.append(f"{s.unit}'s shift is not measurable: {s.passes_scored} pass(es) "
+                       "scored, two are needed")
+    if gap is None:
+        why.append(f"the gap is not measurable: no {DRIFT_CLASS} unit scored in both states")
+    elif gap <= 0:
+        why.append(f"the gap {gap:.6f} is not above 0: damaged {DRIFT_CLASS} units do not "
+                   "score above their good state")
+    if largest is not None and largest.shift is not None and gap is not None and gap > 0 \
+            and largest.shift >= gap:
+        why.append(f"the shift {largest.shift:.6f} ({largest.unit}) is not below the gap "
+                   f"{gap:.6f}")
+    return Drift(
+        controls=shifts,
+        shift=None if largest is None else largest.shift,
+        shift_unit=None if largest is None else largest.unit,
+        gap=gap,
+        gap_units=len(diffs),
+        drifted=bool(why),
+        why=tuple(why),
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class Latency:
+    """p50/p95/p99 over the frames that reached the Inspector; `None` when none did."""
+
+    count: int
+    inspect_ms: tuple[float, float, float] | None
+    total_ms: tuple[float, float, float] | None
+
+
+_REACHED = ("placement", "inference")  # the НЕТ РЕШЕНИЯ raised inside the Inspector
+
+
+def reached_inspector(result: FrameResult) -> bool:
+    """Whether the Pipeline called the Inspector on this frame: a verdict, or a
+    НЕТ РЕШЕНИЯ raised inside it (placement, inference) — not one decided before it."""
+    return result.label is not Label.NO_VERDICT or result.reason in _REACHED
+
+
+def _percentiles(samples: Sequence[float]) -> tuple[float, float, float]:
+    """p50, p95, p99 — numpy's default (linear) method, as `qs latency` computes them."""
+    values = np.asarray(samples, dtype=np.float64)
+    return (float(np.percentile(values, 50)), float(np.percentile(values, 95)),
+            float(np.percentile(values, 99)))
+
+
+def latency(results: Sequence[FrameResult]) -> Latency:
+    """The run's timings — measured, not reproducible; nothing is gated on them."""
+    reached = [r for r in results if reached_inspector(r)]
+    if not reached:
+        return Latency(0, None, None)
+    return Latency(len(reached), _percentiles([r.inspect_ms for r in reached]),
+                   _percentiles([r.total_ms for r in reached]))

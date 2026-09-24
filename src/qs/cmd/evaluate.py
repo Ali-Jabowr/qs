@@ -10,18 +10,25 @@ directory — names this model and exactly the set's calib units). Every golden 
 scored through the station's own Pipeline (`score_frames`, the config as loaded, never
 validation mode), the calibration threshold is recomputed and compared to 1e-6, units are
 aggregated (E2), and the report is written — `INDICATIVE` in the title, every rate per unit
-and carrying its Clopper-Pearson bound.
+and carrying its Clopper-Pearson bound; the controls and the drift line (E9, A3/#79), the
+paired differences (ADR-0014), every unit whose label changed since the newest earlier CSV
+in the report directory with the same golden hash, and latency last — the path of the
+newest `reports/latency/*-<model_id>-cpu.md` beside the report directory (`qs latency`,
+ADR-0017), or the command that makes it.
 
-Exit codes: 0 written · 1 refused (nothing written), or written with a placement FAIL or
-the early warning · 2 could not run (config, bundle, CUDA, missing golden set). Every
-refusal is one line, never a traceback.
+Exit codes: 0 written · 1 refused (nothing written), or written with a placement FAIL, the
+early warning or the drift line · 2 could not run (config, bundle, CUDA, missing golden
+set). Every refusal is one line, never a traceback.
 """
 
 from __future__ import annotations
 
 import argparse
+import csv
+import io
 import re
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -35,7 +42,17 @@ from qs.eval import report as rep
 from qs.eval.golden import GoldenRefused, verify_golden
 from qs.eval.scoring import FrameResult, score_frames
 from qs.eval.threshold import UnitScore, choose_threshold
-from qs.eval.units import Aggregated, TargetResult, aggregate, early_warning, target_result
+from qs.eval.units import (
+    Aggregated,
+    TargetResult,
+    aggregate,
+    control_passes,
+    drift,
+    early_warning,
+    latency,
+    pairs,
+    target_result,
+)
 from qs.inspector.appearance import AppearanceInspector
 from qs.inspector.bundle import Bundle, load_bundle
 from qs.inspector.model import Scorer
@@ -213,13 +230,49 @@ def _report_path(report_dir: Path, stem: str) -> Path:
     return path
 
 
+_REPORT_NAME = re.compile(r"(\d{4}-\d{2}-\d{2})-(.+?)(?:-(\d+))?\.csv")
+
+
+def _previous_run(report_dir: Path, golden_hash: str) -> tuple[str, str] | None:
+    """The newest earlier per-unit CSV in `report_dir` on this golden set: (name, text).
+
+    Newest by the file name — its date, then its `-2`, `-3` — never by a clock. A CSV that
+    is not a report's (another header) or carries another golden hash is ignored."""
+    found: list[tuple[tuple[str, int, str], str]] = []
+    for path in sorted(report_dir.glob("*.csv")) if report_dir.is_dir() else []:
+        match = _REPORT_NAME.fullmatch(path.name)
+        if match is None:
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        rows = list(csv.reader(io.StringIO(text)))
+        if len(rows) < 2 or tuple(rows[0]) != rep.CSV_COLUMNS:
+            continue
+        if {row[0] for row in rows[1:] if row} != {golden_hash}:
+            continue
+        found.append(((match.group(1), int(match.group(3) or 1), path.name), text))
+    if not found:
+        return None
+    (_, _, name), text = max(found)
+    return name, text
+
+
+def _latency_report(report_dir: Path, model_id: str) -> str | None:
+    """The newest `qs latency --cpu` report of this model beside the report directory."""
+    directory = report_dir.parent / "latency"
+    reports = sorted(directory.glob(f"*-{model_id}-cpu.md")) if directory.is_dir() else []
+    return str(reports[-1]) if reports else None
+
+
 def _invocation(args: argparse.Namespace) -> str:
     return (f"qs evaluate --config {args.config} --golden {args.golden} "
             f"--models {args.models} --report-dir {args.report_dir}")
 
 
 def _summary(out: Path, csv_path: Path, targets: tuple[TargetResult, ...],
-             placement_ok: bool, warning: str | None) -> None:
+             placement_ok: bool, warning: str | None, drift_line: str | None) -> None:
     at5 = next(t for t in targets if t.target == 5)
     recall = " · ".join(f"{r.cls} {r.caught}/{r.total}" for r in at5.recall)
     far = at5.far_combined
@@ -228,6 +281,8 @@ def _summary(out: Path, csv_path: Path, targets: tuple[TargetResult, ...],
     print(f"far 5%: threshold {at5.choice.value:.6f} · recall {recall} · "
           f"false alarms {far.flagged}/{far.total} (upper bound {far.upper * 100:.1f}%)")
     print(f"placement: {'PASS' if placement_ok else 'FAIL'}")
+    if drift_line is not None:
+        print(drift_line)
     if warning is not None:
         print(warning)
 
@@ -298,6 +353,9 @@ def _evaluate(
     targets = tuple(target_result(target, units) for target in TARGETS)
     placement_ok, placement_bad = _placement(results, rows)
     warning = early_warning(targets)
+    controls = control_passes(rows, results)
+    paired = pairs(units)
+    drifted = drift(controls, paired)
     labels = LabelsConfig(config.display.labels.pass_, config.display.labels.defect,
                           config.display.labels.no_verdict)
     built = rep.Report(
@@ -318,12 +376,25 @@ def _evaluate(
         placement_bad=placement_bad,
         early_warning=warning,
         labels=labels,
+        controls=controls,
+        drift=drifted,
+        pairs=paired,
+        latency=latency(results),
+        backend=config.inspector.backend,
+        latency_report=_latency_report(report_dir, config.inspector.model),
+        latency_command=(f"bin/qs latency --config {args.config} "
+                         f"--frames {golden / 'frames'} --cpu"),
     )
+    csv_text = rep.csv_text(built)
+    previous = _previous_run(report_dir, built.golden_hash)
+    built = replace(built, changes=rep.changed_units(
+        previous[0] if previous else None, previous[1] if previous else "", csv_text))
     stem = f"{date.today().isoformat()}-{config.product}-{config.lighting.geometry}"
     out = _report_path(report_dir, stem)
     report_dir.mkdir(parents=True, exist_ok=True)
     out.write_text(rep.markdown(built), encoding="utf-8")
     csv_path = out.with_suffix(".csv")
-    csv_path.write_text(rep.csv_text(built), encoding="utf-8")
-    _summary(out, csv_path, targets, placement_ok, warning)
-    return 0 if placement_ok and warning is None else 1
+    csv_path.write_text(csv_text, encoding="utf-8")
+    drift_line = drifted.line()
+    _summary(out, csv_path, targets, placement_ok, warning, drift_line)
+    return 0 if placement_ok and warning is None and drift_line is None else 1

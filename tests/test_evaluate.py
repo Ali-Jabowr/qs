@@ -39,12 +39,26 @@ from conftest import (
 )
 from qs.__main__ import build_parser
 from qs.cmd import calibrate, evaluate
+from qs.config import LabelsConfig
+from qs.contracts import CheckResult, Label
 from qs.eval.golden import plan_build, write_build
+from qs.eval.report import Report, RoleCount
 from qs.eval.report import markdown as _markdown
+from qs.eval.scoring import FrameResult
+from qs.eval.units import (
+    Aggregated,
+    Pair,
+    class_medians,
+    control_passes,
+    drift,
+    latency,
+    pairs,
+)
 from qs.inspector.model import Scored, Scorer
 from qs.session import FrameLog, SessionRecord, save_frame, write_plan, write_session
 from qs.splitplan import Plan, Shot, make_plan, shot_list
 from test_calibrate import PLAN, PLAN_SEED, PRODUCT, write_train_bundle
+from test_units import _result, _set
 
 BLOT = 100  # the blot every scorer in this module flags (grey, above localize's 70)
 DARK = -0.2  # the standard scorer's dark threshold in the normalised grey
@@ -661,3 +675,331 @@ def test_a_not_reachable_target_says_so_and_has_no_rates() -> None:
         "allows 0 (A2, #78)" in markdown
     block = markdown.split("### far 1% target")[1].split("\n## ")[0]
     assert "- recall per unit" not in block and "- false alarms" not in block
+
+
+# --- ticket #83 on hand-built results: controls, drift, pairs, latency ----------------------
+
+LABELS = LabelsConfig("ГОДЕН", "БРАК", "НЕТ РЕШЕНИЯ")
+MEASURED = CheckResult("geometry", True, None, None,
+                       (("area_px", 2000.0), ("diameter_px", 50.0), ("axis_ratio", 0.98),
+                        ("solidity", 0.99)))
+
+
+def _control(unit: str, pass_: int, scores: tuple[float | None, ...],
+             areas: tuple[float, ...] = (2000.0, 2000.0, 2000.0)) -> list[FrameResult]:
+    """One control pass: a score per rotation, `None` for НЕТ РЕШЕНИЯ(lighting)."""
+    out = []
+    for r, (score, area) in enumerate(zip(scores, areas, strict=True)):
+        file = f"{unit}_good_G2_r{r}_pass{pass_}.png"
+        if score is None:
+            out.append(_result(file, label=Label.NO_VERDICT, score=None, geometry=None,
+                               reason="lighting"))
+        else:
+            geometry = CheckResult("geometry", True, None, None,
+                                   (("area_px", area), ("diameter_px", 50.0),
+                                    ("axis_ratio", 0.98), ("solidity", 0.99)))
+            out.append(_result(file, score=score, geometry=geometry))
+    return out
+
+
+def _steady_controls() -> list[tuple[str, str, str, str, list[FrameResult]]]:
+    """Three controls whose pass scores are 0.25, 0.375, 0.5 — a shift of exactly 0.25
+    (binary fractions, so every comparison below is exact)."""
+    return [(unit, "control", "good", "",
+             _control(unit, p, (0.125, 0.125 * (p + 1), 0.125)))
+            for unit in ("c01", "c02", "c03") for p in (1, 2, 3)]
+
+
+def _dents(*diffs: float) -> tuple[Pair, ...]:
+    return tuple(Pair(f"u{i + 1:03d}", "dent", 0.0, d) for i, d in enumerate(diffs))
+
+
+def _report(**fields: object) -> str:
+    base: dict[str, object] = dict(
+        product="mochi-vanilla", geometry="G2", golden_name="mvp-2026-09-25",
+        golden_hash="0" * 64, model_id="m", threshold_id="t", config_hash="c",
+        invocation="qs evaluate", camera_device="/dev/video0", camera_is_phone=False,
+        counts=(RoleCount("calib", 10, 30, ()),), targets=(), units=(), placement_ok=True,
+        placement_bad=(), early_warning=None, labels=LABELS,
+    )
+    base.update(fields)
+    return _markdown(Report(**base))  # type: ignore[arg-type]
+
+
+def test_a_control_pass_all_no_verdict_is_shown_and_left_out_of_the_range() -> None:
+    """c03's pass 3 came back НЕТ РЕШЕНИЯ on every rotation: the table says so, and the
+    shift is the range over passes 1 and 2 only (A3, #79)."""
+    entries = [e for e in _steady_controls() if e[0] != "c03"]
+    entries += [("c03", "control", "good", "", _control("c03", 1, (0.25, 0.25, 0.25))),
+                ("c03", "control", "good", "", _control("c03", 2, (0.75, 0.5, 0.25))),
+                ("c03", "control", "good", "", _control("c03", 3, (None, None, None)))]
+    controls = control_passes(*_set(*entries))
+    assert [(c.unit, c.pass_) for c in controls] == [
+        (u, p) for u in ("c01", "c02", "c03") for p in (1, 2, 3)]
+    last = controls[-1]
+    assert (last.scored, last.score, last.measures, last.reasons) == (0, None, (), ("lighting",))
+    result = drift(controls, _dents(1.0, 1.0, 1.0))
+    c03 = next(s for s in result.controls if s.unit == "c03")
+    assert c03.passes_scored == 2 and c03.shift == 0.5  # 0.75 − 0.25, pass 3 left out
+    assert result.shift_unit == "c03" and result.gap == pytest.approx(1.0)
+    assert not result.drifted and result.line() is None
+    text = _report(controls=controls, drift=result)
+    table = text.split("## Controls")[1].split("\n## ")[0]
+    assert "| c03 | pass3 | 0 | НЕТ РЕШЕНИЯ (lighting) | — | — | — | — | — |" in table
+    assert "| c03 | pass2 | 3 | 0.750000 | passed | 2000.0 | 50.00 | 0.9800 | 0.9900 |" in table
+    assert "the session drifted" not in text
+
+
+def test_the_measures_are_the_mean_over_the_scored_rotations() -> None:
+    controls = control_passes(*_set(
+        ("c01", "control", "good", "", _control("c01", 1, (0.1, 0.2, None),
+                                                 areas=(2000.0, 2100.0, 0.0)))))
+    assert dict(controls[0].measures)["area_px"] == 2050.0
+    assert controls[0].scored == 2 and controls[0].score == 0.2
+
+
+def test_a_control_with_one_scored_pass_is_drift() -> None:
+    entries = [e for e in _steady_controls() if e[0] != "c02"]
+    entries += [("c02", "control", "good", "", _control("c02", 1, (0.1, 0.1, 0.1)))]
+    entries += [("c02", "control", "good", "", _control("c02", p, (None, None, None)))
+                for p in (2, 3)]
+    result = drift(control_passes(*_set(*entries)), _dents(1.0))
+    assert result.drifted
+    line = result.line()
+    assert line is not None and line.startswith(
+        "the session drifted: the numbers mean nothing (E9)")
+    assert "c02's shift is not measurable" in line
+
+
+@pytest.mark.parametrize("gap", [0.0, -0.05])
+def test_a_gap_at_or_below_zero_is_drift(gap: float) -> None:
+    result = drift(control_passes(*_set(*_steady_controls())), _dents(gap, gap, gap))
+    assert result.drifted and result.gap == pytest.approx(gap)
+    assert "is not above 0" in (result.line() or "")
+
+
+def test_a_shift_at_the_gap_is_drift_and_below_it_is_not() -> None:
+    """Steady controls shift by 0.25: a median gap of 0.25 drifts (shift ≥ gap), 0.375
+    does not; the line names the control and both numbers."""
+    controls = control_passes(*_set(*_steady_controls()))
+    below = drift(controls, _dents(0.25, 0.375, 0.5))
+    assert (below.shift, below.gap, below.gap_units, below.drifted) == (0.25, 0.375, 3, False)
+    at = drift(controls, _dents(0.125, 0.25, 0.25, 0.5))
+    assert (at.shift, at.gap, at.drifted) == (0.25, 0.25, True)
+    assert "the shift 0.250000 (c01) is not below the gap 0.250000" in (at.line() or "")
+
+
+def test_no_dent_scored_in_both_states_is_drift() -> None:
+    result = drift(control_passes(*_set(*_steady_controls())),
+                   (Pair("u001", "dent", None, 1.0), Pair("u002", "tear", 0.1, 1.0)))
+    assert result.drifted and result.gap is None
+    assert "the gap is not measurable" in (result.line() or "")
+
+
+def _agg(unit: str, state: str, cls: str, score: float | None) -> Aggregated:
+    return Aggregated(unit, "test", state, cls, 0 if score is None else 3, score,
+                      None if score is None else False, () if score is not None
+                      else ("lighting",))
+
+
+def test_pairs_are_damaged_minus_good_with_the_median_per_class() -> None:
+    units = (
+        Aggregated("u001", "calib", "good", "", 3, 0.5, False, ()),
+        _agg("u010", "good", "dent", 0.10), _agg("u010", "dmg", "dent", 0.90),
+        _agg("u011", "good", "dent", 0.20), _agg("u011", "dmg", "dent", 0.50),
+        _agg("u012", "good", "dent", 0.10), _agg("u012", "dmg", "dent", None),
+        _agg("u013", "good", "dent", 0.30), _agg("u013", "dmg", "dent", 0.40),
+        _agg("u020", "good", "tear", None), _agg("u020", "dmg", "tear", 1.00),
+        _agg("u030", "good", "deformed", 0.10), _agg("u030", "dmg", "deformed", 0.10),
+        _agg("u031", "good", "deformed", 0.20), _agg("u031", "dmg", "deformed", 0.60),
+    )
+    paired = pairs(units)
+    assert [p.unit for p in paired] == ["u010", "u011", "u012", "u013", "u020", "u030",
+                                        "u031"]
+    diffs = {p.unit: p.difference for p in paired}
+    assert diffs["u010"] == pytest.approx(0.80) and diffs["u011"] == pytest.approx(0.30)
+    assert diffs["u013"] == pytest.approx(0.10) and diffs["u031"] == pytest.approx(0.40)
+    assert diffs["u012"] is None and diffs["u020"] is None
+    medians = {cls: (m, n) for cls, m, n in class_medians(paired)}
+    assert medians["dent"][0] == pytest.approx(0.30) and medians["dent"][1] == 3
+    assert medians["tear"] == (None, 0)
+    assert medians["deformed"][0] == pytest.approx(0.20) and medians["deformed"][1] == 2
+    text = _report(pairs=paired)
+    section = text.split("## Pairs")[1].split("\n## ")[0]
+    assert "| u010 | dent | 0.100000 | 0.900000 | 0.800000 |" in section
+    assert "| u012 | dent | 0.100000 | — | — |" in section
+    assert "| u020 | tear | — | 1.000000 | — |" in section
+    assert "dent 0.300000 (3 units)" in section
+    assert "tear — (0 units)" in section
+    assert "deformed 0.200000 (2 units)" in section
+
+
+def test_latency_is_the_percentiles_of_the_frames_that_reached_the_inspector() -> None:
+    """Verdicts and the НЕТ РЕШЕНИЯ raised inside the Inspector count; one decided before it
+    (lighting) does not. p50/p95/p99 by numpy's linear method, computed here by hand."""
+    def timed(file: str, inspect: float, total: float, **kwargs: object) -> FrameResult:
+        base = _result(file, **kwargs)  # type: ignore[arg-type]
+        return FrameResult(base.file, base.name, base.label, base.reason, base.geometry,
+                           base.score, base.pred_score, inspect, total)
+
+    results = [timed(f"u001_good_G2_r{r}.png", 10.0 * (r + 1), 20.0 * (r + 1))
+               for r in range(3)]
+    results.append(timed("x01_empty_G2_r0.png", 40.0, 80.0, label=Label.NO_VERDICT,
+                         score=None, geometry=None, reason="placement"))
+    results.append(timed("u002_good_G2_r0.png", 0.0, 500.0, label=Label.NO_VERDICT,
+                         score=None, geometry=None, reason="lighting"))
+    got = latency(results)
+    assert got.count == 4
+    # inspect 10, 20, 30, 40: p50 = 25; p95 = 30 + 0.85 × 10 = 38.5; p99 = 30 + 0.97 × 10
+    assert got.inspect_ms == pytest.approx((25.0, 38.5, 39.7))
+    assert got.total_ms == pytest.approx((50.0, 77.0, 79.4))
+    assert latency(results[-1:]) == type(got)(0, None, None)
+
+
+# --- ticket #83 through `qs evaluate`: controls, drift, latency, changed units --------------
+
+
+def test_the_controls_table_is_three_by_three_with_no_drift(first_report: SimpleNamespace
+                                                           ) -> None:
+    """c01–c03 × pass1–3, each with its score and measures; steady controls, no drift line."""
+    table = first_report.text.split("## Controls (E9)")[1].split("\n## ")[0]
+    rows = [line for line in table.splitlines() if line.startswith("| c0")]
+    assert [tuple(line.split(" | ")[:2]) for line in rows] == [
+        (f"| c0{u}", f"pass{p}") for u in (1, 2, 3) for p in (1, 2, 3)]
+    for line in rows:
+        cells = [c.strip() for c in line.strip("|").split("|")]
+        assert cells[2] == "3" and cells[3] == "0.010000" and cells[4] == "passed"
+        assert all(cell not in ("", "—") for cell in cells[5:9])
+    assert "- drift: none — the largest shift 0.000000" in table
+    assert "gap: the median paired difference of the dent units, 1.000000 over 10 units" \
+        in table
+    assert "the session drifted" not in first_report.text
+
+
+def test_a_blotted_control_at_pass_3_drifts(tmp_path: Path, env: SimpleNamespace) -> None:
+    """c02's pass-3 frames carry a blot the fake scorer flags: its shift (1.0) reaches the
+    dent gap (1.0), so the drift line is at the top, printed, and the exit is 1 — with the
+    report still written."""
+    session = tmp_path / BUILD_SESSION
+    shutil.copytree(env.session, session)
+    for rotation in range(3):
+        file = f"c02_good_G2_r{rotation}_pass3.png"
+        pixels = cv2.imread(str(session / file), cv2.IMREAD_COLOR)
+        assert pixels is not None
+        centre = (150 + 6 * rotation, 116 - 4 * rotation)
+        cv2.circle(pixels, (centre[0] + 7, centre[1] - 5), BLOT_RADIUS, (BLOT, BLOT, BLOT), -1)
+        os.chmod(session / file, 0o644)
+        assert cv2.imwrite(str(session / file), pixels)
+        _relog(session, file)
+    build = plan_build(session, tmp_path / "data", PRODUCT, None)
+    write_build(build)
+    code, out = run(tmp_path, env, golden=build.golden.root)
+    assert code == 1, out
+    assert "Traceback" not in out
+    text = report_of(tmp_path / "reports" / "eval").read_text(encoding="utf-8")
+    [line] = [line for line in text.splitlines() if line.startswith("- the session drifted")]
+    assert "the numbers mean nothing (E9)" in line
+    assert "the shift 1.000000 (c02) is not below the gap 1.000000" in line
+    assert text.index(line) < text.index("## The set")  # at the top, under the title
+    assert line[2:] in out
+    assert "| c02 | pass3 | 3 | 1.010000 | passed |" in text
+    assert "- c02: shift 1.000000 over 3 scored passes" in text
+
+
+def test_latency_is_computed_on_the_runs_own_results(
+    tmp_path: Path, env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The p50/p95/p99 in the report are numpy's, over the frames the run itself scored that
+    reached the Inspector; with no `qs latency --cpu` report the command is named."""
+    seen: list[tuple[FrameResult, ...]] = []
+    original = evaluate.score_frames
+
+    def recording(*args: object, **kwargs: object) -> tuple[FrameResult, ...]:
+        results = original(*args, **kwargs)  # type: ignore[arg-type]
+        seen.append(results)
+        return results
+
+    monkeypatch.setattr(evaluate, "score_frames", recording)
+    code, out = run(tmp_path, env)
+    assert code == 0, out
+    [results] = seen
+    reached = [r for r in results if r.label is not Label.NO_VERDICT
+               or r.reason in ("placement", "inference")]
+    assert len(reached) == len(results) == 211  # calib, test, control and placement frames
+    text = report_of(tmp_path / "reports" / "eval").read_text(encoding="utf-8")
+    section = text.split("## Latency — measured, not reproducible")[1]
+    assert "- backend `torch-cuda`, 211 frames that reached the Inspector" in section
+    for name, values in (("inspect_ms", [r.inspect_ms for r in reached]),
+                         ("total_ms", [r.total_ms for r in reached])):
+        expected = " | ".join(f"{float(np.percentile(values, q)):.1f}" for q in (50, 95, 99))
+        assert f"| {name} | {expected} |" in section
+    assert (f"not measured yet — `bin/qs latency --config {env.config} "
+            f"--frames {env.golden / 'frames'} --cpu`") in section
+    assert text.rstrip().endswith("- nothing is gated here.")  # latency is the last section
+
+
+def test_a_cpu_latency_report_of_this_model_is_named(tmp_path: Path, env: SimpleNamespace
+                                                     ) -> None:
+    """The newest `reports/latency/*-<model_id>-cpu.md` is named; a CUDA report and another
+    model's CPU report are not."""
+    latency_dir = tmp_path / "reports" / "latency"
+    latency_dir.mkdir(parents=True)
+    for name in (f"2026-09-26-{env.model_id}-cpu.md", f"2026-09-27-{env.model_id}-cpu.md",
+                 f"2026-09-28-{env.model_id}-cuda.md", "2026-09-29-mochi-other-cpu.md"):
+        (latency_dir / name).write_text("# Latency\n", encoding="utf-8")
+    code, out = run(tmp_path, env)
+    assert code == 0, out
+    text = report_of(tmp_path / "reports" / "eval").read_text(encoding="utf-8")
+    newest = latency_dir / f"2026-09-27-{env.model_id}-cpu.md"
+    assert f"- Gate B proxy (ADR-0017): `{newest}`" in text
+    assert "not measured yet" not in text
+
+
+def _changed(text: str) -> str:
+    return text.split("## Changed units")[1].split("\n## ")[0].strip()
+
+
+def test_changed_units_list_exactly_the_unit_that_moved(
+    tmp_path: Path, warn_env: SimpleNamespace
+) -> None:
+    """Run 1 catches the light dent (the wider scorer), run 2 does not: run 2 lists exactly
+    that unit's damaged state at 1%, 5% and 10%, БРАК → ГОДЕН with both scores, under
+    run 1's model, threshold and file; run 3 finds the newest earlier run (run 2's) and
+    says no unit changed."""
+    directory = fresh_reports(tmp_path, warn_env)
+    code, out = run(tmp_path, warn_env, dark=WARN_DARK, report_dir=directory)
+    assert code == 0, out
+    first = report_of(directory)
+    assert _changed(first.read_text(encoding="utf-8")) == \
+        "- no previous run on this golden set."
+    run(tmp_path, warn_env, report_dir=directory)
+    second = directory / f"{first.stem}-2.md"
+    moved = sorted(u for u, cls in PLAN.damage.items() if cls == "dent")[6]
+    expected = "\n".join(
+        [f"- since `{first.stem}.csv` (model_id `{warn_env.model_id}`, threshold_id "
+         f"`{warn_env.threshold_id}`):"]
+        + [f"  - {moved} dmg at {target}%: БРАК → ГОДЕН, score 1.010000 → 0.010000"
+           for target in (1, 5, 10)])
+    assert _changed(second.read_text(encoding="utf-8")) == expected
+    run(tmp_path, warn_env, report_dir=directory)
+    third = directory / f"{first.stem}-3.md"
+    assert _changed(third.read_text(encoding="utf-8")) == (
+        f"- no unit changed since `{first.stem}-2.csv` (model_id `{warn_env.model_id}`, "
+        f"threshold_id `{warn_env.threshold_id}`).")
+
+
+def test_a_csv_from_another_golden_set_is_ignored(
+    tmp_path: Path, env: SimpleNamespace, first_report: SimpleNamespace
+) -> None:
+    """A per-unit CSV with another golden hash — every label flipped — is not a previous
+    run on this set."""
+    directory = fresh_reports(tmp_path, env)
+    directory.mkdir(parents=True)
+    other = first_report.csv.replace(env.golden_hash, "f" * 64).replace("ГОДЕН", "БРАК")
+    assert "f" * 64 in other
+    (directory / "2026-09-20-mochi-vanilla-G2.csv").write_text(other, encoding="utf-8")
+    code, out = run(tmp_path, env, report_dir=directory)
+    assert code == 0, out
+    report = next(p for p in directory.glob("*.md"))
+    assert _changed(report.read_text(encoding="utf-8")) == \
+        "- no previous run on this golden set."
