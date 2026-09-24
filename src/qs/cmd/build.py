@@ -46,8 +46,8 @@ def main(args: argparse.Namespace) -> int:
         return 1
     try:
         write_build(build)
-    except (OSError, GoldenRefused) as exc:
-        print(f"build: {exc}")
+    except (OSError, BuildRefused, GoldenRefused) as exc:
+        print(f"build: {exc} — nothing written")
         return 1
     _report(build)
     return 0

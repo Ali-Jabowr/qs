@@ -3,8 +3,9 @@
 `plan_build` is pure: one raw session in, the planned dataset tree and golden set out — or a
 `BuildRefused` naming the unit, file or field. Every check runs before the first write, so a
 refused build leaves nothing half-built and `DIR` is never touched. `write_build` copies each
-tree into a temporary directory beside its target and renames it into place, so an existing
-target is never overwritten: identical content → "already built", different → refused.
+tree into a temporary directory beside its target, re-hashing every copy, verifies the golden
+set, and only then renames both into place, so an existing target is never overwritten:
+identical content → "already built", different → refused.
 `verify_golden` checks a golden set on disk — the same check `qs evaluate` (ticket 3) runs
 before it scores a frame.
 """
@@ -456,31 +457,54 @@ def _existing_differs(tree: Tree) -> str | None:
 
 
 def write_build(build: Build) -> None:
-    """Write what is missing. Each tree goes into a temporary directory beside its target
-    and is renamed into place, so an existing target is never overwritten; the golden set
-    is verified before it lands."""
-    if not build.dataset_done:
-        _write_tree(build.dataset)
-    if not build.golden_done:
-        _write_tree(build.golden, verify=True)
+    """Write what is missing. Each tree is staged in a temporary directory beside its
+    target, every copy re-hashed against its planned SHA-256 as it is written; the golden
+    set is verified; only then are both renamed into place. A refusal at any step removes
+    what this call staged or renamed, so it leaves nothing half-built, and an existing
+    target is never overwritten."""
+    staged: list[tuple[Path, Tree]] = []
+    renamed: list[Path] = []
+    try:
+        if not build.dataset_done:
+            staged.append((_stage(build.dataset), build.dataset))
+        if not build.golden_done:
+            tmp = _stage(build.golden)
+            staged.append((tmp, build.golden))
+            verify_golden(tmp)
+        for tmp, tree in staged:
+            os.chmod(tmp, 0o755)
+            tmp.rename(tree.root)
+            renamed.append(tree.root)
+    except BaseException:
+        for root in renamed:
+            shutil.rmtree(root, ignore_errors=True)
+        for tmp, _ in staged:
+            shutil.rmtree(tmp, ignore_errors=True)
+        raise
 
 
-def _write_tree(tree: Tree, *, verify: bool = False) -> None:
+def _stage(tree: Tree) -> Path:
+    """The tree written into a temporary directory beside its target; each copy's bytes
+    are hashed and compared with the SHA-256 planned for them before they are written."""
     tree.root.parent.mkdir(parents=True, exist_ok=True)
     tmp = Path(tempfile.mkdtemp(dir=tree.root.parent, prefix=f".{tree.root.name}."))
     try:
         for planned in tree.files:
+            data = planned.bytes()
+            digest = hashlib.sha256(data).hexdigest()
+            if digest != planned.sha256:
+                raise BuildRefused(
+                    f"{planned.rel}: SHA-256 {digest} but the build planned "
+                    f"{planned.sha256} — the file changed after the build was checked"
+                )
             path = tmp / planned.rel
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_bytes(planned.bytes())
+            path.write_bytes(data)
             os.chmod(path, planned.mode)
-        if verify:
-            verify_golden(tmp)
-        os.chmod(tmp, 0o755)
-        tmp.rename(tree.root)
     except BaseException:
         shutil.rmtree(tmp, ignore_errors=True)
         raise
+    return tmp
 
 
 def _golden_rows(manifest: bytes, path: Path) -> list[dict[str, str]]:

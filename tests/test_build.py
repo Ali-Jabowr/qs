@@ -28,7 +28,7 @@ from conftest import (
 )
 from qs.__main__ import build_parser
 from qs.cmd.build import main
-from qs.eval.golden import GoldenRefused, verify_golden
+from qs.eval.golden import BuildRefused, GoldenRefused, plan_build, verify_golden, write_build
 from qs.names import FrameName, format_name, parse_name
 from qs.session import FrameLog, SessionRecord, save_frame, write_plan, write_session
 from qs.splitplan import Plan, make_pilot_plan, make_plan
@@ -459,6 +459,54 @@ def test_the_builder_verifies_the_golden_set_it_just_wrote(
     data = tmp_path / "data"
     assert main(args(lean_session, data)) == 0
     assert verify_golden(golden_of(data))
+
+
+# --- a frame changed between planning and writing (review P08 F2) ---------------------------
+
+
+def nothing_built(data: Path) -> None:
+    """No file anywhere under `data`, and neither target nor a staging directory left."""
+    assert not [p for p in data.rglob("*") if p.is_file()], sorted(data.rglob("*"))
+    assert not dataset_of(data).exists() and not golden_of(data).exists()
+    assert not [p for p in data.rglob(".*")], sorted(data.rglob(".*"))
+
+
+@pytest.mark.parametrize("split", ["train", "calib"])
+def test_a_frame_changed_after_planning_is_refused_and_nothing_is_built(
+    tmp_path: Path, session_copy: Path, split: str
+) -> None:
+    """Each copy is re-hashed against its planned SHA-256 as it is written: a train frame
+    (dataset only) or a calib frame (both trees) edited between `plan_build` and
+    `write_build` is refused naming the file, and neither tree is left behind."""
+    plan = make_plan("lean", PLAN_SEED)
+    unit = plan.train[0] if split == "train" else plan.calib[0]
+    file = f"{unit}_good_G2_r0.png"
+    data = tmp_path / "data"
+    build = plan_build(session_copy, data, PRODUCT, None)
+    flip_a_byte(session_copy, file)
+    with pytest.raises(BuildRefused) as raised:
+        write_build(build)
+    assert file in str(raised.value) and "SHA-256" in str(raised.value)
+    nothing_built(data)
+
+
+def test_a_golden_set_that_fails_verification_leaves_no_dataset(
+    tmp_path: Path, session_copy: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Both trees are staged and verified before either is renamed into place: a golden
+    set that fails its verification leaves no dataset tree behind."""
+    from qs.eval import golden as golden_module
+
+    data = tmp_path / "data"
+    build = plan_build(session_copy, data, PRODUCT, None)
+
+    def failing(path: Path) -> list[dict[str, str]]:
+        raise GoldenRefused("probe: the staged golden set does not verify")
+
+    monkeypatch.setattr(golden_module, "verify_golden", failing)
+    with pytest.raises(GoldenRefused):
+        write_build(build)
+    nothing_built(data)
 
 
 def refuses(
