@@ -27,6 +27,8 @@ Numbers are never reused. A superseded ADR stays, with its status changed and a 
 | [0020](ADR-0020-backbone-weights-racm-in1k.md) | PatchCore's backbone weights are timm's `wide_resnet50_2.racm_in1k`, named by full tag | Accepted | 2026-09-22 |
 | [0021](ADR-0021-executor-is-claude-code.md) | Claude Code executes the plans; OpenCode is withdrawn | Superseded by 0023 | 2026-09-22 |
 | [0022](ADR-0022-bench-capture-by-phone.md) | Bench capture by phone until the webcam arrives; the lock test becomes an EXIF read-back | Accepted | 2026-09-23 |
-| [0023](ADR-0023-opencode-implements-tickets.md) | OpenCode implements the tickets again; Claude Code reviews and commits | Accepted | 2026-09-23 |
+| [0023](ADR-0023-opencode-implements-tickets.md) | OpenCode implements the tickets again; Claude Code reviews and commits | Superseded by 0024 | 2026-09-23 |
+| [0024](ADR-0024-claude-implements-opencode-stopped.md) | OpenCode is stopped; Claude agents implement the remaining tickets | Accepted | 2026-09-24 |
+| [0025](ADR-0025-cautious-defaults-accepted.md) | The cautious defaults of the build's twenty open questions are accepted | Accepted | 2026-09-24 |
 
 New decisions take the next free number.

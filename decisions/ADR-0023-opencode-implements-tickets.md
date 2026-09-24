@@ -1,6 +1,6 @@
 # ADR-0023: OpenCode implements the tickets again; Claude Code reviews and commits
 
-**Status:** Accepted · 2026-09-23 · Ali. Supersedes ADR-0021. Its model split is ADR-0019's.
+**Status:** Superseded by ADR-0024 (2026-09-24) · was accepted 2026-09-23 · Ali. Supersedes ADR-0021. Its model split is ADR-0019's.
 
 ## Context
 
