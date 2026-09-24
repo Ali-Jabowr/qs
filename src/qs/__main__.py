@@ -157,7 +157,30 @@ def build_parser() -> argparse.ArgumentParser:
         "--report-dir", metavar="DIR", default="reports/pilot", help="where the report goes"
     )
 
+    from qs.cmd.build import golden_name
     from qs.cmd.train import coreset, positive_int, product, seed
+
+    build = commands.add_parser(
+        "build",
+        help="one raw session → datasets/<product>/<geometry> and the frozen golden set "
+        "(docs/12 §2, docs/13 §6; FR-52, FR-56)",
+    )
+    build.add_argument(
+        "--session", required=True, metavar="DIR",
+        help="the raw session folder, as qs shoot or qs import-phone wrote it",
+    )
+    build.add_argument(
+        "--product", required=True, type=product, metavar="P",
+        help="e.g. mochi-vanilla — the dataset's first path part",
+    )
+    build.add_argument(
+        "--data", default="data", metavar="DIR",
+        help="where datasets/ and golden/ are written (data)",
+    )
+    build.add_argument(
+        "--name", type=golden_name, default=None, metavar="NAME",
+        help="the golden set's name (default mvp-<date of session.yml started_at>)",
+    )
 
     train = commands.add_parser(
         "train", help="PatchCore on a dataset's train/good → a model bundle (FR-53, docs/15 §8)"
@@ -279,6 +302,10 @@ def run(argv: Sequence[str] | None = None) -> int:
         from qs.cmd import pilot_report
 
         return pilot_report.main(args)
+    if args.command == "build":
+        from qs.cmd import build
+
+        return build.main(args)
     if args.command == "train":
         from qs.cmd import train
 

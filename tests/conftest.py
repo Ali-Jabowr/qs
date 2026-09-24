@@ -7,8 +7,10 @@ a camera, a display or a GPU, and nothing is written anywhere.
 
 from __future__ import annotations
 
+import shutil
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 import cv2
@@ -16,7 +18,17 @@ import numpy as np
 import pytest
 
 from qs.config import GeometryConfig, LocalizeConfig, load_config
+from qs.contracts import CameraReadback, TriggerEvent
 from qs.inspector.model import FitSettings, Fitted, Scored
+from qs.session import (
+    FrameLog,
+    Product,
+    SessionRecord,
+    save_frame,
+    write_plan,
+    write_session,
+)
+from qs.splitplan import Plan, Shot, make_plan, shot_list, substitute_spares
 
 EXAMPLE = Path(__file__).resolve().parents[1] / "config" / "station-A-bench.example.yml"
 
@@ -220,3 +232,166 @@ class BlotPatchCore:
 
     def scorer(self, bank: np.ndarray) -> BlotScorer:
         return BlotScorer(bank)
+
+
+# --- the P08 synthetic lean session (tickets #80–#83) ---------------------------------------
+# One lean dataset session at a small frame size, written with P05b's own planner and
+# writers: `make_plan`, `shot_list`, `save_frame`, `FrameLog`, `write_session`. Discs,
+# blotted discs, flattened and oval discs, empty and edge frames; a matching tmp config.
+
+BUILD_SESSION = "2026-09-25-mvp"
+SMALL_W, SMALL_H = 320, 240
+BENCH_CAMERA = CameraReadback(10000, 0, 4500, 30, True)
+PHONE_CAMERA = CameraReadback(20000, 100, None, None, False)
+STARTED_AT = datetime(2026, 9, 25, 10, 0, tzinfo=UTC)
+CARD_BOX = (296, 8, 16, 16)  # the grey card, where the small config's reference_patch roi sits
+UNIT_RADIUS = 26
+BLOT_RADIUS = 8
+BLOT_GREY = 40
+
+
+@dataclass(frozen=True, slots=True)
+class ShotRecord:
+    """One recorded frame, enough for `write_session` (`session.Recorded`)."""
+
+    event: TriggerEvent = TriggerEvent(1, 0.0, STARTED_AT, "test")
+    reference_patch: float | None = 0.62
+    camera: CameraReadback = BENCH_CAMERA
+
+
+def bench_product() -> Product:
+    """The product record of the synthetic session."""
+    return Product(
+        brand="Mochi-Dom",
+        flavour="strawberry",
+        shop="Magnit",
+        best_before=date(2026, 9, 28),
+        purchased_at=datetime(2026, 9, 25, 9, 10, tzinfo=UTC),
+    )
+
+
+def draw_lean_frame(unit: str, state: str, rotation: int, damage: str | None) -> np.ndarray:
+    """One small synthetic frame: a pale disc on a black floor; a dent or tear as a dark blot
+    on the disc; deformed-flat flattened, deformed-oval squeezed; `empty` a bare floor with
+    the grey card; `edge` a disc over the inspection area's edge."""
+    paint = Paint()
+    pixels = np.full((SMALL_H, SMALL_W, 3), FLOOR_GREY, dtype=np.uint8)
+    paint.blob(pixels, CARD_BOX, 158)  # the grey card reads 0.62
+    if state == "empty":
+        return pixels
+    if state == "edge":
+        paint.disc(pixels, (272, 120), UNIT_RADIUS)
+        return pixels
+    centre = (150 + 6 * rotation, 116 - 4 * rotation)
+    if state == "dmg" and damage == "deformed-flat":
+        paint.ellipse(pixels, centre, (30, 15), 0)
+        return pixels
+    if state == "dmg" and damage == "deformed-oval":
+        paint.ellipse(pixels, centre, (22, 26), 0)
+        return pixels
+    paint.disc(pixels, centre, UNIT_RADIUS)
+    if state == "dmg":
+        paint.disc(pixels, (centre[0] + 7, centre[1] - 5), BLOT_RADIUS, BLOT_GREY)
+    return pixels
+
+
+def write_lean_session(
+    root: Path,
+    *,
+    device: str = "/dev/video0",
+    camera: CameraReadback = BENCH_CAMERA,
+    broken: Sequence[tuple[str, int]] = (),
+) -> tuple[Plan, Path]:
+    """The synthetic lean dataset session under `root/BUILD_SESSION`, exactly as P05b writes
+    one: `plan.yml`, every rule-named PNG, `frames.csv` and `session.yml` last. `broken`
+    breaks units as `qs import-phone --broken` does: the frames the unit got are saved and
+    logged `discarded`, the next spare takes its split and damage. The plan and the folder."""
+    folder = root / BUILD_SESSION
+    plan = make_plan("lean", 20260925)
+    write_plan(folder, plan, "sheet\n")
+    shot = substitute_spares(plan, "G2", list(broken)) if broken else None
+    steps = shot.steps if shot is not None else shot_list(plan, "G2")
+    damage = shot.damage if shot is not None else plan.damage
+    discarded = {file for files in (shot.discarded if shot else {}).values() for file in files}
+    record = ShotRecord(camera=camera)
+    with FrameLog(folder) as log:
+        for step in steps:
+            if not isinstance(step, Shot):
+                continue
+            frame = step.frame
+            pixels = draw_lean_frame(frame.unit, frame.state, frame.rotation,
+                                     damage.get(frame.unit))
+            sha = save_frame(folder, frame, pixels)
+            log.append_row(step.file, frame, record, None, None, sha,
+                           "discarded" if step.file in discarded else "saved")
+    written = SessionRecord(
+        session_id=BUILD_SESSION,
+        geometry="G2",
+        product=bench_product(),
+        device=device,
+        camera_at_open=camera,
+        plan=plan,
+        frames=(record,),
+        substitution=shot if shot is not None and shot.discarded else None,
+    )
+    write_session(folder, written, by="qs import-phone")
+    return plan, folder
+
+
+@pytest.fixture(scope="session")
+def lean_session(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """The synthetic lean session — 265 frames — written once for the whole test run."""
+    _, folder = write_lean_session(tmp_path_factory.mktemp("lean-session"))
+    return folder
+
+
+@pytest.fixture(scope="session")
+def broken_session(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """The same lean session with one test unit broken after its good frames: the first
+    spare took its place in test, and the unit's 3 good frames are logged `discarded`."""
+    plan = make_plan("lean", 20260925)
+    _, folder = write_lean_session(tmp_path_factory.mktemp("broken-session"),
+                                   broken=[(plan.test[0], 3)])
+    return folder
+
+
+@pytest.fixture(scope="session")
+def phone_session(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """The same lean session as the phone shot it (ADR-0022): device `phone:…`, unverified."""
+    _, folder = write_lean_session(tmp_path_factory.mktemp("phone-session"),
+                                   device="phone:Xiaomi Redmi Note 12", camera=PHONE_CAMERA)
+    return folder
+
+
+@pytest.fixture
+def session_copy(tmp_path: Path, lean_session: Path) -> Path:
+    """The lean session copied into this test's `tmp_path`, for the tests that tamper."""
+    target = tmp_path / BUILD_SESSION
+    shutil.copytree(lean_session, target)
+    return target
+
+
+@pytest.fixture(scope="session")
+def bench_config(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """The station config matching the small frames, cut from the example: the ROIs and
+    tolerances in their pixels, so the tickets that replay the session can load it."""
+    text = (Path(__file__).resolve().parents[1] / "config" / "station-A-bench.example.yml"
+            ).read_text(encoding="utf-8")
+    for old, new in (
+        ("width: 1920", f"width: {SMALL_W}"),
+        ("height: 1080", f"height: {SMALL_H}"),
+        ("[1780, 40, 100, 100]", f"[{CARD_BOX[0]}, {CARD_BOX[1]}, {CARD_BOX[2]}, "
+                                 f"{CARD_BOX[3]}]"),
+        ("[360, 0, 1200, 1080]", "[8, 0, 272, 240]"),
+        ("min_area_px: 20000", "min_area_px: 500"),
+        ("border_margin_px: 10", "border_margin_px: 4"),
+        ("mask_dilate_px: 12", "mask_dilate_px: 4"),
+        ("area_px:        [98000, 131000]", "area_px:        [1600, 2600]"),
+        ("axis_ratio_min: 0.90", "axis_ratio_min: 0.85"),
+        ("solidity_min:   0.96", "solidity_min:   0.95"),
+    ):
+        assert old in text, f"the example no longer contains {old!r}"
+        text = text.replace(old, new)
+    path = tmp_path_factory.mktemp("bench-config") / "station.yml"
+    path.write_text(text, encoding="utf-8")
+    return path
