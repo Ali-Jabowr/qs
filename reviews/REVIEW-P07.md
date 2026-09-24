@@ -1,6 +1,6 @@
 # REVIEW-P07, round 1: Inspector, learned half (PatchCore, bundle, train, pilot-report, mvtec-check, AppearanceInspector, latency)
 
-**Verdict: FIX.** 1 blocker · 1 major · 4 minor · 1 nit. The blocker and the major are both in `qs latency` (#50).
+**Verdict: PASS** after the r1 fixes (see "Fixes (r1)"). Round 1 found 1 blocker · 1 major · 4 minor · 1 nit. The blocker and the major are both in `qs latency` (#50).
 The safety path (`AppearanceInspector`, the window and mask, the bundle and the weights check) holds.
 
 Spec #42, tickets #45 (e64e145), #46 (ee24670, 9fbbb7a, d2e4fe1), #47 (f624df0), #48 (211425f), #49 (524dacf, db3a484,
@@ -125,3 +125,18 @@ The Gate B run must not be taken as evidence until F1 and F2 are fixed.
 - **Test.** `tests/test_patchcore.py::test_the_weights_load_from_the_cache_they_are_checked_in[pinned | imported-first]` runs in a child interpreter, with no weights and no network. Both cases fail on the old code.
   - `pinned`: `HF_HUB_CACHE` and `HUGGINGFACE_HUB_CACHE` point elsewhere, and `HF_HUB_OFFLINE=0`. The hub still reads `.hf/hub`, offline.
   - `imported-first`: the hub took the other cache before the pins. The model is refused before a weights file is looked at.
+
+## Fixes (r1, F1–F2, F4–F6, N1)
+
+Fixed by the implementer (OpenCode, #50's session), each with a test that failed on the pre-fix code; checked and committed by the orchestrator. `make check`: 792 passed.
+
+| Finding | Outcome | Where | Test |
+|---|---|---|---|
+| F1 | fixed. The Gate B line and N100 range use the whole inspection's p95; the GPU bench line uses backbone + search per call | `latency.py:169`, `:192` | `test_the_gate_b_line_times_the_whole_inspection_pass_at_130`, `test_the_gate_b_line_fails_at_140_and_lists_the_fallbacks` |
+| F2 | fixed. Call 0 is load's warm-up and call 1 the replay warm-up; the timed verdicts use calls 2…timed+1. The test helper is aligned | `latency.py:330-331`, `tests/test_latency.py:137-139` | `test_the_warm_up_timings_are_not_in_the_sample` |
+| F4 | inspection row now asserted. The env case (real bundle, `--cpu --count 200`) stays **bench-pending** | — | `test_the_inspection_row_percentiles_are_numpy_linear` |
+| F5 | fixed. The label and the 4-thread pin follow the effective backend | `latency.py:211`, `:325` | `test_a_torch_cpu_config_without_the_flag_is_a_cpu_run` |
+| F6 | fixed. A geometry with no localized damaged frame is marked, and the others keep their numbers; an `InferenceError` is a one-line exit 2 | `pilot_report.py:183,356-363,406-407,515,520` | `test_a_geometry_with_no_localized_damaged_frame_does_not_kill_the_report`, `test_an_inference_error_is_a_one_line_refusal` |
+| N1 | fixed. Zero spread gives +inf, -inf or 0.0 by the sign of the gap | `pilot.py:55` | `test_zero_spread_with_a_negative_gap_is_minus_inf` |
+
+The orchestrator checked F2's alignment against `AppearanceInspector.inspect`: every verdict makes exactly one scorer call, and a `PlacementFault` is raised before the scorer is reached.

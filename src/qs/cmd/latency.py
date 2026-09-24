@@ -18,10 +18,11 @@ threshold was calibrated on CUDA (docs/12 §4).
 The report, `reports/latency/<date>-<model_id>-<cpu|cuda>.md`, holds the count, the frames
 directory, the excluded placement frames and the device; p50, p95 and p99 (numpy's default
 linear percentile) of the backbone, the search and the whole inspection; on the CPU the
-Gate B line — p95 × 3 against 400 ms, PASS or FAIL — and the N100 estimate as the range
-p95 × 2 … p95 × 3, with the docs/15 §10 fallback order on FAIL; on the GPU the bench
-budget line (PatchCore ≤ 100 ms, docs/10 §5), reported and not gated. A run under 200
-inspections is marked not a Gate B result. Nothing is changed automatically.
+Gate B line — the whole inspection's p95 × 3 against 400 ms (ADR-0017) — and the N100
+estimate as the range p95 × 2 … p95 × 3, with the docs/15 §10 fallback order on FAIL; on
+the GPU the bench budget line — PatchCore's p95, the backbone and the search per call
+summed — against 100 ms (docs/10 §5), reported and not gated. A run under 200 inspections
+is marked not a Gate B result. Nothing is changed automatically.
 
 Exit codes: 0 report written · 1 no frame produced a verdict · 2 could not run (config,
 bundle, CUDA for a GPU run). Every refusal is one line, never a traceback.
@@ -163,7 +164,9 @@ def _write_report(report_dir: Path, result: dict[str, object]) -> Path:
         _row("inspection", result["inspect_ms"]),  # type: ignore[arg-type]
         "",
     ]
-    p95 = _percentile(backbone, 95)
+    inspection: list[float] = result["inspect_ms"]  # type: ignore[assignment]
+    search: list[float] = result["search_ms"]  # type: ignore[assignment]
+    p95 = _percentile(inspection, 95)  # ADR-0017 judges the whole inspection's p95
     if device_label == "cpu":
         triple = 3.0 * p95
         passed = triple <= GATE_B_MS
@@ -182,11 +185,12 @@ def _write_report(report_dir: Path, result: dict[str, object]) -> Path:
             ]
         lines += [""]
     else:
+        patchcore = [b + s for b, s in zip(backbone, search, strict=True)]
         lines += [
             "## Bench budget",
             "",
-            f"- PatchCore p95 {p95:.1f} ms against {BENCH_MS} ms (docs/10 §5) — "
-            "reported, not gated",
+            f"- PatchCore p95 (backbone + search) {_percentile(patchcore, 95):.1f} ms "
+            f"against {BENCH_MS} ms (docs/10 §5) — reported, not gated",
             "",
         ]
     if count < MIN_INSPECTIONS:
@@ -201,10 +205,12 @@ def _write_report(report_dir: Path, result: dict[str, object]) -> Path:
 
 
 def _config(args: argparse.Namespace, hide_cuda: Callable[[], None]) -> LoadedConfig:
-    """The loaded config, with the backend overridden in memory on `--cpu`."""
+    """The loaded config, pinned and overridden on the CPU: `--cpu` overrides the backend
+    in memory, and a config that is already `torch-cpu` is a CPU run as it stands."""
     loaded = load_config(Path(args.config))
-    if args.cpu:
+    if args.cpu or loaded.config.inspector.backend == "torch-cpu":
         hide_cuda()
+    if args.cpu:
         loaded = dataclasses.replace(
             loaded,
             config=dataclasses.replace(
@@ -312,16 +318,17 @@ def _run(
               f"{excluded} placement-fault frames excluded")
         return 1
 
-    # scorer call 0 is `load`'s warm-up; verdict i of the run scored with call i
+    # scorer call 0 is `load`'s warm-up and call 1 the replay warm-up verdict; the timed
+    # verdicts scored with calls 2 … timed + 1
     result: dict[str, object] = {
         "model_id": inspector.model_id,
-        "device_label": "cpu" if args.cpu else "cuda",
+        "device_label": "cpu" if loaded.config.inspector.backend == "torch-cpu" else "cuda",
         "backend": loaded.config.inspector.backend,
         "frames_dir": str(frames_dir),
         "count": timed,
         "excluded": excluded,
-        "backbone_ms": backbone[1:timed + 1],
-        "search_ms": search[1:timed + 1],
+        "backbone_ms": backbone[2:timed + 2],
+        "search_ms": search[2:timed + 2],
         "inspect_ms": inspect_ms,
     }
     try:

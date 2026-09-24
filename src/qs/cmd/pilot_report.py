@@ -180,6 +180,7 @@ class _GeometryReport:
     median: float | None = None
     window_px: int | None = None
     sep: Separation | None = None
+    no_damaged: bool = False  # passed the silhouette, but no damaged frame localized
 
 
 class _Model:
@@ -352,9 +353,14 @@ def _compute(
             diameters = [f.measures.diameter_px for f in report.good if f.measures is not None]
             median, window_px = suggest_window(diameters)
             report.median, report.window_px = median, window_px
-            report.sep = _separate(
-                report, good_units, damaged_units, models.get(), device, window_px, dilate_px
-            )
+            if any(frame.silhouette is not None for frame in report.dmg):
+                report.sep = _separate(
+                    report, good_units, damaged_units, models.get(), device, window_px,
+                    dilate_px,
+                )
+            else:
+                # one geometry with nothing damaged must not cost the report for the rest
+                report.no_damaged = True
         reports.append(report)
     return reports
 
@@ -397,6 +403,8 @@ def _geometry_section(report: _GeometryReport, histogram: str) -> list[str]:
             f"- separation: {report.sep.separation:.2f} — gap {report.sep.gap:.4f}, "
             f"spread {report.sep.spread:.4f}, n {report.sep.n}"
         )
+    elif report.no_damaged:
+        lines.append("- separation: none — no damaged unit localized")
     return lines
 
 
@@ -441,6 +449,8 @@ def _write(
         for report in reports:
             if not report.passes:
                 lines.append(f"- {report.name}: out by silhouette")
+            elif report.sep is None:
+                lines.append(f"- {report.name}: no separation — no damaged unit localized")
         lines.append("")
         lines.append(f"Recommendation: {ordered[0]}.")
         lines.append("")
@@ -507,7 +517,7 @@ def _report(
     except ConfigError as exc:
         print(exc)
         return 2
-    except (RuntimeError, ValueError) as exc:
+    except (RuntimeError, ValueError, InferenceError) as exc:
         print(f"separation: {_first_line(exc)}")
         return 2
     except OSError as exc:

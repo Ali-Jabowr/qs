@@ -27,7 +27,7 @@ from conftest import EXAMPLE, BlotPatchCore
 from qs.__main__ import build_parser
 from qs.cmd import pilot_report
 from qs.contracts import CameraReadback, TriggerEvent
-from qs.inspector.model import PatchCore, load_backbone
+from qs.inspector.model import FitSettings, Fitted, PatchCore, Scored, Scorer, load_backbone
 from qs.inspector.pilot import rank, separation, suggest_window
 from qs.names import FrameName
 from qs.session import Product, SessionRecord, save_frame, write_session
@@ -267,6 +267,17 @@ def test_the_separation_refuses_one_fold_or_an_empty_fold() -> None:
         separation([1.0, 1.1], [[], [2.0]])
 
 
+def test_zero_spread_with_a_negative_gap_is_minus_inf() -> None:
+    below = separation([1.0, 1.0], [[0.5], [0.5]])
+    assert below.gap == pytest.approx(-0.5)
+    assert below.spread == 0.0
+    assert below.separation == -math.inf  # it must rank below any real spread (N1)
+    above = separation([1.0, 1.0], [[2.0], [2.0]])
+    assert above.separation == math.inf  # a positive gap with no spread is still perfect
+    flat = separation([1.0, 1.0], [[1.0], [1.0]])
+    assert flat.separation == 0.0  # no gap at all
+
+
 def test_the_window_suggestion_is_twice_the_median() -> None:
     assert suggest_window([380.0, 380.0, 380.0]) == (380.0, 760)
     assert suggest_window([171.0, 172.0]) == (171.5, 343)
@@ -479,3 +490,50 @@ def test_missing_weights_cannot_run(tmp_path: Path, run: PilotRun) -> None:
     assert code == 2
     assert len(lines) == 1 and lines[0].startswith("weights: ")
     assert built == []
+
+
+def test_a_geometry_with_no_localized_damaged_frame_does_not_kill_the_report(
+    tmp_path: Path, run: PilotRun
+) -> None:
+    replace = {
+        f"{unit}_dmg_G2_r{rotation}.png": np.full((480, 640, 3), FLOOR_GREY, dtype=np.uint8)
+        for unit in run.damaged
+        for rotation in range(3)
+    }
+    folder = _like_main(tmp_path, run, None, replace)
+    code, out, _, report_dir = _run(tmp_path, run.config, folder)
+    assert code == 0, out
+    sections = _sections((report_dir / f"{SESSION}.md").read_text(encoding="utf-8"))
+    assert "no damaged unit localized" in sections["G2"]
+    assert "separation:" in sections["G3"]  # the other geometry keeps its numbers
+    ranking = sections["Ranking"]
+    assert "Recommendation: G3." in ranking
+    assert "- G2: no separation — no damaged unit localized" in ranking
+
+
+class _NaNScorer:
+    """The scorer whose anomaly map is NaN."""
+
+    def score(self, window_input: np.ndarray) -> Scored:
+        map_ = np.full(window_input.shape[1:], np.nan, dtype=np.float32)
+        return Scored(map_, 0.5, backbone_ms=1.0, search_ms=1.0)
+
+
+class _NaNPatchCore:
+    """A fake whose anomaly map is NaN: `score_map` must raise `InferenceError`."""
+
+    def fit(self, windows: list[np.ndarray], settings: FitSettings) -> Fitted:
+        return Fitted(bank=np.zeros((1, 1), dtype=np.float32), peak_gpu_bytes=0)
+
+    def scorer(self, bank: np.ndarray) -> Scorer:
+        return _NaNScorer()
+
+
+def test_an_inference_error_is_a_one_line_refusal(tmp_path: Path, run: PilotRun) -> None:
+    code, out, _, report_dir = _run(tmp_path, run.config, run.session,
+                                    model=lambda device: _NaNPatchCore())
+    lines = out.strip().splitlines()
+    assert code == 2
+    assert len(lines) == 1 and "non-finite" in lines[0]
+    assert "Traceback" not in out
+    assert not report_dir.exists()

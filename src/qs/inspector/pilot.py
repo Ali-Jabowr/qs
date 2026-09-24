@@ -39,7 +39,8 @@ def separation(
     spread the sample standard deviation (n − 1) of the good scores, separation = gap / spread.
     Refused with a `ValueError`: fewer than 2 folds, where no spread exists, or a fold with
     no damaged score, where the gap would quietly shrink. Zero spread with a positive gap is
-    a perfect separation (inf); with no gap, 0.
+    a perfect separation (inf); with a negative gap, −inf — it must not rank above a
+    geometry whose gap is less negative but has a real spread; with no gap, 0.
     """
     if len(good_scores) < 2:
         raise ValueError(
@@ -51,7 +52,8 @@ def separation(
     gap = min(min(damaged) for damaged in damaged_by_fold) - max(good_scores)
     spread = statistics.stdev(good_scores)
     if spread == 0.0:
-        return Separation(gap, spread, math.inf if gap > 0.0 else 0.0, len(good_scores))
+        perfect = math.inf if gap > 0.0 else -math.inf if gap < 0.0 else 0.0
+        return Separation(gap, spread, perfect, len(good_scores))
     return Separation(gap, spread, gap / spread, len(good_scores))
 
 
