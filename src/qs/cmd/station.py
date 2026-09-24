@@ -1,4 +1,12 @@
-"""`qs station --config PATH --replay DIR [--screen]`: the whole station (FR-61).
+"""`qs station --config PATH [--replay DIR [--screen]]`: the whole station (FR-61).
+
+**Live** (`--config PATH` alone, P09 #90) is the station of FR-61: the operator window,
+`KeyboardTrigger` on the config's key (`source_id = keyboard:<key>`), the configured camera
+through `frame_source` with its live view, the Inspector and the evidence store. Refused
+before anything opens: a trigger other than `keyboard`, a stub inspector, a camera type with
+no live source (the phone, ADR-0022: the refusal names the `--replay DIR --screen` command),
+and a machine with no display. A camera that is not found starts on the FAULT screen and
+keeps retrying (docs/16 §2). Its real run waits for the webcam (#85, A1).
 
 **Headless replay** (`--replay DIR`, P04) runs as fast as the disk allows: `ReplayTrigger` and
 `ReplaySource` in place of the configured trigger and camera (in memory — the config file is
@@ -12,10 +20,10 @@ arms `KeyboardTrigger` on the config's key, and shows every event through
 `replay:<DIR name>`. After the last frame the window stays open and says so; closing it ends
 the run.
 
-Both print one summary and exit 0 when every event has exactly one written record and the run
-ended READY, 1 when the run completed otherwise, and 2 when it could not start (or stopped
-itself on a camera read-back mismatch). `--replay` is still required: the live station comes
-with #90, and a stub never faces a live unit. SIGINT is a stop request.
+Every mode prints one summary and exits 0 when every event has exactly one written record and
+the run ended READY, 1 when the run completed otherwise, and 2 when it could not start (or
+stopped itself on a camera read-back mismatch). With a screen, closing the window or SIGINT
+is a stop request; headless, SIGINT is.
 
 There is no validation mode: `inspector.type: appearance` loads only the bundle the config
 names, verified against its `model_id`, and refuses a validation-only one (docs/17 §6).
@@ -45,6 +53,7 @@ from qs.pipeline import Clock, Pipeline, Shows, StationSink, WallClock, utc_now
 from qs.screen import Screen, ScreenLike
 from qs.screen_annunciator import ScreenAnnunciator
 from qs.sink import SqliteSink
+from qs.sources.factory import SourceUnavailable, frame_source
 from qs.sources.replay import ReplayError, ReplaySource, replay_files, replay_pair
 from qs.station import (
     MakeScorer,
@@ -70,12 +79,12 @@ NO_DISPLAY = (
 def add_parser(commands: Any) -> None:
     """Register `station` on the `qs` subcommands."""
     station = commands.add_parser(
-        "station", help="run the whole station over a directory of frames (FR-61)"
+        "station", help="run the whole station: live, or over a directory of frames (FR-61)"
     )
     station.add_argument("--config", required=True, metavar="PATH", help="the station config")
     station.add_argument(
         "--replay", metavar="DIR", default=None,
-        help="the *.png frames directly in DIR, in name order (required until the webcam)",
+        help="replay the *.png frames directly in DIR, in name order, instead of the camera",
     )
     station.add_argument(
         "--screen", action="store_true",
@@ -96,6 +105,16 @@ def _identity(source: FrameSource) -> FrameSource:
     return source
 
 
+def _live_refusal(config: StationConfig) -> str | None:
+    """Why the live station will not start with this config, or None. Checked before anything
+    opens: only the keyboard trigger is built, and a stub never faces a live unit (P04)."""
+    if config.trigger.type != "keyboard":
+        return f"trigger.type {config.trigger.type!r} has no live trigger — only keyboard is built"
+    if config.inspector.type == "stub":
+        return "inspector.type stub runs only with --replay: a stub never faces a live unit"
+    return None
+
+
 def main(
     args: argparse.Namespace,
     *,
@@ -107,6 +126,7 @@ def main(
     wrap_source: Callable[[FrameSource], FrameSource] = _identity,
     make_screen: MakeScreen = default_screen,
     make_screen_annunciator: MakeScreenAnnunciator = ScreenAnnunciator,
+    make_source: Callable[[StationConfig], FrameSource] = frame_source,
     sleep: Callable[[float], None] = time.sleep,
     clock: Clock = time.perf_counter,
     wall: WallClock = utc_now,
@@ -114,32 +134,48 @@ def main(
     """Run the station; 0, 1 or 2 as the module says. `make_inspector` replaces the Inspector
     the config names; by default it is built from the config with `make_scorer` and
     `cuda_available`. `make_screen`, `make_screen_annunciator` and `sleep` are the screen
-    mode's seams."""
+    modes' seams, and `make_source` the live camera's."""
     try:
         loaded = load_config(Path(args.config))
     except ConfigError as exc:
         print(f"config: {exc}")
         return 2
     config = loaded.config
-    screen_mode = bool(getattr(args, "screen", False))
-    if args.replay is None:
-        if screen_mode:
+    live = args.replay is None
+    screen_mode = live or bool(getattr(args, "screen", False))
+    trigger: TriggerSource
+    source: FrameSource
+    frames: int | None = None
+    if live:
+        if getattr(args, "screen", False):
             print("--screen goes with --replay DIR: qs station --config C --replay DIR --screen")
-        elif config.inspector.type == "stub":
-            print("inspector.type stub runs only with --replay: a stub never faces a live unit")
-        else:
-            print("--replay DIR is required: the live station is P09")
-        return 2
-    directory = Path(args.replay)
-    name = directory.resolve().name
+            return 2
+        refusal = _live_refusal(config)
+        if refusal is not None:
+            print(refusal)
+            return 2
+        try:
+            source = make_source(config)
+        except SourceUnavailable as exc:
+            print(
+                f"{exc} — until the webcam arrives: "
+                f"qs station --config {args.config} --replay <dir> --screen"
+            )
+            return 2
+        source_id = f"keyboard:{config.trigger.key}"
+    else:
+        directory = Path(args.replay)
+        source_id = f"replay:{directory.resolve().name}"
     try:
-        files = replay_files(directory)
-        trigger: TriggerSource
-        source: FrameSource
-        if screen_mode:
-            source = ReplaySource(config, files, clock=clock)
-        else:
-            trigger, source = replay_pair(config, files, name, clock=clock, wall=wall)
+        if not live:
+            files = replay_files(directory)
+            frames = len(files)
+            if screen_mode:
+                source = ReplaySource(config, files, clock=clock)
+            else:
+                trigger, source = replay_pair(
+                    config, files, directory.resolve().name, clock=clock, wall=wall
+                )
         if make_inspector is None:
             inspector = build_inspector(
                 loaded, make_scorer=make_scorer, cuda_available=cuda_available
@@ -158,13 +194,12 @@ def main(
             print(NO_DISPLAY)
             return 2
         screen_annunciator = make_screen_annunciator(config, screen)
-        source_id = f"replay:{name}"
-        loop = ScreenLoop(screen, screen_annunciator, sleep, len(files), source_id)
+        loop = ScreenLoop(screen, screen_annunciator, sleep, frames, source_id)
         annunciator = screen_annunciator
         # Late-bound: armed() is read at each poll, once the station below exists.
         trigger = KeyboardTrigger(
             config, screen, clock=clock, wall_clock=wall,
-            armed=lambda: station.armed(), source_id=source_id, limit=len(files),
+            armed=lambda: station.armed(), source_id=source_id, limit=frames,
         )
     else:
         annunciator = make_annunciator()

@@ -23,7 +23,7 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import Protocol
 
@@ -37,6 +37,7 @@ from qs.inspector.model import Scorer
 from qs.inspector.stub import StubInspector
 from qs.operator_view import Status
 from qs.pipeline import (
+    CAMERA_SETTINGS,
     Clock,
     Pipeline,
     Shows,
@@ -48,6 +49,7 @@ from qs.pipeline import (
 )
 from qs.screen import ScreenLike
 from qs.sources.replay import ReplayTrigger
+from qs.sources.v4l2 import to_readback
 
 _log = logging.getLogger(__name__)
 
@@ -202,6 +204,7 @@ class Station:
         self.pipeline: Pipeline | None = None
         self.events = 0  # events the main loop handed to the Pipeline
         self.screen_errors = 0  # refreshes of the screen that raised
+        self._unverifiable_open = False  # the camera's settings could not all be read at open
 
     def armed(self) -> bool:
         """Whether a key press may make an event: the Pipeline exists and is not STARTING."""
@@ -315,13 +318,40 @@ class Station:
             return REPLAY_FINISHED
         return replay_caption(self.events + 1, loop.frames)
 
+    def _live(self, pipeline: Pipeline) -> np.ndarray | None:
+        """The live picture while READY (FR-31): the source's preview, only ever drawn in the
+        live box (C9). A preview that raises draws no picture this time."""
+        if pipeline.state is not State.READY:
+            return None
+        try:
+            return self.source.preview()
+        except Exception:
+            _log.warning("the live view could not be read", exc_info=True)
+            return None
+
+    def _unverifiable(self, pipeline: Pipeline) -> bool:
+        """docs/16 §2 start-up step 3 (REVIEW-P04 n3): a camera whose settings could not all
+        be read back at `open()` starts with `CAMERA_SETTINGS`, and keeps it for the run.
+
+        The Pipeline raises it at the first unverified frame; the screen shows it from the
+        moment the camera is open. Read from the source's `readings` when it keeps them
+        (`WebcamSource`); a source without them adds nothing."""
+        if not self._unverifiable_open and pipeline.state is State.READY:
+            readings = getattr(self.source, "readings", ())
+            if readings and not to_readback(tuple(readings)).verified:
+                self._unverifiable_open = True
+        return self._unverifiable_open
+
     def _refresh(self, pipeline: Pipeline, loop: ScreenLoop) -> None:
         """Present the state between events. A refresh that raises has already put plain
         amber up (#87). It is logged and counted, and the loop goes on: the next event is
         still decided and recorded, and no earlier verdict can come back up (I6)."""
-        live = self.source.preview() if pipeline.state is State.READY else None
+        live = self._live(pipeline)
+        status = station_status(pipeline, self._caption(loop))
+        if self._unverifiable(pipeline):
+            status = replace(status, warnings=status.warnings | {CAMERA_SETTINGS})
         try:
-            loop.annunciator.refresh(station_status(pipeline, self._caption(loop)), live)
+            loop.annunciator.refresh(status, live)
         except Exception:
             self.screen_errors += 1
             _log.exception("the screen could not be refreshed")
