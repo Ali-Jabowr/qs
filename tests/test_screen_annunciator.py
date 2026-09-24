@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+import hashlib
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -22,7 +23,7 @@ from qs.contracts import (
     Verdict,
 )
 from qs.inspector.heatmap import heatmap_overlay
-from qs.operator_view import AMBER, GREEN, RED, Status, reason_line
+from qs.operator_view import AMBER, GREEN, RED, Status, View, reason_line, render
 from qs.screen_annunciator import ScreenAnnunciator
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -294,3 +295,84 @@ def test_close_twice_closes_the_screen_once() -> None:
     annunciator.close()
     assert screen.closed
     assert screen.close_calls == 1
+
+
+# REVIEW-P09 m1: the verdict image is fitted once per show(), and no pixel moves ----------
+
+
+def full_hd() -> np.ndarray:
+    """A 1920 × 1080 BGR frame with detail at every scale, so any change in the fitting
+    filter would change the drawn pixels."""
+    yy, xx = np.mgrid[0:1080, 0:1920]
+    return np.dstack([xx % 256, yy % 256, (xx * 7 + yy * 3) % 256]).astype(np.uint8)
+
+
+def full_hd_verdict(kind: str) -> Verdict:
+    if kind == "pass":
+        return verdict(Label.PASS)
+    if kind == "no_verdict":
+        return no_verdict("placement")
+    yy, xx = np.mgrid[0:448, 0:448]
+    heatmap = np.where((yy - 224) ** 2 + (xx - 224) ** 2 <= 120**2, 2 * THRESHOLD, 0.0)
+    return verdict(
+        Label.DEFECT, (geometry(), appearance(2 * THRESHOLD)),
+        heatmap=heatmap.astype(np.float32), window_box=(736, 316, 448, 448),
+        unit_box=(760, 340, 400, 400),
+    )
+
+
+# sha256 of the images presented by show() and by the refresh after it (READY, no live
+# picture), recorded with the code before the m1 fix (b9d5992). Pinned to this venv's
+# Pillow and assets/DejaVuSans.ttf: a Pillow upgrade may redraw the text.
+BEFORE_M1 = {
+    "pass": (
+        "8f1fcf8f78589e4c71fc55e5ac3526f1f6d7913874cb309397198c9564bdfd9e",
+        "537e875c604170bc123f9eeca0b3bea0770f87759e17a3692405e9c784a65115",
+    ),
+    "defect_heatmap": (
+        "dc124353338829d0fb4e47866bab099dd02f3c98a7adeae91690946090255e1b",
+        "a20e78d10ace2a3437d0e61d3c45ba6cfdc87af6fe1fc556acc36329bd1456c4",
+    ),
+    "no_verdict": (
+        "fbdf2adf219696564ef5eb259774b242b9282a54f47bc24e0f1ec0bff5a78b4c",
+        "ff1e83f936ad62a9df172c97fd96e5944ce1843ed2dc25791fa75923e1054cab",
+    ),
+}
+
+
+def digest(image: object) -> str:
+    return hashlib.sha256(np.asarray(image).tobytes()).hexdigest()
+
+
+def render_uncached(annunciator: ScreenAnnunciator) -> object:
+    """The refresh screen drawn from scratch with no cache: what every refresh must match."""
+    view = View(READY, None, annunciator.last_shown, annunciator.counts, annunciator.recent)
+    return render(view, BASE.display.labels, FONT)
+
+
+@pytest.mark.parametrize("kind", sorted(BEFORE_M1))
+def test_a_full_hd_verdict_draws_the_same_pixels_as_before_the_fit_cache(kind: str) -> None:
+    annunciator, screen = make()
+    annunciator.show(frame(full_hd(), 3), full_hd_verdict(kind))
+    for _ in range(3):
+        annunciator.refresh(READY, None)
+    shown, refreshed = BEFORE_M1[kind]
+    drawn = [digest(image) for image in screen.presented]
+    assert drawn == [shown, refreshed, refreshed, refreshed]
+    assert digest(render_uncached(annunciator)) == refreshed
+
+
+def test_a_new_verdict_is_never_drawn_with_the_previous_verdicts_image() -> None:
+    annunciator, screen = make()
+    green, magenta = (10, 200, 30), MAGENTA_RGB
+    annunciator.show(frame(uniform((30, 200, 10)), 1), verdict(Label.PASS))
+    annunciator.refresh(READY, None)
+    first = np.asarray(screen.presented[-1])[236:676, 640:1280]
+    annunciator.show(frame(uniform(MAGENTA_BGR), 1), verdict(Label.PASS))  # same seq, too
+    second_show = np.asarray(screen.presented[-1])[236:676, 640:1280]
+    annunciator.refresh(READY, None)
+    second = np.asarray(screen.presented[-1])[236:676, 640:1280]
+    assert has_colour(first, green) and not has_colour(first, magenta)
+    for box in (second_show, second):
+        assert has_colour(box, magenta) and not has_colour(box, green)
+    assert digest(screen.presented[-1]) == digest(render_uncached(annunciator))

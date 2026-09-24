@@ -35,6 +35,7 @@ from qs.operator_view import (
     AMBER,
     RED,
     SIZE,
+    FitCache,
     Shown,
     Status,
     View,
@@ -131,6 +132,7 @@ class ScreenAnnunciator:
         self._font = Path(config.display.font)
         self._status = Status("starting", None, frozenset(), None)
         self._last: Shown | None = None
+        self._fit = FitCache()  # the shown verdict's image, fitted once per show() (m1)
         self._counts: dict[Label, int] = {}
         self._recent: deque[tuple[int | None, Label]] = deque(maxlen=_RECENT)
         self._closed = False
@@ -194,4 +196,4 @@ class ScreenAnnunciator:
             counts=dict(self._counts),
             recent=tuple(self._recent),
         )
-        return render(view, self._config.display.labels, self._font)
+        return render(view, self._config.display.labels, self._font, self._fit)

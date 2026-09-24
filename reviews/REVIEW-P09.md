@@ -123,3 +123,26 @@ The P09 files alone: 165 passed in 11 s. The slowest test is the 200-event NFR-0
 | #91 | AC5 headless writes nothing | `test_headless_replay_writes_no_report` | yes |
 | #91 | AC6 no image, never overwritten | `test_the_report_has_no_image_and_is_never_overwritten`, `test_the_report_holds_no_image` | yes |
 | #91 | AC7 report counters = `run.counters` | `test_the_reports_counters_are_the_runs` | yes |
+
+## Fixes (r1)
+
+**m1: fixed.** `render()` at 1920 × 1080 now takes **4.2 ms** per refresh with no new verdict. Before the fix it took **58.3 ms**. Both are medians of 30 on the laptop, Pillow only, without Tk. The live picture alone went from 34.0 to 3.7 ms, the verdict image alone from 27.1 to 2.3 ms, and the no-picture baseline is 1.9 ms. The 50 ms "Draw and show" budget in docs/10 now has room for Tk's `PhotoImage` and `update()`.
+
+- **Live picture:** `src/qs/operator_view.py:223` `_fit_live`, called at `:318`, shrinks the BGR frame with `cv2.resize(..., INTER_AREA)` and then converts it to RGB.
+  - Its size and position in the box are unchanged, because both paths share `_fitted_size`.
+  - Only the resampling filter changed. On a smooth 1920 × 1080 gradient the live box is pixel-identical to the old Lanczos output. On random noise (the worst case) the mean difference is 2.3 levels.
+  - Nothing outside the live box changes.
+- **Verdict image:** `FitCache` at `operator_view.py:241` (the `fitted` method is at `:255`) fits the image once with the same Lanczos filter as before, and `render(..., cache)` uses it at `:325`. `ScreenAnnunciator` owns one cache, at `src/qs/screen_annunciator.py:135` and `:199`.
+  - The cache key is the `Shown` **object itself** (compared with `is`; the cache holds a reference, so its id cannot be reused), plus the seq and the box.
+  - Any `show()` makes a new `Shown`, so it always misses, even with the same seq and the same pixels. The failed-show fallback `Shown` has no image, so it never touches the cache.
+  - `render()` without a cache behaves exactly as before.
+- **C7 and I6 are untouched.** `label_colour`, the band, the squares and the amber fallbacks in `show()` and `refresh()` did not change.
+- **Tests:**
+  - `tests/test_screen_annunciator.py::test_a_full_hd_verdict_draws_the_same_pixels_as_before_the_fit_cache[pass|defect_heatmap|no_verdict]` covers a 1920 × 1080 frame, including a DEFECT with a 448 px heatmap window. The image from `show()` and three refreshes after it match sha256 digests recorded with the pre-fix code (b9d5992), and they match an uncached `render()`.
+  - `tests/test_screen_annunciator.py::test_a_new_verdict_is_never_drawn_with_the_previous_verdicts_image` sends a second verdict with the **same seq** and checks that it shows its own image, both on `show()` and on the next refresh.
+  - `tests/test_operator_view.py::test_a_new_shown_always_misses_the_fit_cache` covers identity, a new `Shown` with equal fields, and a different box.
+  - `tests/test_operator_view.py::test_the_fit_cache_fits_a_verdicts_image_once_and_draws_the_same_pixels` checks that three renders fit the image once, with bytes equal to the uncached render.
+  - `tests/test_operator_view.py::test_the_live_picture_keeps_its_place_and_size_in_its_box` checks the live picture's placement and size.
+  - `tests/test_operator_view.py::test_a_refresh_at_full_hd_draws_within_50_ms` times a live picture and a verdict image, both 1920 × 1080. The median of 15 draws must be ≤ 50 ms; it measures ~4 ms, so there is a ~12× margin.
+  - **Mutation:** dropping the identity check from the cache key fails `test_a_new_shown_always_misses_the_fit_cache` and `test_a_new_verdict_is_never_drawn_with_the_previous_verdicts_image`.
+- **`make check`:** green, 1082 passed, 16 deselected. ruff and mypy are clean.

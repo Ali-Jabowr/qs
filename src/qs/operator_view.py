@@ -4,7 +4,8 @@
 operator sees. Everything the operator will ever see is decided here, so every screen is
 tested by its pixels and its strings without a display; the Tk window only presents it.
 No Tk, no clock, no I/O except reading the font. Inputs are only ever read, never written,
-and read-only arrays work.
+and read-only arrays work. The one piece of state is an optional `FitCache` the caller
+owns, which only saves re-fitting the same verdict's image (REVIEW-P09 m1).
 
 Layout (y in px): banner 0–36 · verdict band 36–236 · pictures 236–676 (live left, the
 verdict's image right) · session panel 676–740 · status bar 740–800. In mode `fault` the
@@ -22,6 +23,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 
+import cv2
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
@@ -201,14 +203,66 @@ def _fitted_font(path: str, text: str, max_px: int, width: int) -> ImageFont.Fre
     return font
 
 
-def _paste_fitted(canvas: Image.Image, rgb: np.ndarray, box: tuple[int, int, int, int]) -> None:
-    """Fit an RGB array into `box` (x0, y0, x1, y1), centred, keeping its aspect."""
+Box = tuple[int, int, int, int]  # x0, y0, x1, y1
+
+
+def _fitted_size(width: int, height: int, box: Box) -> tuple[int, int]:
+    """The largest (w, h) of this aspect that fits `box`."""
     x0, y0, x1, y1 = box
+    scale = min((x1 - x0) / width, (y1 - y0) / height)
+    return max(1, round(width * scale)), max(1, round(height * scale))
+
+
+def _fit_rgb(rgb: np.ndarray, box: Box) -> Image.Image:
+    """An RGB array fitted to `box`, keeping its aspect (Lanczos; the verdict's image)."""
     picture = Image.fromarray(np.ascontiguousarray(rgb)).convert("RGB")
-    scale = min((x1 - x0) / picture.width, (y1 - y0) / picture.height)
-    fitted = (max(1, round(picture.width * scale)), max(1, round(picture.height * scale)))
-    picture = picture.resize(fitted, Image.Resampling.LANCZOS)
-    canvas.paste(picture, (x0 + (x1 - x0 - fitted[0]) // 2, y0 + (y1 - y0 - fitted[1]) // 2))
+    fitted = _fitted_size(picture.width, picture.height, box)
+    return picture.resize(fitted, Image.Resampling.LANCZOS)
+
+
+def _fit_live(bgr: np.ndarray, box: Box) -> Image.Image:
+    """A BGR frame fitted to `box`, keeping its aspect, as RGB.
+
+    Shrunk by OpenCV's area filter before Pillow sees it: ~1 ms for 1920 × 1080 instead of
+    ~32 ms through Lanczos (REVIEW-P09 m1). It is redrawn on every refresh."""
+    height, width = bgr.shape[:2]
+    fitted = _fitted_size(width, height, box)
+    small = cv2.resize(np.ascontiguousarray(bgr), fitted, interpolation=cv2.INTER_AREA)
+    return Image.fromarray(cv2.cvtColor(small, cv2.COLOR_BGR2RGB))
+
+
+def _paste_centred(canvas: Image.Image, picture: Image.Image, box: Box) -> None:
+    x0, y0, x1, y1 = box
+    canvas.paste(
+        picture, (x0 + (x1 - x0 - picture.width) // 2, y0 + (y1 - y0 - picture.height) // 2)
+    )
+
+
+class FitCache:
+    """The last verdict's image, fitted once (REVIEW-P09 m1).
+
+    A verdict's image changes only on `show()`, but the screen is redrawn on every refresh.
+    A hit needs the very same `Shown` object (by identity; the cache holds it, so its id
+    cannot be reused), the same seq and the same box. Any new `Shown` misses, so an earlier
+    verdict's image can never be drawn under a later one."""
+
+    __slots__ = ("_key", "_picture")
+
+    def __init__(self) -> None:
+        self._key: tuple[Shown, int | None, Box] | None = None
+        self._picture: Image.Image | None = None
+
+    def fitted(self, shown: Shown, box: Box) -> Image.Image:
+        key = self._key
+        if (key is not None and self._picture is not None and key[0] is shown
+                and key[1] == shown.seq and key[2] == box):
+            return self._picture
+        self._key = self._picture = None
+        if shown.image is None:
+            raise ValueError("this verdict has no image to fit")
+        picture = _fit_rgb(shown.image, box)
+        self._key, self._picture = (shown, shown.seq, box), picture
+        return picture
 
 
 def _render_fault(canvas: Image.Image, status: Status, font_path: str) -> Image.Image:
@@ -223,8 +277,13 @@ def _render_fault(canvas: Image.Image, status: Status, font_path: str) -> Image.
     return canvas
 
 
-def render(view: View, labels: LabelsConfig, font_path: Path) -> Image.Image:
-    """The operator screen as a 1280 × 800 RGB image (docs/16 §5)."""
+def render(
+    view: View, labels: LabelsConfig, font_path: Path, cache: FitCache | None = None
+) -> Image.Image:
+    """The operator screen as a 1280 × 800 RGB image (docs/16 §5).
+
+    `cache` keeps the verdict's fitted image between calls; the pixels are the same with or
+    without it."""
     path = str(font_path)
     canvas = Image.new("RGB", SIZE, BLACK)
     status = view.status
@@ -255,13 +314,16 @@ def render(view: View, labels: LabelsConfig, font_path: Path) -> Image.Image:
     top, bottom = _PICTURES_Y
     middle = (top + bottom) // 2
     if status.mode == "ready" and view.live is not None:
-        _paste_fitted(canvas, view.live[:, :, ::-1], (0, top, _BOX_W, bottom))
+        box: Box = (0, top, _BOX_W, bottom)
+        _paste_centred(canvas, _fit_live(view.live, box), box)
     else:
         text = status.caption if status.caption is not None else NO_LIVE
         font = _fitted_font(path, text, _LINE_PX, _BOX_W - 40)
         draw.text((_BOX_W // 2, middle), text, fill=WHITE, font=font, anchor="mm")
     if last is not None and last.image is not None:
-        _paste_fitted(canvas, last.image, (_BOX_W, top, SIZE[0], bottom))
+        box = (_BOX_W, top, SIZE[0], bottom)
+        picture = _fit_rgb(last.image, box) if cache is None else cache.fitted(last, box)
+        _paste_centred(canvas, picture, box)
     else:
         font = _font(path, _LINE_PX)
         draw.text((_BOX_W + _BOX_W // 2, middle), NO_FRAME, fill=WHITE, font=font, anchor="mm")

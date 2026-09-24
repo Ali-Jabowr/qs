@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import statistics
+import time
 from pathlib import Path
 
 import numpy as np
 import pytest
 
+import qs.operator_view
 from qs.config import LabelsConfig, load_config
 from qs.contracts import Label
 from qs.operator_view import (
@@ -15,6 +18,7 @@ from qs.operator_view import (
     GREEN,
     GREY,
     RED,
+    FitCache,
     Shown,
     Status,
     View,
@@ -358,6 +362,72 @@ def test_the_status_bar_differs_between_starting_and_ready() -> None:
     assert not np.array_equal(starting, ready)
     assert has_colour(starting, (255, 255, 255))
     assert has_colour(ready, (255, 255, 255))
+
+
+# REVIEW-P09 m1: drawing fits docs/10's "Draw and show 50 ms" --------------------------
+
+
+def full_hd(seed: int) -> np.ndarray:
+    return np.random.default_rng(seed).integers(0, 256, (1080, 1920, 3), dtype=np.uint8)
+
+
+def test_the_fit_cache_fits_a_verdicts_image_once_and_draws_the_same_pixels(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[int, ...]] = []
+    fit = qs.operator_view._fit_rgb
+
+    def counting(rgb: np.ndarray, box: tuple[int, int, int, int]) -> object:
+        calls.append(box)
+        return fit(rgb, box)
+
+    monkeypatch.setattr(qs.operator_view, "_fit_rgb", counting)
+    v = view(READY, live=full_hd(1), last=shown(Label.PASS, image=full_hd(2)))
+    cache = FitCache()
+    drawn = [render(v, LABELS, FONT, cache).tobytes() for _ in range(3)]
+    assert len(calls) == 1
+    assert drawn == [render(v, LABELS, FONT).tobytes()] * 3  # the same with no cache
+    assert len(calls) == 2
+
+
+def test_a_new_shown_always_misses_the_fit_cache() -> None:
+    cache = FitCache()
+    box = (640, 236, 1280, 676)
+    image = uniform((10, 200, 30))
+    first = shown(Label.PASS, image=image)
+    fitted = cache.fitted(first, box)
+    assert cache.fitted(first, box) is fitted
+    same_seq_same_pixels = shown(Label.PASS, image=image)  # equal fields, a new verdict
+    assert cache.fitted(same_seq_same_pixels, box) is not fitted
+    other = shown(Label.DEFECT, image=uniform((200, 0, 0)))
+    assert cache.fitted(other, box).getpixel((10, 10)) == (200, 0, 0)
+    assert cache.fitted(other, (640, 236, 1000, 676)).size != cache.fitted(other, box).size
+
+
+def test_the_live_picture_keeps_its_place_and_size_in_its_box() -> None:
+    colour = (10, 200, 30)
+    live = np.asarray(render(view(READY, live=uniform(colour[::-1])), LABELS, FONT))
+    verdict_box = np.asarray(render(view(last=shown(Label.PASS, image=uniform(colour))),
+                                    LABELS, FONT))
+    target = np.all(live[236:676, 0:640] == colour, axis=-1)
+    assert target.any()
+    assert np.array_equal(target, np.all(verdict_box[236:676, 640:1280] == colour, axis=-1))
+
+
+def test_a_refresh_at_full_hd_draws_within_50_ms() -> None:
+    """docs/10's "Draw and show" budget, for the refresh with no new verdict that runs
+    every ~30 ms: the median of 15 draws, a live picture and a verdict image both
+    1920 × 1080 (measured ~4 ms on the laptop; ~58 ms before the fix)."""
+    v = view(READY, live=full_hd(1), last=shown(Label.DEFECT, image=full_hd(2)),
+             recent=((1, Label.DEFECT),))
+    cache = FitCache()
+    render(v, LABELS, FONT, cache)  # the show() that fitted the verdict image
+    times = []
+    for _ in range(15):
+        start = time.perf_counter()
+        render(v, LABELS, FONT, cache)
+        times.append(time.perf_counter() - start)
+    assert statistics.median(times) <= 0.050
 
 
 def test_status_refuses_an_unknown_mode_or_warning() -> None:
