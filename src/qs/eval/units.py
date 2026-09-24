@@ -245,8 +245,19 @@ def _which(unit: Aggregated, threshold: float | None) -> str:
 
 
 def early_warning(targets: Sequence[TargetResult]) -> str | None:
-    """The MVP's one stop signal: dent recall under 70% at the 5% target (docs/06 §4)."""
+    """The MVP's one stop signal: dent recall under 70% at the 5% target (docs/06 §4).
+
+    A 5% target that is not reachable (A2, #78) has no threshold, so no recall can be
+    stated at it: that is its own stop line — never a recall, never silence."""
     at5 = next((t for t in targets if t.target == 5), None)
+    if at5 is not None and not at5.reachable:
+        choice = at5.choice
+        return (
+            f"EARLY WARNING: dent recall at the 5% target is not measurable: geometry "
+            f"alone flags {choice.g} of {choice.n} calibration units, the target allows "
+            f"{choice.a} (A2, #78) — fix the tolerances or the lighting before building "
+            "more of the demo (docs/06 §4)"
+        )
     dent = next((r for r in at5.recall if r.cls == "dent"), None) if at5 else None
     if dent is None or dent.total == 0 or dent.caught / dent.total >= 0.70:
         return None

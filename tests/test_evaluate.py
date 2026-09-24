@@ -139,10 +139,13 @@ def write_eval_session(
     device: str = "/dev/video0",
     camera: object = BENCH_CAMERA,
     blot_of: object = None,
+    oval_unit: str | None = None,
 ) -> tuple[Plan, Path]:
     """The lean dataset session as P05b writes it, drawn by this module: every good disc
     r26 except one train unit's r25 (the one variation that keeps the derived area range
-    from being a single pixel), dents and tears as blots inside the silhouette."""
+    from being a single pixel), dents and tears as blots inside the silhouette.
+    `oval_unit`'s good frames are ovals instead — (26, 34), (26, 34), (17, 52), as
+    test_calibrate's `make_oval` — so geometry alone flags it."""
     plan = make_plan("lean", PLAN_SEED)
     folder = root / BUILD_SESSION
     write_plan(folder, plan, "sheet\n")
@@ -161,6 +164,11 @@ def write_eval_session(
             if frame.state == "good" and frame.unit == plan.train[0]:
                 pixels = draw_frame(frame.unit, frame.state, frame.rotation, damage,
                                     radius=25, dot=_DOTS[index[frame.unit]])
+            elif frame.state == "good" and frame.unit == oval_unit:
+                pixels = draw_frame(frame.unit, "empty", frame.rotation, None)
+                axes = ((26, 34), (26, 34), (17, 52))[frame.rotation]
+                cv2.ellipse(pixels, (150 + 6 * frame.rotation, 116 - 4 * frame.rotation),
+                            axes, 0, 0, 360, (200, 200, 200), -1)
             else:
                 pixels = draw_frame(frame.unit, frame.state, frame.rotation, damage, blot,
                                     dot=_DOTS[index[frame.unit]]
@@ -178,13 +186,13 @@ def write_eval_session(
 
 def run_calibrate(
     config: Path, dataset: Path, model_id: str, models: Path, out: Path, report_dir: Path,
-    *, dark: float = DARK,
+    *, dark: float = DARK, far: int = 5,
 ) -> int:
     """`qs calibrate` through `main()` with the blot scorer and a fake CUDA probe."""
     args = build_parser().parse_args([
         "calibrate", "--config", str(config), "--dataset", str(dataset),
         "--model", model_id, "--out", str(out), "--models", str(models),
-        "--report-dir", str(report_dir),
+        "--report-dir", str(report_dir), "--far", str(far),
     ])
     buffer = io.StringIO()
     with contextlib.redirect_stdout(buffer):
@@ -196,7 +204,7 @@ def run_calibrate(
 
 def build_env(
     root: Path, config: Path, *, device: str = "/dev/video0", camera: object = BENCH_CAMERA,
-    blot_of: object = None,
+    blot_of: object = None, oval_unit: str | None = None, far: int = 5,
 ) -> SimpleNamespace:
     """Session → build → bundle → calibrated config and record: everything #82 needs. The
     input config is the example's small-frame rewrite with the example's placeholder
@@ -206,7 +214,8 @@ def build_env(
     assert "product: mochi-vanilla" in text
     input_config = root / "input.yml"
     input_config.write_text(text, encoding="utf-8")
-    _, session = write_eval_session(root, device=device, camera=camera, blot_of=blot_of)
+    _, session = write_eval_session(root, device=device, camera=camera, blot_of=blot_of,
+                                    oval_unit=oval_unit)
     data = root / "data"
     build = plan_build(session, data, PRODUCT, None)
     write_build(build)
@@ -214,7 +223,7 @@ def build_env(
     model_id = write_train_bundle(models, build.dataset.root)
     out = data / "station.yml"
     assert run_calibrate(input_config, build.dataset.root, model_id, models, out,
-                         data / "reports" / "calib") == 0
+                         data / "reports" / "calib", far=far) == 0
     from qs.config import load_config
 
     threshold = load_config(out).config.threshold
@@ -513,6 +522,39 @@ def test_the_early_warning_does_not_fire_at_seventy_percent(
     assert "EARLY WARNING" not in text
     assert "- none." in text.split("## Stop lines")[1].split("##")[0]
     assert "dent 7/10 = 70.0%, lower bound" in text
+
+
+# --- A2 through main(): 5% not reachable, 10% reachable (#78, review F1) -------------------
+
+
+@pytest.fixture(scope="module")
+def oval_env(tmp_path_factory: pytest.TempPathFactory, bench_config: Path
+             ) -> SimpleNamespace:
+    """The same set with one oval calib unit, calibrated at `--far 10` — #78's way out."""
+    return build_env(tmp_path_factory.mktemp("oval-env"), bench_config,
+                     oval_unit=PLAN.calib[0], far=10)
+
+
+def test_an_oval_calib_unit_at_far_10_evaluates_with_5_percent_not_reachable(
+    tmp_path: Path, oval_env: SimpleNamespace
+) -> None:
+    """One geometry-flagged calib unit: the 1% and 5% rows are not reachable, the 10% row
+    is. No traceback; the 5% summary line and the early warning say "not reachable" /
+    "not measurable" and never state a recall; the report is written and the exit is 1."""
+    code, out = run(tmp_path, oval_env)
+    assert "Traceback" not in out and "Error" not in out, out
+    assert code == 1, out
+    assert "far 5%: not reachable" in out, out
+    assert "geometry alone flags 1 of 10 calibration units" in out
+    warning = next(line for line in out.splitlines() if "EARLY WARNING" in line)
+    assert "not measurable" in warning, warning
+    assert "of 10 (" not in warning and "%)" not in warning, warning
+    text = report_of(tmp_path / "reports" / "eval").read_text(encoding="utf-8")
+    assert warning in text
+    at5 = text.split("### far 5% target")[1].split("###")[0]
+    assert "not reachable" in at5 and "- recall per unit" not in at5
+    at10 = text.split("### far 10% target")[1].split("\n## ")[0]
+    assert "- threshold: 0.010000" in at10 and "dent 10/10" in at10
 
 
 # --- the refusals: exit 1, nothing written ---------------------------------------------------

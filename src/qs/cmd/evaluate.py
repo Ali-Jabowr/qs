@@ -274,12 +274,18 @@ def _invocation(args: argparse.Namespace) -> str:
 def _summary(out: Path, csv_path: Path, targets: tuple[TargetResult, ...],
              placement_ok: bool, warning: str | None, drift_line: str | None) -> None:
     at5 = next(t for t in targets if t.target == 5)
-    recall = " · ".join(f"{r.cls} {r.caught}/{r.total}" for r in at5.recall)
-    far = at5.far_combined
     print(f"report: {out}")
     print(f"csv: {csv_path}")
-    print(f"far 5%: threshold {at5.choice.value:.6f} · recall {recall} · "
-          f"false alarms {far.flagged}/{far.total} (upper bound {far.upper * 100:.1f}%)")
+    if at5.choice.value is None:
+        choice = at5.choice
+        print(f"far 5%: not reachable — geometry alone flags {choice.g} of {choice.n} "
+              f"calibration units, the target allows {choice.a} (A2, #78)")
+    else:
+        recall = " · ".join(f"{r.cls} {r.caught}/{r.total}" for r in at5.recall)
+        far = at5.far_combined
+        print(f"far 5%: threshold {at5.choice.value:.6f} · recall {recall} · "
+              f"false alarms {far.flagged}/{far.total} "
+              f"(upper bound {far.upper * 100:.1f}%)")
     print(f"placement: {'PASS' if placement_ok else 'FAIL'}")
     if drift_line is not None:
         print(drift_line)
