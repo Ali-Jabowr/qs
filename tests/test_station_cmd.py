@@ -165,13 +165,13 @@ def test_refusals_exit_2_with_one_line_and_no_evidence(
     empty.mkdir()
     bad = tmp_path / "bad.yml"
     bad.write_text(good.read_text(encoding="utf-8").replace("version: 1", "version: one"))
-    appearance = write_config(tmp_path, name="appearance.yml", inspector_type="appearance")
+    # Without --replay an appearance config is the live station since P09 #90: its refusals
+    # are in tests/test_station_live.py.
     cases = [
         (bad, shoot, "config:"),
         (good, tmp_path / "missing", "not a directory"),
         (good, empty, "no *.png"),
         (good, None, "stub runs only with --replay"),
-        (appearance, None, "--replay DIR is required"),
     ]
     capsys.readouterr()
     for config, replay, words in cases:

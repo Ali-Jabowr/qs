@@ -8,7 +8,7 @@ a camera, a display or a GPU, and nothing is written anywhere.
 from __future__ import annotations
 
 import shutil
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -403,20 +403,60 @@ class FakeScreen:
     """A `ScreenLike` without a display (#87): keeps a copy of every presented image and
     plays scripted batches of key presses, one batch per `keys()` call (empty when none is
     left). `close()` sets `closed` and counts its calls. `last_pump_end` is set by the test
-    (#88); each scripted `KeyPress` carries its own `after_s`."""
+    (#88); each scripted `KeyPress` carries its own `after_s`.
 
-    def __init__(self, script: Sequence[Sequence[KeyPress]] = ()) -> None:
+    For the station's loop (#89) it can also act as the window does:
+    - `clock`: every `present()` is a pump that ends at `clock()`, and `keys()` stamps each
+      press it returns with the end of the pump before the last one, as `Screen` does;
+    - `held`: a key held down — once the script is used up, every `keys()` call delivers one
+      press of it (auto-repeat at the loop's pace);
+    - `close_when(calls)`: closes itself after the `keys()` call for which it is true;
+    - `keep`: only the newest `keep` presented images are kept."""
+
+    def __init__(
+        self,
+        script: Sequence[Sequence[KeyPress]] = (),
+        *,
+        clock: Callable[[], float] | None = None,
+        held: str | None = None,
+        close_when: Callable[[int], bool] | None = None,
+        keep: int | None = None,
+    ) -> None:
         self.presented: list[Image.Image] = []
         self.script: list[list[KeyPress]] = [list(batch) for batch in script]
         self.closed = False
         self.close_calls = 0
-        self.last_pump_end = 0.0
+        self.last_pump_end = 0.0 if clock is None else clock()
+        self.presents = 0
+        self.keys_calls = 0
+        self._clock = clock
+        self._held = held
+        self._close_when = close_when
+        self._keep = keep
+        self._pump_before = self.last_pump_end
 
     def present(self, image: Image.Image) -> None:
+        self.presents += 1
         self.presented.append(image.copy())
+        if self._keep is not None and len(self.presented) > self._keep:
+            del self.presented[: len(self.presented) - self._keep]
+        if self._clock is not None:
+            self._pump_before = self.last_pump_end
+            self.last_pump_end = self._clock()
 
     def keys(self) -> list[KeyPress]:
-        return self.script.pop(0) if self.script else []
+        self.keys_calls += 1
+        if self.script:
+            batch = self.script.pop(0)
+        elif self._held is not None:
+            batch = [KeyPress(self._held, 1000 + self.keys_calls)]
+        else:
+            batch = []
+        if self._close_when is not None and self._close_when(self.keys_calls):
+            self.closed = True
+        if self._clock is not None:
+            batch = [KeyPress(p.keysym, p.tk_ms, self._pump_before) for p in batch]
+        return batch
 
     def close(self) -> None:
         self.close_calls += 1
