@@ -171,6 +171,7 @@ def _replay(
     hooks: dict[int, Callable[[], None]] | None = None,
     between: Callable[[], None] = lambda: None,
     spy: Spy | None = None,
+    clock: Callable[[], float] | None = None,
 ) -> Run:
     config = write_config(tmp_path)
     shoot = tmp_path / "shoot"
@@ -205,7 +206,7 @@ def _replay(
         make_sink=make_sink,  # type: ignore[arg-type]
         make_annunciator=lambda: Hooks(spy, hooks or {}),
         wrap_source=wrap,
-        clock=FakeClock(step=0.01),
+        clock=FakeClock(step=0.01) if clock is None else clock,
     )
     run = Run(code, capsys.readouterr().out, tmp_path / "evidence" / "qs.db", spy)
     _every_event_has_one_record(run)
@@ -337,6 +338,33 @@ def test_corrupt_frames_are_capture_and_three_in_a_row_a_fault(
     assert counters["faults"] == {"capture": 1}
     assert counters["reconnect_attempts"] == 1
     assert counters["final_state"] == "READY"
+
+
+def test_three_bad_frames_on_the_real_clock_recover_the_same_way_every_time(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """REVIEW-P04 m1: on the real clock a replay polls faster than the reconnect backoff.
+    The reopen is due on the replay's own time, not after 0.5 s of wall time, so the frames
+    after a FAULT(capture) get their verdicts and two runs agree record for record."""
+    runs = []
+    for name in ("first", "second"):
+        root = tmp_path / name
+        root.mkdir()
+        runs.append(_replay(
+            root, capsys, monkeypatch,
+            corrupt={1: "flat", 2: "shape", 3: "hash"},
+            clock=time.perf_counter,
+        ))
+    for run in runs:
+        assert run.code == 0, run.out
+        reasons = run.reasons()
+        assert [reasons[seq] for seq in (1, 2, 3)] == ["capture"] * 3
+        assert all(reasons[seq] == "pass" for seq in range(4, EVENTS + 1))
+        counters = run.counters()
+        assert counters["faults"] == {"capture": 1}
+        assert counters["reconnect_attempts"] == 1
+        assert counters["final_state"] == "READY"
+    assert runs[0].reasons() == runs[1].reasons()
 
 
 def test_non_finite_scores_are_a_fault_that_never_clears(

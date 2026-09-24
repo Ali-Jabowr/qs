@@ -202,6 +202,18 @@ class Pipeline:
         return self._fault_reason
 
     @property
+    def reconnect_due(self) -> float | None:
+        """While a camera or capture FAULT is retrying, the clock value at which the next
+        reconnect attempt is due; else None. Replay ticks on it (Station.run)."""
+        if (
+            self._state is State.FAULT
+            and self._fault_reason in RETRIED_FAULTS
+            and not self._stop_requested
+        ):
+            return self._next_attempt
+        return None
+
+    @property
     def stop_requested(self) -> bool:
         return self._stop_requested
 
