@@ -1,6 +1,6 @@
 # ADR-0021: Claude Code executes the plans; OpenCode is withdrawn
 
-**Status:** Accepted · 2026-09-22 · Ali. Supersedes ADR-0019.
+**Status:** Superseded by ADR-0023 (2026-09-23) · Accepted 2026-09-22 · Ali. Supersedes ADR-0019.
 
 ## Context
 

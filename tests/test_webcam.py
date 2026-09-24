@@ -190,7 +190,9 @@ def test_capture_returns_the_earliest_frame_after_trigger_plus_exposure(sources:
     source, _ = make(sources, FakeCapture(script))
     source.open()
     frame = source.capture(event(base))
-    assert frame.grabbed_at == base + 0.020
+    # through milliseconds and back (ts*1000/1000) may move the last bit; frames are
+    # 10 ms apart, so 1 ns still names exactly one of them
+    assert frame.grabbed_at == pytest.approx(base + 0.020, abs=1e-9)
     assert int(frame.pixels[0, 0, 0]) == 40
     assert frame.camera.verified is True
     assert frame.capture_ms >= 0
@@ -264,7 +266,7 @@ def test_two_read_failures_do_not_lose_the_camera(sources: list) -> None:
     script = [(base, image()), FAIL, FAIL, (base + 0.02, image())]
     source, _ = make(sources, FakeCapture(script))
     source.open()
-    assert source.capture(event(base)).grabbed_at == base + 0.02
+    assert source.capture(event(base)).grabbed_at == pytest.approx(base + 0.02, abs=1e-9)
 
 
 def test_the_reference_patch_is_the_mean_luminance_of_its_roi(sources: list) -> None:
@@ -343,3 +345,11 @@ def test_close_never_releases_a_capture_that_is_still_being_read(
     source.close()
     assert cap.released == 0
     assert controls.closed == 1
+
+
+def test_a_reference_patch_outside_the_frame_is_a_lighting_fault() -> None:
+    from qs.errors import LightingFault
+
+    pixels = np.full((48, 64, 3), 128, dtype=np.uint8)
+    with pytest.raises(LightingFault, match=r"\[60, 40, 10, 10\] is outside the 64x48 frame"):
+        measure_patch(pixels, (60, 40, 10, 10))

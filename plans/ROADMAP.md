@@ -23,6 +23,11 @@ written **one ahead** of execution, so each can learn from the last. Status of e
 **Executor** (ADR-0021): Claude Code implements every plan from P05 on, and one fresh Claude agent
 reviews it. P01 and P02 were executed by OpenCode (ADR-0019, superseded).
 
+**From P05b on (2026-09-22), plans live on GitHub, not in `plans/Pxx` folders.** Each plan is a
+`spec` issue with child `ticket` issues in `Ali-Jabowr/qs` — to-spec → to-tickets → implement —
+tracked from #26 in the milestone "Bench MVP (21–27.09)". All work lands on one branch, `mvp/bench`;
+one independent Claude agent reviews each plan; Ali merges one PR. The table above stays the scope.
+
 P05 was split in two on 2026-09-22, so each half fits one executor session: the camera first (the
 lock test needs it on Wednesday), then the shoot tools (Friday's shoot needs them).
 

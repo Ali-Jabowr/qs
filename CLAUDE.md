@@ -3,7 +3,7 @@
 **Project:** QS — automated visual quality inspection for a food production line.
 **Owner:** Ali (Volgograd). A student friend handles all grant/legal/document work; Ali's job with Claude is **building the MVP**.
 **Repo:** `/home/marxel/PROJECTS/QS` · **Planning vault:** `~/Documents/Obsidian Vaults/Second Brain/20 - AREAS/STARTUP/`
-**Last updated:** 2026-09-21 — the design day: Gates 0, 1 and 2 passed.
+**Last updated:** 2026-09-24 — all bench-MVP code (P03–P09) built and reviewed; PR #95 awaits Ali.
 
 ---
 
@@ -27,25 +27,25 @@ QS/
   docs/10–17             Phase 2 — architecture, contracts, data model, data collection,
                          evaluation, model, failure model, security
   docs/01–04             history (survey kit, hardware tree, survey answers, old build plan)
-  decisions/             ADR-0001 … ADR-0021; README.md is the index
+  decisions/             ADR-0001 … ADR-0025; README.md is the index
   reviews/GATE-2.md      the design review, with the requirement → design → check matrix
   plans/ROADMAP.md       nine executor plans and the week; plans/Pxx-*/ one folder per plan
   src/ · tests/ · tools/ code (from P02) · tests · state renderer, bounds, diagram checker
   data/                  git-ignored. Raw shoots, datasets, golden sets
 ```
 
-## 3. Status as of 2026-09-21
+## 3. Status as of 2026-09-24
 
 | | |
 |---|---|
 | Design | **Complete.** Gate 0 (concept), Gate 1 (requirements), Gate 2 (independent design review, 26 findings fixed) — all GO |
-| Code | Tools and 44 tests only. `src/qs` starts with plan P02 |
+| Code | **P03–P09 built on `mvp/bench`, every plan review PASS** (`reviews/`), `make check` 1082 passed. PR #95 → master, for Ali to merge. Not built: #33 `qs shoot` for the webcam (waits for the webcam) |
 | Hardware bought | **None.** Correct. |
 | Site visit | Has not happened. Client work is **deferred by decision for the MVP week** (21–27.09) |
 | Physical evidence | None from the factory. The bench will use store-bought моти |
 | Acceptance number | **95%** (client, verbatim, Q28) |
 | Commercial model | hardware + updatable SaaS + annual calibration, **priced by us**, no competing bid (Q26) |
-| This week | **The bench MVP** — `plans/ROADMAP.md`. Shoot on Fri 25.09 |
+| This week | **The bench MVP**. Phone shoot Fri 25.09 (ADR-0022), then build → train → calibrate → evaluate on Sat 26.09 — `docs/18-shoot-and-train-guide.md` |
 
 ## 4. What the client actually told us
 
@@ -82,7 +82,7 @@ Everything else in the survey sheet — line speed, field of view, sizes, enviro
 
 ## 7. Decisions
 
-The log is `decisions/README.md` — ADR-0001 to ADR-0021, each with context, alternatives and consequences. Do not re-open one without new facts; supersede it with a new ADR. The ones that shape this week:
+The log is `decisions/README.md` — ADR-0001 to ADR-0025, each with context, alternatives and consequences. Do not re-open one without new facts; supersede it with a new ADR. The ones that shape this week:
 
 | ADR | Decision |
 |---|---|
@@ -95,7 +95,8 @@ The log is `decisions/README.md` — ADR-0001 to ADR-0021, each with context, al
 | 0017 | Gate B judged on a conservative N100 estimate until an N100 exists |
 | 0018 | Operator screen is a Tk window; OpenCV headless everywhere |
 | 0020 | PatchCore's backbone weights are timm's `wide_resnet50_2.racm_in1k`, named by full tag and hash-checked |
-| 0021 | Claude Code executes the plans (from P05); one independent Claude agent reviews each. Supersedes 0019 (OpenCode, which ran P01–P02) |
+| 0024 | OpenCode is stopped (Ali, 24.09); fresh Claude agents implement, one independent Claude reviewer per plan, Claude Code merges and commits. Supersedes 0023 |
+| 0025 | The cautious defaults of the twenty build questions (#28–#94) are accepted |
 
 ## 8. Stack
 
@@ -105,13 +106,15 @@ PatchCore from **Anomalib 2.6.2** (torch model only, our own preprocessing) · d
 
 **Planner → Executor → Reviewer.** Claude Code writes plans (`plans/Pxx-*/`: PLAN, CONTEXT, CONTRACTS, ACCEPTANCE), then implements one plan at a time on `exec/Pxx` and writes STATUS.md (ADR-0021; OpenCode ran P01–P02). A fresh Claude agent that did not write the code reviews it; Claude Code fixes the findings and writes `reviews/REVIEW-Pxx.md`. Ali approves every gate and merges every PR. Docs and ADRs come from Claude directly. Plans are written one ahead of execution.
 
+**From P05b on (2026-09-22), GitHub is the primary board** — `Ali-Jabowr/qs`, milestone "Bench MVP (21–27.09)", tracking issue #26. A plan is no longer a `plans/Pxx` folder but a `spec` issue with child `ticket` issues: to-spec → to-tickets → implement. All work lands on one branch, `mvp/bench`; one independent Claude agent reviews; Ali merges one PR. Open questions and risks are `question` and `risk` issues. `project.yml` stays and is kept in sync (`meta.github`, `issue:` on each entry); the duplication is accepted.
+
 Research freely for accuracy — web search, context7, agents — and cite sources. `ai-engineer` for model/deployment questions; `web-search-agent` for suppliers and regulation dates (**re-verify dates, they move**). Ali's global `/graphify` skill must be invoked via the Skill tool the moment he types it.
 
 ## 10. The next three things
 
-1. **Execute P01 (environment), then P02 (contracts and config)** — `plans/ROADMAP.md`. Review each into `reviews/`.
-2. **Ali, at the bench:** `sudo apt install v4l-utils`, build the rig (`docs/13-data-collection.md` §3), plug in the webcam; the lock test comes with P05.
-3. **Before the shoot, walk through `docs/13-data-collection.md` together** — Ali asked for this. Settle standard or lean (OQ-8) at the shop.
+1. **Ali: merge PR #95** (`mvp/bench → master`) after reading it.
+2. **Ali, at the bench, Fri 25.09:** the phone set-up and day-zero test, the lighting pilot and the dataset shoot. Follow `docs/18-shoot-and-train-guide.md` Parts A–F; first turn off every cloud and messenger sync on the phone (#51).
+3. **Sat 26.09:** Part G, the chain on real моти (build → train → calibrate, probably at `--far 10` per #78 → evaluate), then the Gate B timing run. Fix what the real data shows, and after the week add the #94 `run.source_id` column.
 
 ## Agent skills
 

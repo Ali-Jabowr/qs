@@ -35,8 +35,8 @@ trains a model and still produces a number. The number is just wrong.
 
 Test units by damage: standard 12 dent · 9 tear · 9 deformed; lean 10 · 7 · 7.
 
-**Which column: open — Ali, leaning lean (2026-09-21).** Decided at the shop, against the shelf
-price. Both columns keep every rule below; lean widens the bounds in `14-eval-protocol.md` §9.
+**Which column: lean — decided by Ali, 2026-09-23 (OQ-8).** The standard column stays for
+reference. Both columns keep every rule below; lean widens the bounds in `14-eval-protocol.md` §9.
 
 ## 2. Two things that make fake defects
 

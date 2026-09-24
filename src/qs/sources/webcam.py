@@ -20,7 +20,7 @@ import numpy as np
 
 from qs.config import StationConfig
 from qs.contracts import Frame, Health, TriggerEvent
-from qs.errors import CameraLost, CameraSettingsDrift, CaptureError
+from qs.errors import CameraLost, CameraSettingsDrift, CaptureError, LightingFault
 from qs.sources.v4l2 import (
     ControlReading,
     Controls,
@@ -64,8 +64,18 @@ def open_v4l2_capture(device: str) -> CaptureLike:
 
 
 def measure_patch(pixels: np.ndarray, roi: tuple[int, int, int, int]) -> float:
-    """Mean luminance of the reference patch's ROI [x, y, w, h], from 0 to 1."""
+    """Mean luminance of the reference patch's ROI [x, y, w, h], from 0 to 1.
+
+    A ROI not wholly inside the frame is a `LightingFault` (NO_VERDICT), never a crop of part
+    of it: the config checks the ROI against its own width and height, but a frame of another
+    size — another source, another mode — must not be measured on a guess.
+    """
     x, y, w, h = roi
+    height, width = pixels.shape[:2]
+    if x < 0 or y < 0 or w < 1 or h < 1 or x + w > width or y + h > height:
+        raise LightingFault(
+            f"reference patch: [{x}, {y}, {w}, {h}] is outside the {width}x{height} frame"
+        )
     crop = pixels[y : y + h, x : x + w]
     grey = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
     return float(grey.mean()) / 255.0
