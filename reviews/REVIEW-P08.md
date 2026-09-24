@@ -1,6 +1,6 @@
 # REVIEW-P08, round 1: datasets, golden set, calibration, the INDICATIVE report
 
-**Verdict: FIX.** Round 1 found 1 major, 2 minor and 2 nits. The major is on the path #78 tells Ali to take, so it could hit on Saturday.
+**Verdict: PASS** (after r1 fixes). Round 1 found 1 major, 2 minor and 2 nits, all fixed below. The major was on the path #78 tells Ali to take, so it could have hit on Saturday.
 The split holds, and so do the threshold rule, the statistics and the drift, pairs and latency defaults.
 
 Spec #76, tickets #80 (6e35138), #81 (e1b61b0), #82 (7179b6a) and #83 (f90c605, dc39814, c7ce2d3) on `mvp/bench`.
@@ -95,3 +95,17 @@ Fail-safe is not affected. No finding can make a unit PASS or make a rate look b
 | #83 | latency; the report named | `test_latency_is_*` (2), `test_a_cpu_latency_report_of_this_model_is_named` | yes |
 | #83 | changed units; another golden set ignored | `test_changed_units_list_exactly_the_unit_that_moved`, `test_a_csv_from_another_golden_set_is_ignored` | yes |
 | #83 | NFR-08 end to end; golden and raw untouched; nothing in the repo | `test_eval_chain.py::test_build_train_calibrate_evaluate_twice_reproduces_the_report` | yes |
+
+## Fixes (r1)
+
+Each fix has a test that failed before it and passes after it. No existing test was changed. The split is untouched, and no fix makes a rate look better: every new branch refuses, fails or stops.
+
+| # | Outcome | Where | Test |
+|---|---|---|---|
+| F1 | **Fixed.** When the 5% target is not reachable, the summary prints `far 5%: not reachable — geometry alone flags g of n calibration units, the target allows a (A2, #78)` in place of a threshold, so there is no traceback. The early warning has its own line: "dent recall at the 5% target is not measurable: geometry alone flags g of n…". It states no recall and still exits 1 | `src/qs/cmd/evaluate.py:285` (`_summary`), `src/qs/eval/units.py:247` (`early_warning`) | `tests/test_evaluate.py::test_an_oval_calib_unit_at_far_10_evaluates_with_5_percent_not_reachable`. It runs through `main()`: one oval calib unit in the session, then build, then `qs calibrate --far 10`, then `qs evaluate`. It checks the 5% row says not reachable and the 10% row has its threshold and recall. `build_env`, `write_eval_session` and `run_calibrate` gained `oval_unit`/`far` keywords, with defaults unchanged |
+| F2 | **Fixed.** `_stage` hashes each copy's bytes and compares them with the planned SHA-256 before writing, and refuses (`BuildRefused`) on a mismatch. `write_build` stages both trees and verifies the golden set before it renames either. If any step fails, it removes whatever it staged or renamed. `qs build` also catches `BuildRefused` from the write | `src/qs/eval/golden.py:506` (`write_build`), `:533` (`_stage`), `src/qs/cmd/build.py:49` | `tests/test_build.py::test_a_frame_changed_after_planning_is_refused_and_nothing_is_built[train]` and `[calib]`, `::test_a_golden_set_that_fails_verification_leaves_no_dataset` |
+| F3 | **Fixed.** `_check_complete` checks the session against the plan: all ten placement frames x01…x10 and the plan's controls exactly. Every plan train, calib and test unit is in its split or discarded. Every spare is unused, standing in a split, or discarded. A discarded unit must be a plan unit, and no split may be larger than the plan's. In `qs evaluate`, a set with no placement rows is FAIL, with its own report line | `src/qs/eval/golden.py:234`, `src/qs/cmd/evaluate.py:211` (`_placement`), `src/qs/eval/report.py:231` | `tests/test_build.py::test_a_session_with_no_placement_frames_is_refused`, `::test_a_session_missing_a_plan_control_is_refused`, `::test_a_plan_unit_in_no_split_and_not_discarded_is_refused[train/calib/test]`, `::test_a_spare_in_no_list_and_not_discarded_is_refused`, `tests/test_evaluate.py::test_a_golden_set_with_no_placement_frame_fails_placement` |
+| N1 | **Fixed.** `_calibration_record` recomputes `canonical_hash(record)[:6]` and refuses when `threshold.id` does not end with it | `src/qs/cmd/evaluate.py:152` | `tests/test_evaluate.py::test_a_hand_edited_calibration_record_is_refused` |
+| N2 | **Fixed.** A name counts as free only when neither the `.md` nor the `.csv` exists. Both files are opened with `"x"`, and a file that appears in between is refused in one line | `src/qs/cmd/evaluate.py:233` (`_report_path`), `:414` | `tests/test_evaluate.py::test_a_csv_left_without_its_report_is_never_overwritten` |
+
+`make check` after the fixes: **1022 passed, 16 deselected**. Diagrams: 17 render. ruff: clean. mypy: 56 files, no issues.
