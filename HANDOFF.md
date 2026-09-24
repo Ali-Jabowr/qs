@@ -11,7 +11,7 @@
   - the phone shoot and `qs import-phone`, then `qs build`, `qs train`, `qs calibrate` and `qs evaluate` on real моти (docs/18);
   - `qs mvtec-check` and `qs latency` on the trained bundle, for Gate B (S3.5);
   - the webcam lock test (#25, #33), live `qs station`, NFR-01 and NFR-09.
-- **Open decisions for Ali:** #94, a `run.source_id` column (a schema change), and the wayfinder questions listed in the PR.
+- **Decisions:** Ali accepted all twenty cautious defaults (ADR-0025), so the questions are closed. One follow-up for after the week: #94's `run.source_id` column. Still open: the client and lawyer questions OQ-1 to OQ-10, deferred for the MVP week.
 - **Agent worktrees:** `.claude/worktrees/agent-*` are all merged and can be removed.
 
 ## How the work runs

@@ -235,13 +235,19 @@ anything in `raw/` by hand. `raw/` is copied once and never touched again.
 
 ## Part G: build, train, calibrate, evaluate (after the shoot)
 
-These commands arrive with the tickets shown. G2's exact flags are below; G1, G3 and G4 get
-theirs when #80–#83 are built.
+Run these in order, from the repo root. `<session>` is the folder `qs import-phone` wrote under
+`data/raw/`. Each command refuses with a one-line reason rather than writing half a result.
 
-- [ ] **G1. Build the datasets and freeze the test set** with `qs build` (#80). It sorts the
-      photos into `datasets/…/train`, `calib` and `test` by the plan, and freezes the test set
-      under `golden/` with a content hash. **Nothing in a frozen set is ever changed or
-      re-shot.** A report built on an unfrozen set is worthless.
+- [ ] **G1. Build the datasets and freeze the test set** with `qs build` (#80):
+      ```
+      bin/qs build --session data/raw/<session> --product mochi
+      ```
+      It sorts the photos into `data/datasets/mochi/<geometry>/` (`train`, `calib`, `test`) by
+      the plan, and freezes the test set under `data/golden/mvp-<date>/` with a content hash. It
+      prints the counts and the **golden hash: write the hash down beside the day's notes** before
+      training. **Nothing in a frozen set is ever changed or re-shot.** A report built on an
+      unfrozen set is worthless. A second run on the same session says "already built" and
+      changes nothing.
 - [ ] **G2. Train** with `qs train` (#46):
       ```
       bin/qs train --config config/station-A-phone.yml --dataset data/datasets/mochi/<winner> \
@@ -251,16 +257,47 @@ theirs when #80–#83 are built.
       `--coreset 0.1` and `--input-px 256`; leave them. PatchCore reads the **18 training units × 3 rotations
       = 54 good photos**. From each photo it keeps a "memory" of small patches of what good
       starch looks like. It runs in minutes on the laptop's GPU. The output is a **model bundle**
-      (the weights plus a record of exactly what they were trained on).
+      (the weights plus a record of exactly what they were trained on). **Note the `model_id` it
+      prints**; G3 needs it.
 - [ ] **G3. Calibrate** with `qs calibrate` (#81). On the 10 calibration units, which the model
       never saw, it sets:
   - the anomaly **threshold**: how unusual a patch must be to count as a defect
   - the **size and shape tolerances**: how far area and roundness may vary on a good unit
-- [ ] **G4. Evaluate** with `qs evaluate` (#82, #83). It runs every test photo (good and damaged)
-      through the trained model and writes the **INDICATIVE report**: how many damaged units it
-      caught, how many good units it wrongly flagged, and whether the controls drifted during the
-      session. INDICATIVE means demo-grade, not the 95% acceptance claim. That claim comes at
-      Gate A on fresh units (ADR-0007).
+      ```
+      bin/qs calibrate --config config/station-A-phone.yml \
+        --dataset data/datasets/mochi/<winner> --model <model_id> \
+        --out config/station-A-phone-cal.yml
+      ```
+      It writes a **new** config (`--out` must not exist; the input is only read), with a new
+      `threshold_id`, and a calibration record under `reports/calib/`.
+      **If it refuses because geometry alone flags too many units** (#78: likely with 10 units,
+      because 5% allows none), run it again with `--far 10` and a new `--out` name. The report
+      states which target it was set at. Nothing widens the tolerances automatically.
+- [ ] **G4. Evaluate** with `qs evaluate` (#82, #83):
+      ```
+      bin/qs evaluate --config config/station-A-phone-cal.yml --golden data/golden/mvp-<date>
+      ```
+      It runs every test photo (good and damaged) through the trained model and writes the
+      **INDICATIVE report** and its CSV under `reports/eval/`: how many damaged units it caught,
+      how many good units it wrongly flagged, the paired good-versus-damaged differences, the
+      placement check, the latency, and whether the controls drifted during the session.
+      INDICATIVE means demo-grade, not the 95% acceptance claim. That claim comes at Gate A on
+      fresh units (ADR-0007). **Exit 1 with "the session drifted" at the top** means the numbers
+      mean nothing (see below).
+- [ ] **G5. The demo on screen** (P09, until the webcam arrives, #85):
+      ```
+      bin/qs station --config config/station-A-phone-cal.yml \
+        --replay data/golden/mvp-<date>/frames --screen
+      ```
+      Each SPACE press shows the next photo's verdict: ГОДЕН green, БРАК red, НЕТ РЕШЕНИЯ
+      amber. Closing the window is a clean stop, and the run report goes to `reports/station/`.
+      Its latency is indicative only: NFR-01 is measured live, on the webcam.
+- [ ] **G6. Timing for Gate B** (S3.5) with `qs latency` (#50), on the trained bundle:
+      ```
+      bin/qs latency --config config/station-A-phone-cal.yml \
+        --frames data/golden/mvp-<date>/frames --cpu
+      ```
+      On the CPU it prints the Gate B line: the whole inspection's p95 × 3 against 400 ms.
 
 **How to tell it worked:**
 - The dents and tears score clearly above the good units.

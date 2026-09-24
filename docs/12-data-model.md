@@ -24,6 +24,8 @@ data/
   raw/<session-id>/                  untouched originals, exactly as shot
     session.yml                      camera read-back, lighting geometries, patch reading,
                                      product, flavour, purchase date, start and end time
+    frames.csv                       one row per frame: file, unit, state, geometry, rotation,
+                                     pass, capture time, camera read-back, patch, SHA-256 (#29)
     u007_dmg_G2_r1.png               lossless; the name is the identity — see below
   datasets/<product>/<geometry>/     one dataset per lighting geometry
     train/good/                      good units only — all the model ever trains on
