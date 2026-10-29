@@ -30,5 +30,6 @@ Numbers are never reused. A superseded ADR stays, with its status changed and a 
 | [0023](ADR-0023-opencode-implements-tickets.md) | OpenCode implements the tickets again; Claude Code reviews and commits | Superseded by 0024 | 2026-09-23 |
 | [0024](ADR-0024-claude-implements-opencode-stopped.md) | OpenCode is stopped; Claude agents implement the remaining tickets | Accepted | 2026-09-24 |
 | [0025](ADR-0025-cautious-defaults-accepted.md) | The cautious defaults of the build's twenty open questions are accepted | Accepted | 2026-09-24 |
+| [0026](ADR-0026-side-light-for-dents.md) | The bench is lit from one side (G1), because top light hides dents | Accepted | 2026-10-09 |
 
 New decisions take the next free number.

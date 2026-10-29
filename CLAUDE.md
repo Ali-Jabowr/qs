@@ -2,8 +2,8 @@
 
 **Project:** QS — automated visual quality inspection for a food production line.
 **Owner:** Ali (Volgograd). A student friend handles all grant/legal/document work; Ali's job with Claude is **building the MVP**.
-**Repo:** `/home/marxel/PROJECTS/QS` · **Planning vault:** `~/Documents/Obsidian Vaults/Second Brain/20 - AREAS/STARTUP/`
-**Last updated:** 2026-09-24 — all bench-MVP code (P03–P09) built and reviewed; PR #95 awaits Ali.
+**Repo:** `/home/ali/PROJECTS/QS` · **Planning vault:** `~/Documents/Obsidian Vaults/Second Brain/20 - AREAS/STARTUP/`
+**Last updated:** 2026-10-29 — bench-MVP code merged (PR #95); factory visit done 14–16.10; no model trained on the bench yet.
 
 ---
 
@@ -27,25 +27,26 @@ QS/
   docs/10–17             Phase 2 — architecture, contracts, data model, data collection,
                          evaluation, model, failure model, security
   docs/01–04             history (survey kit, hardware tree, survey answers, old build plan)
-  decisions/             ADR-0001 … ADR-0025; README.md is the index
+  decisions/             ADR-0001 … ADR-0026; README.md is the index
   reviews/GATE-2.md      the design review, with the requirement → design → check matrix
   plans/ROADMAP.md       nine executor plans and the week; plans/Pxx-*/ one folder per plan
   src/ · tests/ · tools/ code (from P02) · tests · state renderer, bounds, diagram checker
   data/                  git-ignored. Raw shoots, datasets, golden sets
 ```
 
-## 3. Status as of 2026-09-24
+## 3. Status as of 2026-10-29
 
 | | |
 |---|---|
 | Design | **Complete.** Gate 0 (concept), Gate 1 (requirements), Gate 2 (independent design review, 26 findings fixed) — all GO |
-| Code | **P03–P09 built on `mvp/bench`, every plan review PASS** (`reviews/`), `make check` 1082 passed. PR #95 → master, for Ali to merge. Not built: #33 `qs shoot` for the webcam (waits for the webcam) |
-| Hardware bought | **None.** Correct. |
-| Site visit | Has not happened. Client work is **deferred by decision for the MVP week** (21–27.09) |
-| Physical evidence | None from the factory. The bench will use store-bought моти |
+| Code | **P03–P09 merged to master** (PR #95, 24.09). `make check` on 29.10: 1081 passed, 1 failed — `test_a_passed_gate_in_the_past_is_not_a_warning`, because Gates A and B (due 13.10) are still `pending` in `project.yml` |
+| Hardware bought | Logitech C920 webcam and a PULUZ light box (bench and visit kit, approved 02.10; no ADR yet). No industrial camera, lens or light |
+| Site visit | **Done, 14–16.10 (Moscow), with `kit-moscow/`.** Report: `docs/mentor/2026-10-19-report.md` |
+| Physical evidence | ~29 min of line video and ~860 line photos from the C920 (`data/raw/2026-10-15-moscow-ssd/`, not on this machine as of 29.10); dent check on store-bought моти, 09.10 (ADR-0026) |
 | Acceptance number | **95%** (client, verbatim, Q28) |
 | Commercial model | hardware + updatable SaaS + annual calibration, **priced by us**, no competing bid (Q26) |
-| This week | **The bench MVP**. Phone shoot Fri 25.09 (ADR-0022), then build → train → calibrate → evaluate on Sat 26.09 — `docs/18-shoot-and-train-guide.md` |
+| What the line is | моти in **clear cups** on a chain in a **polished steel channel**, strong glare, starch dust; ~40–60 units/min estimated from video, not timed; a photo sensor already sits over the chain. **Empty cup** is a new defect |
+| Results so far | Today's `localize` finds the unit in **0 of 2 883** line frames. A throwaway cup-first localizer + PatchCore spike on line frames (`data/analysis/2026-10-15/STEP7.md`) is INDICATIVE only; recall on real defects is not measured. The stage-1 bench dataset is **not shot**, so no bench model exists |
 
 ## 4. What the client actually told us
 
@@ -112,9 +113,9 @@ Research freely for accuracy — web search, context7, agents — and cite sourc
 
 ## 10. The next three things
 
-1. **Ali: merge PR #95** (`mvp/bench → master`) after reading it.
-2. **Ali, at the bench, Fri 25.09:** the phone set-up and day-zero test, the lighting pilot and the dataset shoot. Follow `docs/18-shoot-and-train-guide.md` Parts A–F; first turn off every cloud and messenger sync on the phone (#51).
-3. **Sat 26.09:** Part G, the chain on real моти (build → train → calibrate, probably at `--far 10` per #78 → evaluate), then the Gate B timing run. Fix what the real data shows, and after the week add the #94 `run.source_id` column.
+1. **Ali decides** the new due dates for Gates A and B in `project.yml` (that clears the failing check), and the order of work: the stage-1 bench test of the hypothesis first, or the line's cup-first localizer first.
+2. **Restore the visit's raw data** (`data/raw/2026-10-15-moscow-ssd/`, `data/raw/2026-10-09-dentcheck*/`) to this machine from the SSD or the old disk.
+3. Then, per decision 1: shoot stage 1 on the bench under side light (ADR-0026) and train, **or** rebuild the cup-first localizer test-first in `src/qs` from the 19.10 spike.
 
 ## Agent skills
 

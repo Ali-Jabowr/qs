@@ -1,0 +1,53 @@
+# config/station-A-phone.yml — the bench station with the phone as camera (ADR-0022, docs/18 C1).
+# Xiaomi POCO X7, Pro mode: main 1x lens, 1/100 s, ISO 400, WB fixed (not auto), MF.
+# format, power_line_hz, wb_kelvin and focus are webcam fields the loader still requires; the
+# phone import checks the photo EXIF instead (wb must be manual, exposure exactly 1/100 s).
+# The two ROIs are first estimates from a scaled preview (28.09) — refit them in C3 on a full photo.
+version: 1
+station_id: A-phone
+product: mochi-<flavour>-v1
+
+trigger:   { type: keyboard, key: space }
+camera:
+  type: phone
+  device: "phone:Xiaomi POCO X7"
+  width: 2592
+  height: 1944
+  format: YUYV
+  power_line_hz: 50
+  exposure_us: 10000
+  gain: 400
+  wb_kelvin: 4500
+  focus: 0
+  capture_timeout_ms: 500
+
+lighting:
+  geometry: G1    # one lamp (Ali, 02.10)
+  reference_patch:
+    roi:    [2000, 120, 380, 400]
+    expect: 0.62
+    band:   0.05
+
+inspector:
+  type: appearance
+  localize:  { roi: [300, 400, 1600, 1400], threshold: 70, min_area_px: 20000, border_margin_px: 10 }
+  mask_dilate_px: 12
+  model:     patchcore-mochi-v1-3f9a1c2b7d4e
+  backend:   torch-cuda
+
+threshold:
+  id:     cal-2026-09-25-far5-a41c07
+  value:  1.83
+  policy: far_5pct_on_calib
+  set_on: { model: patchcore-mochi-v1-3f9a1c2b7d4e, backend: torch-cuda, calib_units: 15, localize_threshold: 70, mask_dilate_px: 12 }
+  geometry:
+    area_px:        [98000, 131000]
+    axis_ratio_min: 0.90
+    solidity_min:   0.96
+
+display:
+  labels: { pass: ГОДЕН, defect: БРАК, no_verdict: НЕТ РЕШЕНИЯ }
+  font:   assets/DejaVuSans.ttf
+
+evidence:  { root: evidence/, retention_days: 400 }
+latency:   { budget_ms: 1000, breach_action: record_and_continue }
