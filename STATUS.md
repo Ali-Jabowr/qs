@@ -4,7 +4,7 @@
 **Automated visual quality inspection for a food production line**  
 Owner: Ali, Volgograd · Rendered 2026-11-04
 
-Overall: **20/71 tasks** `███████·················` 28%
+Overall: **21/71 tasks** `███████·················` 30%
 
 > Verbal intent to pay. No signed contract, no money moved.  
 > Acceptance criterion: **up to 95% (Q28, client verbatim)**
@@ -41,7 +41,7 @@ Overall: **20/71 tasks** `███████················�
 | `[!]` | **GA** Gate A — the full protocol on fresh моти | 28.09 – ? | `············` 0/3 | blocked — blocked on bench access (ADR-0027) |
 | `[~]` | **S5** Site visit with the demo in hand | 14.10 – ? | `███·········` 2/8 | in_progress |
 | `[!]` | **S6** Retrain on their product | — | `············` 0/0 | blocked — blocked on L2 |
-| `[ ]` | **L1** Cup-first localizer and the empty cup | — | `············` 0/7 | not_started |
+| `[~]` | **L1** Cup-first localizer and the empty cup | — | `██··········` 1/7 | in_progress |
 | `[!]` | **L2** Second visit — a fixed camera on the line | — | `············` 0/4 | blocked — blocked on L1, and the food-safety requirements for equipment over open product (ADR-0027) |
 
 ### Marking station
@@ -142,14 +142,14 @@ Overall: **20/71 tasks** `███████················�
 - [ ] `S5.7` Name of whoever signs off food safety over open product
 - [ ] `S5.8` Marking conveyor — printer type, failure modes, the returned-batch story in their words
 
-**L1 · Cup-first localizer and the empty cup** — 0/7
+**L1 · Cup-first localizer and the empty cup** — 1/7
 
-- [ ] `L1.1` Define unit, cup, empty cup and no cup in CONTEXT.md, with the verdict each one gets; amend FR-25
+- [x] `L1.1` Define unit, cup, empty cup and no cup in CONTEXT.md, with the verdict each one gets; amend FR-25  ↳ `CONTEXT.md, decisions/ADR-0028-line-unit-cup-software-trigger.md, docs/06-requirements.md FR-25`
 - [ ] `L1.2` Recover the cup-finding code from the spike of 19.10
-- [ ] `L1.3` Local labelling tool — about 200–300 line frames marked unit, empty cup or nothing, labelled by Ali
+- [ ] `L1.3` Local labelling tool — line frames marked unit, empty cup, nothing or hand, and whole cups counted through the video; labelled by Ali
 - [ ] `L1.4` Cup-first localizer in src/qs, test-first on synthetic images
 - [ ] `L1.5` The empty cup reaches the operator as a defect, through the same verdict rule as every other check
-- [ ] `L1.6` Score the localizer and the empty-cup check on the labelled frames, numbers only, stamped INDICATIVE
+- [ ] `L1.6` Score the localizer and the empty-cup check on the labelled footage, with the share of empty cups caught per cup as the main number, numbers only, stamped INDICATIVE
 - [ ] `L1.7` Train PatchCore on the labelled good line frames and report false alarms only, split by time or series, stamped INDICATIVE; recall on real defects stays unmeasured
 
 **L2 · Second visit — a fixed camera on the line** — 0/4

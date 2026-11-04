@@ -84,7 +84,7 @@ Everything else in the survey sheet — line speed, field of view, sizes, enviro
 
 ## 7. Decisions
 
-The log is `decisions/README.md` — ADR-0001 to ADR-0027, each with context, alternatives and consequences. Do not re-open one without new facts; supersede it with a new ADR. The ones that shape this week:
+The log is `decisions/README.md` — ADR-0001 to ADR-0028, each with context, alternatives and consequences. Do not re-open one without new facts; supersede it with a new ADR. The ones that shape this week:
 
 | ADR | Decision |
 |---|---|
@@ -100,6 +100,7 @@ The log is `decisions/README.md` — ADR-0001 to ADR-0027, each with context, al
 | 0024 | OpenCode is stopped (Ali, 24.09); fresh Claude agents implement, one independent Claude reviewer per plan, Claude Code merges and commits. Supersedes 0023 |
 | 0025 | The cautious defaults of the twenty build questions (#28–#94) are accepted |
 | 0027 | Line work goes first; Gate A has no date until the bench is back; Gate C allows a mount and diffuser for the second visit |
+| 0028 | On the line the unit is the cup; v1 triggers on seeing it; empty-cup and appearance checks run, geometry waits for the overhead camera |
 
 ## 8. Stack
 
@@ -116,8 +117,8 @@ Research freely for accuracy — web search, context7, agents — and cite sourc
 ## 10. The next three things
 
 1. **Finish `/own-map`**, layers 2–4 and `ARCHITECTURE.md`; the resume block is in `STATE.md`.
-2. **Stage L1, task L1.1:** settle unit, cup, empty cup and no cup with `/grill-with-docs`, writing `CONTEXT.md` and amending FR-25.
-3. **The rest of L1:** `/to-spec`, `/to-tickets`, then `/implement`, rebuilding the cup-first localizer test-first in `src/qs` from the 19.10 spike. The bench waits (ADR-0027).
+2. **The rest of L1:** `/to-spec`, `/to-tickets`, then `/implement`, rebuilding the cup-first localizer test-first in `src/qs` from the 19.10 spike. The decisions are in ADR-0028; the bench waits (ADR-0027).
+3. **The labelled result:** the share of empty cups caught, per cup, on Ali's labels.
 
 ## Agent skills
 
@@ -131,4 +132,4 @@ The five default labels, each named after its role: `needs-triage`, `needs-info`
 
 ### Domain docs
 
-Single-context: `CONTEXT.md` at the root (not written yet), ADRs in `decisions/`. See `docs/agents/domain.md`.
+Single-context: `CONTEXT.md` at the root, ADRs in `decisions/`. See `docs/agents/domain.md`.

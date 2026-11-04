@@ -523,7 +523,7 @@ stages:
     name_ru: Поиск стаканчика и моти, пустой стаканчик
     planned_start: null
     planned_end: null
-    status: not_started
+    status: in_progress
     goal_en: >
       Find the cup, then the моти inside it, on polished steel under glare, and report an empty
       cup as a defect: the main defect at this factory (Ali, 2026-11-04; frequency not counted).
@@ -538,16 +538,16 @@ stages:
       - id: L1.1
         text_en: "Define unit, cup, empty cup and no cup in CONTEXT.md, with the verdict each one gets; amend FR-25"
         text_ru: "Определить в CONTEXT.md изделие, стаканчик, пустой стаканчик и отсутствие стаканчика и решение для каждого случая; изменить FR-25"
-        status: todo
-        evidence: null
+        status: done
+        evidence: CONTEXT.md, decisions/ADR-0028-line-unit-cup-software-trigger.md, docs/06-requirements.md FR-25
       - id: L1.2
         text_en: Recover the cup-finding code from the spike of 19.10
         text_ru: Восстановить код поиска стаканчика из пробного эксперимента от 19.10
         status: todo
         evidence: null
       - id: L1.3
-        text_en: "Local labelling tool — about 200–300 line frames marked unit, empty cup or nothing, labelled by Ali"
-        text_ru: "Локальный инструмент разметки — около 200–300 кадров с линии с отметками «изделие», «пустой стаканчик», «ничего»; размечает Али"
+        text_en: "Local labelling tool — line frames marked unit, empty cup, nothing or hand, and whole cups counted through the video; labelled by Ali"
+        text_ru: "Локальный инструмент разметки — кадры с линии с отметками «изделие», «пустой стаканчик», «ничего», «рука» и подсчёт целых стаканчиков по видео; размечает Али"
         status: todo
         evidence: null
       - id: L1.4
@@ -561,8 +561,8 @@ stages:
         status: todo
         evidence: null
       - id: L1.6
-        text_en: Score the localizer and the empty-cup check on the labelled frames, numbers only, stamped INDICATIVE
-        text_ru: Оценить поиск и проверку пустого стаканчика на размеченных кадрах — только числа, с пометкой «ОРИЕНТИРОВОЧНО»
+        text_en: Score the localizer and the empty-cup check on the labelled footage, with the share of empty cups caught per cup as the main number, numbers only, stamped INDICATIVE
+        text_ru: "Оценить поиск и проверку пустого стаканчика на размеченной съёмке — главный показатель: доля найденных пустых стаканчиков по стаканчикам; только числа, с пометкой «ОРИЕНТИРОВОЧНО»"
         status: todo
         evidence: null
       - id: L1.7

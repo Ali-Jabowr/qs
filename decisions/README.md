@@ -32,5 +32,6 @@ Numbers are never reused. A superseded ADR stays, with its status changed and a 
 | [0025](ADR-0025-cautious-defaults-accepted.md) | The cautious defaults of the build's twenty open questions are accepted | Accepted | 2026-09-24 |
 | [0026](ADR-0026-side-light-for-dents.md) | The bench is lit from one side (G1), because top light hides dents | Accepted | 2026-10-09 |
 | [0027](ADR-0027-line-first-gates-after-visit.md) | Line work goes first; Gate A loses its date and no longer blocks the visit stages | Accepted | 2026-11-04 |
+| [0028](ADR-0028-line-unit-cup-software-trigger.md) | On the line the unit is the cup, and v1 triggers on seeing it | Accepted | 2026-11-04 |
 
 New decisions take the next free number.
