@@ -53,6 +53,7 @@ QS/
 - **Product: моти** (owner, call of 2026-09-20). Chilled or room temperature is Ali's best knowledge, not confirmed (A-01).
 - Inspection point: **before the packing zone**, on **open product**. Green light = OK to pack.
 - Defects wanted: **dents · shape deviation · dimension deviation · foreign objects**
+- **The empty cup is the main defect at the factory** (Ali, 04.11; seen at the visit, frequency not counted).
 - **One person** does this inspection today. One more person checks marking.
 - Escapes cause **refunds**. Rate quoted as "2%–10%, consider 2% per day". **No ruble figure given.**
 - Marking / date code is on a **different conveyor**. **A batch was returned because of marking** (Q21).
