@@ -3,7 +3,7 @@
 **Project:** QS — automated visual quality inspection for a food production line.
 **Owner:** Ali (Volgograd). A student friend handles all grant/legal/document work; Ali's job with Claude is **building the MVP**.
 **Repo:** `/home/ali/PROJECTS/QS` · **Planning vault:** `~/Documents/Obsidian Vaults/Second Brain/20 - AREAS/STARTUP/`
-**Last updated:** 2026-10-29 — bench-MVP code merged (PR #95); factory visit done 14–16.10; no model trained on the bench yet.
+**Last updated:** 2026-11-04 — bench-MVP code merged (PR #95); factory visit done 14–16.10; line work goes first (ADR-0027); no model trained on the bench yet.
 
 ---
 
@@ -34,15 +34,15 @@ QS/
   data/                  git-ignored. Raw shoots, datasets, golden sets
 ```
 
-## 3. Status as of 2026-10-29
+## 3. Status as of 2026-11-04
 
 | | |
 |---|---|
 | Design | **Complete.** Gate 0 (concept), Gate 1 (requirements), Gate 2 (independent design review, 26 findings fixed) — all GO |
-| Code | **P03–P09 merged to master** (PR #95, 24.09). `make check` on 29.10: 1081 passed, 1 failed — `test_a_passed_gate_in_the_past_is_not_a_warning`, because Gates A and B (due 13.10) are still `pending` in `project.yml` |
+| Code | **P03–P09 merged to master** (PR #95, 24.09). `make check` on 04.11: green, 1082 tests passed, 16 deselected |
 | Hardware bought | Logitech C920 webcam and a PULUZ light box (bench and visit kit, approved 02.10; no ADR yet). No industrial camera, lens or light |
 | Site visit | **Done, 14–16.10 (Moscow), with `kit-moscow/`.** Report: `docs/mentor/2026-10-19-report.md` |
-| Physical evidence | ~29 min of line video and ~860 line photos from the C920 (`data/raw/2026-10-15-moscow-ssd/`, not on this machine as of 29.10); dent check on store-bought моти, 09.10 (ADR-0026) |
+| Physical evidence | ~29 min of line video and ~860 line photos from the C920 (`data/raw/2026-10-15-moscow-ssd/`, restored 03.11); dent check on store-bought моти, 09.10 (ADR-0026; its photos are still missing) |
 | Acceptance number | **95%** (client, verbatim, Q28) |
 | Commercial model | hardware + updatable SaaS + annual calibration, **priced by us**, no competing bid (Q26) |
 | What the line is | моти in **clear cups** on a chain in a **polished steel channel**, strong glare, starch dust; ~40–60 units/min estimated from video, not timed; a photo sensor already sits over the chain. **Empty cup** is a new defect |
@@ -83,7 +83,7 @@ Everything else in the survey sheet — line speed, field of view, sizes, enviro
 
 ## 7. Decisions
 
-The log is `decisions/README.md` — ADR-0001 to ADR-0025, each with context, alternatives and consequences. Do not re-open one without new facts; supersede it with a new ADR. The ones that shape this week:
+The log is `decisions/README.md` — ADR-0001 to ADR-0027, each with context, alternatives and consequences. Do not re-open one without new facts; supersede it with a new ADR. The ones that shape this week:
 
 | ADR | Decision |
 |---|---|
@@ -98,6 +98,7 @@ The log is `decisions/README.md` — ADR-0001 to ADR-0025, each with context, al
 | 0020 | PatchCore's backbone weights are timm's `wide_resnet50_2.racm_in1k`, named by full tag and hash-checked |
 | 0024 | OpenCode is stopped (Ali, 24.09); fresh Claude agents implement, one independent Claude reviewer per plan, Claude Code merges and commits. Supersedes 0023 |
 | 0025 | The cautious defaults of the twenty build questions (#28–#94) are accepted |
+| 0027 | Line work goes first; Gate A has no date until the bench is back; Gate C allows a mount and diffuser for the second visit |
 
 ## 8. Stack
 
@@ -113,9 +114,9 @@ Research freely for accuracy — web search, context7, agents — and cite sourc
 
 ## 10. The next three things
 
-1. **Ali decides** the new due dates for Gates A and B in `project.yml` (that clears the failing check), and the order of work: the stage-1 bench test of the hypothesis first, or the line's cup-first localizer first.
-2. **Restore the visit's raw data** (`data/raw/2026-10-15-moscow-ssd/`, `data/raw/2026-10-09-dentcheck*/`) to this machine from the SSD or the old disk.
-3. Then, per decision 1: shoot stage 1 on the bench under side light (ADR-0026) and train, **or** rebuild the cup-first localizer test-first in `src/qs` from the 19.10 spike.
+1. **Finish `/own-map`**, layers 2–4 and `ARCHITECTURE.md`; the resume block is in `STATE.md`.
+2. **Stage L1, task L1.1:** settle unit, cup, empty cup and no cup with `/grill-with-docs`, writing `CONTEXT.md` and amending FR-25.
+3. **The rest of L1:** `/to-spec`, `/to-tickets`, then `/implement`, rebuilding the cup-first localizer test-first in `src/qs` from the 19.10 spike. The bench waits (ADR-0027).
 
 ## Agent skills
 
