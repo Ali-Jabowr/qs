@@ -160,6 +160,27 @@ def build_parser() -> argparse.ArgumentParser:
     from qs.cmd.build import golden_name
     from qs.cmd.train import coreset, positive_int, product, seed
 
+    label = commands.add_parser(
+        "label", help="hand labels for visit footage: single frames, or whole cups through a video"
+    )
+    label.add_argument("--config", required=True, metavar="PATH", help="the station config")
+    label.add_argument(
+        "--mode", required=True, choices=("frames", "cups"),
+        help="frames: unit, empty cup, nothing or hand; cups: full or empty, counted in order",
+    )
+    label.add_argument(
+        "--source", required=True, metavar="PATH",
+        help="a folder of images or a video; --mode cups needs a video",
+    )
+    label.add_argument(
+        "--every", type=positive_int, default=None, metavar="N",
+        help="with --mode frames on a video (required there): sample every Nth frame",
+    )
+    label.add_argument(
+        "--labels", default=None, metavar="PATH",
+        help="the labels file (default data/labels/<source name>.json)",
+    )
+
     build = commands.add_parser(
         "build",
         help="one raw session → datasets/<product>/<geometry> and the frozen golden set "
@@ -341,6 +362,10 @@ def run(argv: Sequence[str] | None = None) -> int:
         from qs.cmd import shoot
 
         return shoot.main(args)
+    if args.command == "label":
+        from qs.cmd import label
+
+        return label.main(args)
     if args.command == "import-phone":
         from qs.cmd import import_phone
 
