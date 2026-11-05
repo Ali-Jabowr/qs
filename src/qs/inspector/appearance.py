@@ -16,9 +16,11 @@ model loads (docs/15 §9); tests pass a fake through `make_scorer`.
 map to the unit (ADR-0009), then check the score against `threshold.value` — exactly: the
 float32 score, as a float, is compared with the threshold as written, so a score a float32
 rounding puts above the line is never passed, and every record satisfies `passed == (value
-<= limit)`. The model's own `pred_score` is logged beside it and must be finite. Both checks
-always run, and the label comes from them alone (C8). A non-finite score is an
-`InferenceError`; any other exception is left to the Pipeline (docs/11 §7). Pure: no I/O,
+<= limit)`. The model's own `pred_score` is logged beside it and must be finite. Every check the
+station lists in `inspector.checks` always runs (geometry is left out where the list omits it,
+but `localize` still runs: the window is centred on the silhouette), and the label comes from
+them alone (C8). A non-finite score is an `InferenceError`; any other exception is left to the
+Pipeline (docs/11 §7). Pure: no I/O,
 the frame is only ever read, and nothing changes between frames (C1, C2).
 """
 
@@ -40,8 +42,6 @@ from qs.inspector.geometry import check_geometry, measure
 from qs.inspector.localize import localize
 from qs.inspector.model import Scorer, device_for
 from qs.inspector.window import cut_window, score_map, to_input
-
-CONFIGURED = frozenset({CHECK_GEOMETRY, CHECK_APPEARANCE})
 
 
 def _real_scorer(device: str, bank: np.ndarray) -> Scorer:
@@ -118,7 +118,12 @@ class AppearanceInspector:
         config, bundle = loaded.config, loaded.bundle
         pixels = frame.pixels
         silhouette = localize(pixels, config.inspector.localize)
-        geometry = check_geometry(measure(silhouette), config.threshold.geometry)
+        listed = config.inspector.checks
+        geometry = (
+            check_geometry(measure(silhouette), config.threshold.geometry)
+            if CHECK_GEOMETRY in listed
+            else None
+        )
         window, window_box = cut_window(pixels, silhouette.centroid, bundle.window_px)
         scored = loaded.scorer.score(to_input(window, bundle.input_px))
         heatmap, score = score_map(
@@ -138,9 +143,9 @@ class AppearanceInspector:
             measures=(("pred_score", pred_score),),
             failed_on=None if passed else "score>threshold",
         )
-        checks = (geometry, appearance)
+        checks = (appearance,) if geometry is None else (geometry, appearance)
         return Verdict(
-            label=derive_label(checks, CONFIGURED),
+            label=derive_label(checks, listed),
             checks=checks,
             heatmap=heatmap,
             window_box=window_box,

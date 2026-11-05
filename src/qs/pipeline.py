@@ -26,8 +26,6 @@ import numpy as np
 
 from qs.config import StationConfig
 from qs.contracts import (
-    CHECK_APPEARANCE,
-    CHECK_GEOMETRY,
     CheckResult,
     Frame,
     FrameSource,
@@ -56,9 +54,6 @@ _log = logging.getLogger(__name__)
 
 Clock = Callable[[], float]
 WallClock = Callable[[], datetime]
-
-# Station A decides with two checks (ADR-0008), for `appearance` and `stub` alike.
-CONFIGURED_CHECKS = frozenset({CHECK_GEOMETRY, CHECK_APPEARANCE})
 
 
 class State(StrEnum):
@@ -534,7 +529,7 @@ class Pipeline:
                 f"checks is a {type(verdict.checks).__name__}, not a tuple of CheckResult"
             )
         try:
-            derived = derive_label(verdict.checks, CONFIGURED_CHECKS)
+            derived = derive_label(verdict.checks, self._config.inspector.checks)
         except ValueError as exc:
             raise _Refused(f"the checks do not make a verdict: {exc}") from exc
         if verdict.label is not derived:

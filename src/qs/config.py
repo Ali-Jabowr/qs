@@ -29,9 +29,9 @@ _CAMERA_FORMATS = ("YUYV", "MJPG")
 _LIGHTING_GEOMETRIES = ("G1", "G2", "G3")
 _INSPECTOR_TYPES = ("appearance", "stub")
 _INSPECTOR_BACKENDS = ("torch-cuda", "torch-cpu")
-_KNOWN_CHECKS = (CHECK_GEOMETRY, CHECK_APPEARANCE)
+KNOWN_CHECKS = (CHECK_GEOMETRY, CHECK_APPEARANCE)
 # What a config without `inspector.checks` runs. Fixed on purpose: a check added to
-# _KNOWN_CHECKS later must not start running on stations that never asked for it.
+# KNOWN_CHECKS later must not start running on stations that never asked for it.
 _BENCH_CHECKS = frozenset({CHECK_GEOMETRY, CHECK_APPEARANCE})
 _MODEL_ID = re.compile(r"^patchcore-[a-z0-9]+(-[a-z0-9]+)*-v\d+-[0-9a-f]{12}$")
 
@@ -329,8 +329,8 @@ def _refuse_malformed_checks(mapping: Mapping[str, Any], parent: str) -> None:
     for name in names:
         if not isinstance(name, str):
             raise ConfigError(f"{path}: expected a string, got {_kind(name)}")
-        if name not in _KNOWN_CHECKS:
-            raise ConfigError(f"{path}: {name!r} is not one of: {', '.join(_KNOWN_CHECKS)}")
+        if name not in KNOWN_CHECKS:
+            raise ConfigError(f"{path}: {name!r} is not one of: {', '.join(KNOWN_CHECKS)}")
         if names.count(name) > 1:
             raise ConfigError(f"{path}: {name!r} is repeated")
 

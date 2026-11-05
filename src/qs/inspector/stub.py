@@ -1,8 +1,9 @@
 """`StubInspector`: scripted checks and no model, for replay and the tests (docs/11 §4).
 
-The script maps an event's `seq` to one outcome; an unscripted `seq` passes both checks.
+The script maps an event's `seq` to one outcome; an unscripted `seq` passes every check the
+station lists in `inspector.checks`, and the verdict carries those checks and no others.
 
-- `pass` — geometry and appearance both pass.
+- `pass` — every listed check passes.
 - `defect:geometry` / `defect:appearance` — that check fails; `defect:appearance` carries a
   small float32 heatmap in score units.
 - `placement:<detail>` — raises `PlacementFault(detail)`.
@@ -22,14 +23,21 @@ from collections.abc import Mapping
 
 import numpy as np
 
-from qs.config import StationConfig
-from qs.contracts import CHECK_APPEARANCE, CHECK_GEOMETRY, CheckResult, Frame, Label, Verdict
+from qs.config import KNOWN_CHECKS, StationConfig
+from qs.contracts import (
+    CHECK_APPEARANCE,
+    CHECK_GEOMETRY,
+    CheckResult,
+    Frame,
+    Label,
+    Verdict,
+    derive_label,
+)
 from qs.errors import ConfigError, InferenceError, PlacementFault
 
 STUB_MODEL_ID = "stub"
 _HEATMAP_PX = 32
 _SIMPLE = frozenset({"pass", "inference", "crash", "nonfinite", "mislabel"})
-_DEFECTS = frozenset({CHECK_GEOMETRY, CHECK_APPEARANCE})
 
 
 def check_outcome(outcome: str) -> str:
@@ -37,7 +45,7 @@ def check_outcome(outcome: str) -> str:
     if outcome in _SIMPLE:
         return outcome
     kind, sep, detail = outcome.partition(":")
-    if sep and kind == "defect" and detail in _DEFECTS:
+    if sep and kind == "defect" and detail in KNOWN_CHECKS:
         return outcome
     if sep and kind == "placement" and detail.strip():
         return outcome
@@ -80,6 +88,7 @@ class StubInspector:
         score = threshold * (2.0 if not appearance_ok else 0.5)
         if outcome == "nonfinite":
             score = float("nan")
+        listed = config.inspector.checks
         geometry = CheckResult(
             name=CHECK_GEOMETRY,
             passed=geometry_ok,
@@ -104,13 +113,12 @@ class StubInspector:
         if outcome == "defect:appearance":
             ramp = np.linspace(0.0, 2.0 * threshold, side * side, dtype=np.float32)
             heatmap = ramp.reshape(side, side)
-        if outcome in ("nonfinite", "mislabel"):
-            label = Label.PASS  # what the guard must refuse
-        else:
-            label = Label.PASS if geometry_ok and appearance_ok else Label.DEFECT
+        checks = tuple(c for c in (geometry, appearance) if c.name in listed)
+        # `nonfinite` and `mislabel` are PASS on purpose: the guard must refuse them.
+        label = Label.PASS if outcome in ("nonfinite", "mislabel") else derive_label(checks, listed)
         return Verdict(
             label=label,
-            checks=(geometry, appearance),
+            checks=checks,
             heatmap=heatmap,
             window_box=box,
             unit_box=box,
