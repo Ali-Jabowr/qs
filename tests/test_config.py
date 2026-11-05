@@ -463,3 +463,14 @@ def test_the_bench_config_in_git_loads() -> None:
     loaded = load_config(bench)
     assert loaded.config.station_id == "A-bench"
     assert loaded.config.camera.type == "webcam"
+
+
+def test_unknown_check_name_is_refused_naming_it(tmp_path: Path) -> None:
+    _refused(
+        _mutated(
+            tmp_path,
+            "  type: appearance\n",
+            "  type: appearance\n  checks: [appearance, not_a_check]\n",
+        ),
+        "inspector.checks: 'not_a_check'",
+    )
