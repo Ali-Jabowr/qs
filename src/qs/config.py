@@ -30,6 +30,9 @@ _LIGHTING_GEOMETRIES = ("G1", "G2", "G3")
 _INSPECTOR_TYPES = ("appearance", "stub")
 _INSPECTOR_BACKENDS = ("torch-cuda", "torch-cpu")
 _KNOWN_CHECKS = (CHECK_GEOMETRY, CHECK_APPEARANCE)
+# What a config without `inspector.checks` runs. Fixed on purpose: a check added to
+# _KNOWN_CHECKS later must not start running on stations that never asked for it.
+_BENCH_CHECKS = frozenset({CHECK_GEOMETRY, CHECK_APPEARANCE})
 _MODEL_ID = re.compile(r"^patchcore-[a-z0-9]+(-[a-z0-9]+)*-v\d+-[0-9a-f]{12}$")
 
 
@@ -82,6 +85,7 @@ class InspectorConfig:
     mask_dilate_px: int
     model: str
     backend: str
+    checks: frozenset[str] = _BENCH_CHECKS
 
 
 @dataclass(frozen=True, slots=True)
@@ -340,12 +344,20 @@ def _parse_inspector(value: object, path: str) -> InspectorConfig:
         optional=("checks",),
     )
     _refuse_malformed_checks(mapping, path)
+    checks = frozenset(mapping["checks"]) if "checks" in mapping else _BENCH_CHECKS
+    inspector_type = _enum(mapping, "type", path, _INSPECTOR_TYPES)
+    if inspector_type == "appearance" and CHECK_APPEARANCE not in checks:
+        # Such a station would load the model and never score with it.
+        raise ConfigError(
+            f"{_key(path, 'checks')}: an appearance inspector must list {CHECK_APPEARANCE!r}"
+        )
     return InspectorConfig(
-        type=_enum(mapping, "type", path, _INSPECTOR_TYPES),
+        type=inspector_type,
         localize=_parse_localize(mapping["localize"], _key(path, "localize")),
         mask_dilate_px=_int(mapping, "mask_dilate_px", path),
         model=_str(mapping, "model", path),
         backend=_enum(mapping, "backend", path, _INSPECTOR_BACKENDS),
+        checks=checks,
     )
 
 

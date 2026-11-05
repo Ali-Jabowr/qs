@@ -509,3 +509,52 @@ def test_valid_check_list_is_exposed_on_the_config(tmp_path: Path) -> None:
         )
     )
     assert loaded.config.inspector.checks == frozenset({"appearance"})
+
+
+def test_config_without_checks_gets_the_bench_set() -> None:
+    loaded = load_config(EXAMPLE)
+    assert loaded.config.inspector.checks == frozenset({"geometry", "appearance"})
+
+
+def test_config_without_checks_keeps_its_hash() -> None:
+    loaded = load_config(EXAMPLE)
+    assert loaded.config_hash == (
+        "cd1b5c35ec61a26fd5c58b64ce941591797ca4d5d9f1aaec362f6dc044b425e7"
+    )
+
+
+def test_listing_checks_changes_the_hash(tmp_path: Path) -> None:
+    loaded = load_config(
+        _mutated(
+            tmp_path,
+            "  type: appearance\n",
+            "  type: appearance\n  checks: [geometry, appearance]\n",
+        )
+    )
+    assert loaded.config_hash != (
+        "cd1b5c35ec61a26fd5c58b64ce941591797ca4d5d9f1aaec362f6dc044b425e7"
+    )
+
+
+def test_appearance_inspector_without_the_appearance_check_is_refused(
+    tmp_path: Path,
+) -> None:
+    _refused(
+        _mutated(
+            tmp_path,
+            "  type: appearance\n",
+            "  type: appearance\n  checks: [geometry]\n",
+        ),
+        "inspector.checks: an appearance inspector must list 'appearance'",
+    )
+
+
+def test_stub_inspector_may_leave_out_the_appearance_check(tmp_path: Path) -> None:
+    loaded = load_config(
+        _mutated(
+            tmp_path,
+            "  type: appearance\n",
+            "  type: stub\n  checks: [geometry]\n",
+        )
+    )
+    assert loaded.config.inspector.checks == frozenset({"geometry"})
