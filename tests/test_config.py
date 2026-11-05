@@ -474,3 +474,27 @@ def test_unknown_check_name_is_refused_naming_it(tmp_path: Path) -> None:
         ),
         "inspector.checks: 'not_a_check'",
     )
+
+
+@pytest.mark.parametrize(
+    ("listed", "message"),
+    [
+        ("[]", "inspector.checks: must list at least one check"),
+        ("appearance", "inspector.checks: expected a list, got str"),
+        ("5", "inspector.checks: expected a list, got int"),
+        ("", "inspector.checks: expected a list, got NoneType"),
+        ("[appearance, 7]", "inspector.checks: expected a string, got int"),
+        ("[appearance, appearance]", "inspector.checks: 'appearance' is repeated"),
+    ],
+)
+def test_malformed_check_list_is_refused(
+    tmp_path: Path, listed: str, message: str
+) -> None:
+    _refused(
+        _mutated(
+            tmp_path,
+            "  type: appearance\n",
+            f"  type: appearance\n  checks: {listed}\n",
+        ),
+        message,
+    )
