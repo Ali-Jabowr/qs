@@ -323,7 +323,7 @@ def _refuse_malformed_checks(mapping: Mapping[str, Any], parent: str) -> None:
     names = mapping["checks"]
     path = _key(parent, "checks")
     if not isinstance(names, list):
-        raise ConfigError(f"{path}: expected a list, got {type(names).__name__}")
+        raise ConfigError(f"{path}: expected a list, got {_kind(names)}")
     if not names:
         raise ConfigError(f"{path}: must list at least one check")
     for name in names:

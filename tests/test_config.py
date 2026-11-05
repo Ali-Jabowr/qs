@@ -482,7 +482,7 @@ def test_unknown_check_name_is_refused_naming_it(tmp_path: Path) -> None:
         ("[]", "inspector.checks: must list at least one check"),
         ("appearance", "inspector.checks: expected a list, got str"),
         ("5", "inspector.checks: expected a list, got int"),
-        ("", "inspector.checks: expected a list, got NoneType"),
+        ("", "inspector.checks: expected a list, got null"),
         ("[appearance, 7]", "inspector.checks: expected a string, got int"),
         ("[appearance, appearance]", "inspector.checks: 'appearance' is repeated"),
     ],
