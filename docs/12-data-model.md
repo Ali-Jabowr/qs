@@ -358,6 +358,11 @@ latency:   { budget_ms: 1000, breach_action: record_and_continue }
 The factory config has the same shape. It differs in trigger, camera, backend, evidence root and
 batch source — the blue boxes of `10-architecture.md` §4 and nothing else.
 
+**`inspector.checks` is optional.** It lists the checks the station runs — `geometry`,
+`appearance` or both — and a verdict must carry exactly those (C8). Left out, it means geometry and
+appearance, the bench set; an `appearance` inspector must list `appearance`. Listing the key,
+even with the bench set, changes the `config_hash`, because the hash covers the file as written.
+
 **Two sources of truth are ruled out.** Preprocessing the model was trained with — `window_px`,
 `input_px`, normalisation — lives in the model bundle only; the config names the bundle by its full
 `model_id`. The calibration records what it was set on, so a threshold can never be used silently

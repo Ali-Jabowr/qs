@@ -20,8 +20,8 @@ rounding puts above the line is never passed, and every record satisfies `passed
 station lists in `inspector.checks` always runs (geometry is left out where the list omits it,
 but `localize` still runs: the window is centred on the silhouette), and the label comes from
 them alone (C8). A non-finite score is an `InferenceError`; any other exception is left to the
-Pipeline (docs/11 §7). Pure: no I/O,
-the frame is only ever read, and nothing changes between frames (C1, C2).
+Pipeline (docs/11 §7). Pure: no I/O, the frame is only ever read, and nothing changes between
+frames (C1, C2).
 """
 
 from __future__ import annotations
