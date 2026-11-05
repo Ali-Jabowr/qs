@@ -101,7 +101,7 @@ class FakeScreen:
         self.closed = True
 
 
-def spaces(n: int, start: int = 1000, gap: int = 400) -> list[list[KeyPress]]:
+def spaces(n: int, start: int = 1000, gap: int = 1000) -> list[list[KeyPress]]:
     return [[KeyPress("space", start + i * gap)] for i in range(n)]
 
 
