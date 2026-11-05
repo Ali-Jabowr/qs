@@ -677,3 +677,208 @@ def test_a_bad_cup_in_the_file_is_refused_and_left_untouched(tmp_path: Path, cup
     with pytest.raises(LabelsError, match="labels.json"):
         load_labels(path, "shoot")
     assert path.read_text(encoding="utf-8") == text
+
+
+@pytest.mark.parametrize(
+    ("keysym", "state"),
+    [("f", "full"), ("w", "full_white"), ("p", "full_pink"), ("e", "empty")],
+)
+def test_each_cup_key_records_its_state(tmp_path: Path, keysym: str, state: str) -> None:
+    cup_session(tmp_path).press(keysym)
+    assert (tmp_path / "labels.json").is_file()
+    assert on_disk(tmp_path)["cups"] == [
+        {"video": "a.avi", "order": 1, "state": state, "frame": 0},
+    ]
+
+
+def test_the_loader_accepts_the_flavoured_cup_states(tmp_path: Path) -> None:
+    path = tmp_path / "labels.json"
+    path.write_text(
+        '{"version": 1, "source": "s", "frames": {}, "cups": ['
+        '{"video": "a", "order": 1, "state": "full_white", "frame": 0}, '
+        '{"video": "a", "order": 2, "state": "full_pink", "frame": 1}]}',
+        encoding="utf-8",
+    )
+    assert [cup.state for cup in load_labels(path, "s").cups] == ["full_white", "full_pink"]
+
+
+def test_the_cup_screen_and_summary_show_white_and_pink(tmp_path: Path) -> None:
+    session = cup_session(tmp_path)
+    session.press("f")
+    session.press("Right")
+    session.press("w")
+    session.press("Right")
+    session.press("p")
+    session.press("Right")
+    session.press("e")
+    assert session.lines()[1:] == [
+        "4 cups: 3 full (1 white, 1 pink), 1 empty · last: cup 4, empty, frame 3",
+        "f full · w white · p pink · e empty · BackSpace undo · Left/Right 1 · Shift 25 · q stop",
+    ]
+    assert session.summary() == (
+        f"4 cups in a.avi (3 full (1 white, 1 pink), 1 empty) in {tmp_path}/labels.json"
+    )
+
+
+def test_an_answer_before_the_last_cup_replaces_the_cup_on_that_frame(tmp_path: Path) -> None:
+    session = cup_session(tmp_path)
+    session.press("Right")
+    session.press("f")
+    session.press("Right")
+    session.press("f")
+    session.press("Left")
+    session.press("p")
+    assert on_disk(tmp_path)["cups"] == [
+        {"video": "a.avi", "order": 1, "state": "full_pink", "frame": 1},
+        {"video": "a.avi", "order": 2, "state": "full", "frame": 2},
+    ]
+
+
+def test_a_replacement_where_cups_share_a_frame_takes_the_highest_order(tmp_path: Path) -> None:
+    session = cup_session(tmp_path)
+    session.press("f")
+    session.press("f")
+    session.press("Right")
+    session.press("f")
+    session.press("Left")
+    session.press("e")
+    assert on_disk(tmp_path)["cups"] == [
+        {"video": "a.avi", "order": 1, "state": "full", "frame": 0},
+        {"video": "a.avi", "order": 2, "state": "empty", "frame": 0},
+        {"video": "a.avi", "order": 3, "state": "full", "frame": 1},
+    ]
+
+
+def test_an_answer_on_the_last_cups_frame_records_the_next_cup(tmp_path: Path) -> None:
+    session = cup_session(tmp_path)
+    session.press("Right")
+    session.press("f")
+    session.press("e")
+    assert on_disk(tmp_path)["cups"] == [
+        {"video": "a.avi", "order": 1, "state": "full", "frame": 1},
+        {"video": "a.avi", "order": 2, "state": "empty", "frame": 1},
+    ]
+
+
+def test_a_replacement_looks_only_at_this_video(tmp_path: Path) -> None:
+    other = cup_session(tmp_path, "b.avi")
+    other.press("f")
+    session = cup_session(tmp_path, "a.avi")
+    session.press("Right")
+    session.press("f")
+    session.press("Left")
+    session.press("e")
+    assert on_disk(tmp_path)["cups"] == [
+        {"video": "b.avi", "order": 1, "state": "full", "frame": 0},
+        {"video": "a.avi", "order": 1, "state": "full", "frame": 1},
+    ]
+
+
+def test_an_answer_before_the_last_cup_on_a_frame_with_no_cup_changes_nothing(
+    tmp_path: Path,
+) -> None:
+    session = cup_session(tmp_path)
+    session.press("Right")
+    session.press("f")
+    session.press("Left")
+    before = (tmp_path / "labels.json").read_bytes()
+    session.press("e")
+    assert (tmp_path / "labels.json").read_bytes() == before
+    assert session.labels.cups_of("a.avi")[-1].order == 1
+
+
+def test_the_screen_says_when_an_answer_changed_nothing_until_the_next_key(tmp_path: Path) -> None:
+    session = cup_session(tmp_path)
+    session.press("Right")
+    session.press("f")
+    session.press("Left")
+    session.press("e")
+    assert session.lines()[2] == "nothing changed: no cup on this frame, and it is before the last"
+    assert session.lines()[2] == "nothing changed: no cup on this frame, and it is before the last"
+    session.press("Right")
+    assert session.lines()[2] == (
+        "f full · w white · p pink · e empty · BackSpace undo · Left/Right 1 · Shift 25 · q stop"
+    )
+
+
+def test_the_screen_shows_the_cup_on_the_current_frame(tmp_path: Path) -> None:
+    session = cup_session(tmp_path)
+    session.press("Right")
+    session.press("f")
+    session.press("Right")
+    session.press("w")
+    session.press("Left")
+    assert session.lines()[0] == "frame 1 of 0–29: a.avi · this frame: cup 1, full"
+    session.press("Left")
+    assert session.lines()[0] == "frame 0 of 0–29: a.avi"
+
+
+def test_the_screen_shows_every_cup_sharing_the_current_frame(tmp_path: Path) -> None:
+    session = cup_session(tmp_path)
+    session.press("f")
+    session.press("w")
+    assert session.lines()[0] == (
+        "frame 0 of 0–29: a.avi · this frame: cup 1, full; cup 2, full_white"
+    )
+
+
+def test_a_failed_replacement_leaves_file_and_memory_and_can_be_retried(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def crash(source: object, target: object) -> None:
+        raise OSError("disk gone")
+
+    session = cup_session(tmp_path)
+    session.press("f")
+    session.press("Right")
+    session.press("f")
+    session.press("Left")
+    before = (tmp_path / "labels.json").read_bytes()
+    with monkeypatch.context() as patch:
+        patch.setattr("qs.labels.os.replace", crash)
+        with pytest.raises(OSError, match="disk gone"):
+            session.press("e")
+    assert (tmp_path / "labels.json").read_bytes() == before
+    assert session.labels.cups_of("a.avi")[0].state == "full"
+    session.press("e")
+    assert on_disk(tmp_path)["cups"] == [
+        {"video": "a.avi", "order": 1, "state": "empty", "frame": 0},
+        {"video": "a.avi", "order": 2, "state": "full", "frame": 1},
+    ]
+
+
+def test_a_cup_frame_that_decreases_within_a_video_is_refused_and_left_untouched(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "labels.json"
+    text = (
+        '{"version": 1, "source": "s", "frames": {}, "cups": ['
+        '{"video": "a", "order": 1, "state": "full", "frame": 5}, '
+        '{"video": "a", "order": 2, "state": "full", "frame": 4}]}'
+    )
+    path.write_text(text, encoding="utf-8")
+    with pytest.raises(LabelsError, match="labels.json"):
+        load_labels(path, "shoot")
+    assert path.read_text(encoding="utf-8") == text
+
+
+def test_cups_may_share_a_frame_and_each_video_has_its_own_frames(tmp_path: Path) -> None:
+    path = tmp_path / "labels.json"
+    path.write_text(
+        '{"version": 1, "source": "s", "frames": {}, "cups": ['
+        '{"video": "a", "order": 1, "state": "full", "frame": 5}, '
+        '{"video": "a", "order": 2, "state": "full", "frame": 5}, '
+        '{"video": "b", "order": 1, "state": "full", "frame": 1}]}',
+        encoding="utf-8",
+    )
+    assert [cup.frame for cup in load_labels(path, "s").cups] == [5, 5, 1]
+
+
+def test_main_shows_that_an_answer_changed_nothing(tmp_path: Path) -> None:
+    video = draw_video(tmp_path / "v.avi", 30)
+    screen = FakeScreen([key("Right", "f", "Left", "e")])
+    assert run_label(screen, video, tmp_path / "labels.json", mode="cups") == 0
+    assert screen.lines[-1][2] == "nothing changed: no cup on this frame, and it is before the last"
+    assert on_disk(tmp_path)["cups"] == [
+        {"video": "v.avi", "order": 1, "state": "full", "frame": 1},
+    ]

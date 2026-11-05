@@ -5,11 +5,18 @@ The labels file is the contract the scoring command reads, one JSON document:
     {"version": 1, "source": "<name>",
      "frames": {"<frame id>": {"label": "unit|empty_cup|nothing|hand",
                                "flavour": "white|pink|null"}},
-     "cups": [{"video": "<file name>", "order": 1, "state": "full|empty", "frame": 1234}]}
+     "cups": [{"video": "<file name>", "order": 1,
+               "state": "full|full_white|full_pink|empty", "frame": 1234}]}
 
-A frame id is an image's file name, or `<video file name>#<frame index>`. Every change rewrites
-the whole file atomically before it counts, so a crash between answers loses nothing. A file that
+A frame id is an image's file name, or `<video file name>#<frame index>`. A folder's frame ids are
+bare file names, so each folder of images needs its own labels file. Every change rewrites the
+whole file atomically before it counts, so a crash between answers loses nothing. A file that
 breaks the contract is refused and never overwritten. Nothing here writes an image.
+
+Within one video, cup frames never decrease, and two cups may share a frame. A video's counted
+span runs from its first cup's frame to its last cup's frame, and every cup that crossed the view
+inside that span has a record. A labels file covers one camera position, which the scoring command
+is told, so footage from different positions goes in different files.
 """
 
 from __future__ import annotations
@@ -18,7 +25,7 @@ import json
 import os
 import tempfile
 from collections import Counter
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 
 import cv2
@@ -39,7 +46,7 @@ _ANSWERS = {
     "n": ("nothing", None),
     "h": ("hand", None),
 }
-_CUP_STATES = {"f": "full", "e": "empty"}
+_CUP_STATES = {"f": "full", "w": "full_white", "p": "full_pink", "e": "empty"}
 _CUP_STEPS = {"Left": -1, "Right": 1, "Shift-Left": -25, "Shift-Right": 25}
 
 
@@ -83,6 +90,7 @@ def _frame_label(frame_id: str, label: object, flavour: object) -> FrameLabel:
 def _write_atomically(path: Path, text: str) -> None:
     """`text` to a temporary file beside `path`, on the disk, then renamed over `path`: at every
     moment `path` is the whole old file or the whole new one."""
+    # Not the store's or calibrate's write: this one fsyncs, as hand labels cannot be regenerated.
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, temp_name = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
     temp = Path(temp_name)
@@ -115,11 +123,21 @@ class Labels:
     def cups_of(self, video: str) -> tuple[Cup, ...]:
         return tuple(cup for cup in self.cups if cup.video == video)
 
-    def add_cup(self, video: str, state: str, frame: int) -> None:
-        """Record `video`'s next cup; in memory only once it is on disk."""
-        cups = (*self.cups, Cup(video, len(self.cups_of(video)) + 1, state, frame))
+    def answer_cup(self, video: str, state: str, frame: int) -> bool:
+        """Apply one answer at `frame`, in memory only once it is on disk; False if it changed
+        nothing. At or after the last cup's frame it records the next cup. Before it, it replaces
+        the state of the highest-order cup on that frame, if that frame has one."""
+        mine = self.cups_of(video)
+        if not mine or frame >= mine[-1].frame:
+            cups = (*self.cups, Cup(video, len(mine) + 1, state, frame))
+        else:
+            here = [cup for cup in mine if cup.frame == frame]
+            if not here:
+                return False
+            cups = tuple(replace(c, state=state) if c == here[-1] else c for c in self.cups)
         self._save(self.frames, cups)
         self.cups = cups
+        return True
 
     def remove_last_cup(self, video: str) -> None:
         """Remove `video`'s last cup, if it has one; other videos' cups stay."""
@@ -141,9 +159,11 @@ class Labels:
 
 
 def _parsed_cups(entries: list[object]) -> tuple[Cup, ...]:
-    """The cups in a decoded file; each video's `order` must run 1, 2, 3… as they are listed."""
+    """The cups in a decoded file; as they are listed, each video's `order` must run 1, 2, 3…
+    and its `frame` must never decrease."""
     cups: list[Cup] = []
     seen: Counter[str] = Counter()
+    last_frame: dict[str, int] = {}
     for entry in entries:
         if not isinstance(entry, dict) or set(entry) != _CUP_KEYS:
             raise ValueError(f"cup {entry!r}: expected exactly the keys {sorted(_CUP_KEYS)}")
@@ -157,6 +177,9 @@ def _parsed_cups(entries: list[object]) -> tuple[Cup, ...]:
         seen[video] += 1
         if type(order) is not int or order != seen[video]:
             raise ValueError(f"cup {entry!r}: expected order {seen[video]} in {video}")
+        if frame < last_frame.get(video, 0):
+            raise ValueError(f"cup {entry!r}: frames must not decrease within {video}")
+        last_frame[video] = frame
         cups.append(Cup(video, order, state, frame))
     return tuple(cups)
 
@@ -323,14 +346,18 @@ class CupSession(_Session):
 
     def __init__(self, labels: Labels, video: VideoFrames) -> None:
         self.video = video.name
+        self._changed_nothing = False
         cups = labels.cups_of(video.name)
         super().__init__(labels, video, cups[-1].frame if cups else 0)
 
     def press(self, keysym: str) -> None:
-        """One key: f or e records the next cup at this frame, BackSpace removes this video's
-        last cup, an arrow steps. Other keys are ignored."""
+        """One key: f, w, p or e answers at this frame (`Labels.answer_cup`), BackSpace removes
+        this video's last cup, an arrow steps. Other keys are ignored. An answer that changed
+        nothing is said on the screen until the next key."""
+        self._changed_nothing = False
         if keysym in _CUP_STATES:
-            self.labels.add_cup(self.video, _CUP_STATES[keysym], self.position)
+            changed = self.labels.answer_cup(self.video, _CUP_STATES[keysym], self.position)
+            self._changed_nothing = not changed
         elif keysym == "BackSpace":
             self.labels.remove_last_cup(self.video)
         elif keysym in _CUP_STEPS:
@@ -338,7 +365,10 @@ class CupSession(_Session):
 
     def _counts(self) -> str:
         states = [cup.state for cup in self.labels.cups_of(self.video)]
-        return f"{states.count('full')} full, {states.count('empty')} empty"
+        white, pink = states.count("full_white"), states.count("full_pink")
+        full = states.count("full") + white + pink
+        flavours = f" ({white} white, {pink} pink)" if white or pink else ""
+        return f"{full} full{flavours}, {states.count('empty')} empty"
 
     def summary(self) -> str:
         count = len(self.labels.cups_of(self.video))
@@ -350,8 +380,19 @@ class CupSession(_Session):
         counted = f"{len(cups)} cups: {self._counts()}"
         if cups:
             counted += f" · last: cup {cups[-1].order}, {cups[-1].state}, frame {cups[-1].frame}"
+        where = f"frame {self.position} of 0–{len(self.frames.ids) - 1}: {self.video}"
+        here = [f"cup {cup.order}, {cup.state}" for cup in cups if cup.frame == self.position]
+        if here:
+            where += f" · this frame: {'; '.join(here)}"
+        if self._changed_nothing:
+            return [
+                where,
+                counted,
+                "nothing changed: no cup on this frame, and it is before the last",
+            ]
         return [
-            f"frame {self.position} of 0–{len(self.frames.ids) - 1}: {self.video}",
+            where,
             counted,
-            "f full · e empty · BackSpace undo · Left/Right 1 · Shift 25 · q stop",
+            "f full · w white · p pink · e empty · BackSpace undo · "
+            "Left/Right 1 · Shift 25 · q stop",
         ]
