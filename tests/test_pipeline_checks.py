@@ -11,6 +11,7 @@ import yaml
 
 from qs.config import LoadedConfig, load_config
 from qs.contracts import CheckResult, Frame, Label, Verdict
+from qs.errors import ConfigError
 from qs.inspector.stub import StubInspector
 from station_fixtures import FakeClock, ScriptedSource, config_mapping, event, loaded_config
 from test_pipeline import _pipeline
@@ -125,3 +126,21 @@ def test_the_bench_config_still_gets_both_checks_from_the_stub(tmp_path: Path) -
     record = pipeline.handle(event(1))
     assert [c.name for c in record.verdict.checks] == ["geometry", "appearance"]
     assert record.verdict.label is Label.PASS
+
+
+@pytest.mark.parametrize(
+    ("listed", "outcome", "message"),
+    [
+        (["appearance"], "defect:geometry",
+         "'defect:geometry' needs the 'geometry' check, which this station does not list"),
+        (["geometry"], "defect:appearance",
+         "'defect:appearance' needs the 'appearance' check, which this station does not list"),
+    ],
+)
+def test_a_scripted_defect_on_an_unlisted_check_is_refused_at_load(
+    tmp_path: Path, listed: list[str], outcome: str, message: str
+) -> None:
+    loaded = _station(tmp_path, listed)
+    stub = StubInspector(loaded.config_hash, {1: outcome})
+    with pytest.raises(ConfigError, match=message):
+        stub.load(loaded.config)

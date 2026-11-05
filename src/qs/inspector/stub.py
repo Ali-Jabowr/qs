@@ -69,6 +69,13 @@ class StubInspector:
         return STUB_MODEL_ID
 
     def load(self, config: StationConfig) -> None:
+        for outcome in self._script.values():
+            kind, _, detail = outcome.partition(":")
+            if kind == "defect" and detail not in config.inspector.checks:
+                raise ConfigError(
+                    f"stub script: {outcome!r} needs the {detail!r} check, "
+                    "which this station does not list"
+                )
         self._config = config
 
     def inspect(self, frame: Frame) -> Verdict:
