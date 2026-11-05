@@ -313,12 +313,22 @@ def _parse_localize(value: object, path: str) -> LocalizeConfig:
     )
 
 
-def _refuse_unknown_checks(mapping: Mapping[str, Any], parent: str) -> None:
-    for name in mapping.get("checks", ()):
+def _refuse_malformed_checks(mapping: Mapping[str, Any], parent: str) -> None:
+    if "checks" not in mapping:
+        return
+    names = mapping["checks"]
+    path = _key(parent, "checks")
+    if not isinstance(names, list):
+        raise ConfigError(f"{path}: expected a list, got {type(names).__name__}")
+    if not names:
+        raise ConfigError(f"{path}: must list at least one check")
+    for name in names:
+        if not isinstance(name, str):
+            raise ConfigError(f"{path}: expected a string, got {_kind(name)}")
         if name not in _KNOWN_CHECKS:
-            raise ConfigError(
-                f"{_key(parent, 'checks')}: {name!r} is not one of: {', '.join(_KNOWN_CHECKS)}"
-            )
+            raise ConfigError(f"{path}: {name!r} is not one of: {', '.join(_KNOWN_CHECKS)}")
+        if names.count(name) > 1:
+            raise ConfigError(f"{path}: {name!r} is repeated")
 
 
 def _parse_inspector(value: object, path: str) -> InspectorConfig:
@@ -329,7 +339,7 @@ def _parse_inspector(value: object, path: str) -> InspectorConfig:
         path,
         optional=("checks",),
     )
-    _refuse_unknown_checks(mapping, path)
+    _refuse_malformed_checks(mapping, path)
     return InspectorConfig(
         type=_enum(mapping, "type", path, _INSPECTOR_TYPES),
         localize=_parse_localize(mapping["localize"], _key(path, "localize")),
