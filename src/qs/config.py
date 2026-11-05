@@ -1,9 +1,9 @@
 """The station config: a strict loader over `yaml.safe_load`, and its canonical hash.
 
 Nothing here has a default — a missing key is a `ConfigError`, never a silent value (C6),
-except `inspector.checks`, which may be left out — and every rule of CONTRACTS §3.3 refuses
-the config naming the offending key, so a bad config fails at start-up instead of quietly
-ruining a shoot.
+except `inspector.checks`, which may be left out, and `inspector.line`, which only a line
+inspector has — and every rule of CONTRACTS §3.3 refuses the config naming the offending key,
+so a bad config fails at start-up instead of quietly ruining a shoot.
 """
 
 from __future__ import annotations
@@ -20,19 +20,23 @@ from typing import Any
 
 import yaml
 
-from qs.contracts import CHECK_APPEARANCE, CHECK_GEOMETRY
+from qs.contracts import CHECK_APPEARANCE, CHECK_EMPTY_CUP, CHECK_GEOMETRY
 from qs.errors import ConfigError
 
 _TRIGGER_TYPES = ("keyboard", "replay")
 _CAMERA_TYPES = ("webcam", "phone", "replay")
 _CAMERA_FORMATS = ("YUYV", "MJPG")
 _LIGHTING_GEOMETRIES = ("G1", "G2", "G3")
-_INSPECTOR_TYPES = ("appearance", "stub")
+_INSPECTOR_TYPES = ("appearance", "line", "stub")
 _INSPECTOR_BACKENDS = ("torch-cuda", "torch-cpu")
-KNOWN_CHECKS = (CHECK_GEOMETRY, CHECK_APPEARANCE)
+KNOWN_CHECKS = (CHECK_GEOMETRY, CHECK_APPEARANCE, CHECK_EMPTY_CUP)
 # What a config without `inspector.checks` runs. Fixed on purpose: a check added to
 # KNOWN_CHECKS later must not start running on stations that never asked for it.
 _BENCH_CHECKS = frozenset({CHECK_GEOMETRY, CHECK_APPEARANCE})
+# All a line inspector runs today. Any other listed check would never run, and the Pipeline's
+# guard would refuse every verdict.
+_LINE_CHECKS = frozenset({CHECK_EMPTY_CUP})
+_RIM_AXIS_MIN_PX = 16  # below this, the inside of a found rim has too few pixels to measure
 _MODEL_ID = re.compile(r"^patchcore-[a-z0-9]+(-[a-z0-9]+)*-v\d+-[0-9a-f]{12}$")
 
 
@@ -79,6 +83,13 @@ class LocalizeConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class LineConfig:
+    zone: tuple[int, int, int, int]
+    rim_axis_px: tuple[int, int]
+    blob_share_min: float
+
+
+@dataclass(frozen=True, slots=True)
 class InspectorConfig:
     type: str
     localize: LocalizeConfig
@@ -86,6 +97,7 @@ class InspectorConfig:
     model: str
     backend: str
     checks: frozenset[str] = _BENCH_CHECKS
+    line: LineConfig | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -335,13 +347,23 @@ def _refuse_malformed_checks(mapping: Mapping[str, Any], parent: str) -> None:
             raise ConfigError(f"{path}: {name!r} is repeated")
 
 
+def _parse_line(value: object, path: str) -> LineConfig:
+    mapping = _mapping(value, path)
+    _check_keys(mapping, ("zone", "rim_axis_px", "blob_share_min"), path)
+    return LineConfig(
+        zone=_roi(mapping, "zone", path),
+        rim_axis_px=_pair(mapping, "rim_axis_px", path),
+        blob_share_min=_float(mapping, "blob_share_min", path),
+    )
+
+
 def _parse_inspector(value: object, path: str) -> InspectorConfig:
     mapping = _mapping(value, path)
     _check_keys(
         mapping,
         ("type", "localize", "mask_dilate_px", "model", "backend"),
         path,
-        optional=("checks",),
+        optional=("checks", "line"),
     )
     _refuse_malformed_checks(mapping, path)
     checks = frozenset(mapping["checks"]) if "checks" in mapping else _BENCH_CHECKS
@@ -351,6 +373,18 @@ def _parse_inspector(value: object, path: str) -> InspectorConfig:
         raise ConfigError(
             f"{_key(path, 'checks')}: an appearance inspector must list {CHECK_APPEARANCE!r}"
         )
+    if inspector_type == "line" and checks != _LINE_CHECKS:
+        raise ConfigError(
+            f"{_key(path, 'checks')}: a line inspector must list exactly {sorted(_LINE_CHECKS)}"
+        )
+    if inspector_type != "line" and CHECK_EMPTY_CUP in checks:
+        raise ConfigError(
+            f"{_key(path, 'checks')}: {CHECK_EMPTY_CUP!r} runs only on a line inspector"
+        )
+    if inspector_type == "line" and "line" not in mapping:
+        raise ConfigError(f"{_key(path, 'line')}: a line inspector needs this block")
+    if inspector_type != "line" and "line" in mapping:
+        raise ConfigError(f"{_key(path, 'line')}: only a line inspector takes this block")
     return InspectorConfig(
         type=inspector_type,
         localize=_parse_localize(mapping["localize"], _key(path, "localize")),
@@ -358,6 +392,7 @@ def _parse_inspector(value: object, path: str) -> InspectorConfig:
         model=_str(mapping, "model", path),
         backend=_enum(mapping, "backend", path, _INSPECTOR_BACKENDS),
         checks=checks,
+        line=_parse_line(mapping["line"], _key(path, "line")) if "line" in mapping else None,
     )
 
 
@@ -475,7 +510,30 @@ def _overlaps(a: tuple[int, int, int, int], b: tuple[int, int, int, int]) -> boo
     return ax < bx + bw and bx < ax + aw and ay < by + bh and by < ay + ah
 
 
+def _validate_line(line: LineConfig, config: StationConfig) -> None:
+    x, y, w, h = line.zone
+    width, height = config.camera.width, config.camera.height
+    if x < 0 or y < 0 or w < 1 or h < 1 or x + w > width or y + h > height:
+        raise ConfigError(
+            f"inspector.line.zone: [{x}, {y}, {w}, {h}] is outside the {width}x{height} frame"
+        )
+    if _overlaps(config.lighting.reference_patch.roi, line.zone):
+        raise ConfigError(
+            "lighting.reference_patch.roi: overlaps inspector.line.zone — the grey card "
+            "would be read as part of the view of a cup"
+        )
+    low, high = line.rim_axis_px
+    if low >= high:
+        raise ConfigError(f"inspector.line.rim_axis_px: min {low} is not below max {high}")
+    if low < _RIM_AXIS_MIN_PX:
+        raise ConfigError(f"inspector.line.rim_axis_px: min {low} is below {_RIM_AXIS_MIN_PX}")
+    if not 0 < line.blob_share_min < 1:
+        raise ConfigError(f"inspector.line.blob_share_min: {line.blob_share_min} is outside (0, 1)")
+
+
 def _validate(config: StationConfig) -> None:
+    if config.inspector.line is not None:
+        _validate_line(config.inspector.line, config)
     if config.camera.exposure_us <= 0:
         raise ConfigError(f"camera.exposure_us: {config.camera.exposure_us} is not above 0")
     if config.camera.power_line_hz == 50 and config.camera.exposure_us % 10000 != 0:

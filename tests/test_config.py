@@ -558,3 +558,99 @@ def test_stub_inspector_may_leave_out_the_appearance_check(tmp_path: Path) -> No
         )
     )
     assert loaded.config.inspector.checks == frozenset({"geometry"})
+
+
+LINE_EXAMPLE = EXAMPLE.parent / "station-line.example.yml"
+LINE_HEAD = "  type: line\n  checks: [empty_cup]\n"
+LINE_BLOCK = (
+    "  line:\n"
+    "    zone: [360, 0, 1200, 1080]\n"
+    "    rim_axis_px: [300, 600]\n"
+    "    blob_share_min: 0.3\n"
+)
+
+
+def test_line_block_is_exposed_on_the_config(tmp_path: Path) -> None:
+    loaded = load_config(_mutated(tmp_path, "  type: appearance\n", LINE_HEAD + LINE_BLOCK))
+    line = loaded.config.inspector.line
+    assert line is not None
+    assert line.zone == (360, 0, 1200, 1080)
+    assert line.rim_axis_px == (300, 600)
+    assert line.blob_share_min == 0.3
+    assert loaded.config.inspector.checks == frozenset({"empty_cup"})
+
+
+def test_bench_config_has_no_line_block_and_needs_none() -> None:
+    assert load_config(EXAMPLE).config.inspector.line is None
+
+
+def test_line_example_loads_and_lists_only_the_empty_cup_check() -> None:
+    inspector = load_config(LINE_EXAMPLE).config.inspector
+    assert inspector.type == "line"
+    assert inspector.checks == frozenset({"empty_cup"})
+
+
+@pytest.mark.parametrize(
+    ("replacement", "words"),
+    [
+        (LINE_HEAD, "inspector.line: a line inspector needs this block"),
+        (
+            LINE_HEAD + "  line:\n    rim_axis_px: [300, 600]\n    blob_share_min: 0.3\n",
+            "missing key(s): inspector.line.zone",
+        ),
+        (
+            LINE_HEAD + LINE_BLOCK.replace("[360, 0, 1200, 1080]", "[360, 0, 1700, 1080]"),
+            "inspector.line.zone: [360, 0, 1700, 1080] is outside the 1920x1080 frame",
+        ),
+        (
+            LINE_HEAD + LINE_BLOCK.replace("[360, 0, 1200, 1080]", "[1000, 0, 800, 1080]"),
+            "lighting.reference_patch.roi: overlaps inspector.line.zone",
+        ),
+        (
+            LINE_HEAD + LINE_BLOCK.replace("[300, 600]", "[600, 600]"),
+            "inspector.line.rim_axis_px: min 600 is not below max 600",
+        ),
+        (
+            LINE_HEAD + LINE_BLOCK.replace("[300, 600]", "[15, 600]"),
+            "inspector.line.rim_axis_px: min 15 is below 16",
+        ),
+        (
+            LINE_HEAD + LINE_BLOCK.replace("0.3", "0"),
+            "inspector.line.blob_share_min: 0.0 is outside (0, 1)",
+        ),
+        (
+            LINE_HEAD + LINE_BLOCK.replace("0.3", "1.5"),
+            "inspector.line.blob_share_min: 1.5 is outside (0, 1)",
+        ),
+        (
+            LINE_HEAD + LINE_BLOCK.replace("0.3", ".nan"),
+            "inspector.line.blob_share_min: nan is outside (0, 1)",
+        ),
+        (
+            "  type: line\n" + LINE_BLOCK,
+            "inspector.checks: a line inspector must list exactly ['empty_cup']",
+        ),
+        (
+            "  type: line\n  checks: [geometry, empty_cup]\n" + LINE_BLOCK,
+            "inspector.checks: a line inspector must list exactly ['empty_cup']",
+        ),
+        (
+            "  type: line\n  checks: [not_a_check]\n" + LINE_BLOCK,
+            "inspector.checks: 'not_a_check' is not one of",
+        ),
+        (
+            "  type: appearance\n" + LINE_BLOCK,
+            "inspector.line: only a line inspector takes this block",
+        ),
+        (
+            "  type: appearance\n  checks: [appearance, empty_cup]\n",
+            "inspector.checks: 'empty_cup' runs only on a line inspector",
+        ),
+        (
+            "  type: stub\n  checks: [empty_cup]\n",
+            "inspector.checks: 'empty_cup' runs only on a line inspector",
+        ),
+    ],
+)
+def test_bad_line_settings_are_refused(tmp_path: Path, replacement: str, words: str) -> None:
+    _refused(_mutated(tmp_path, "  type: appearance\n", replacement), words)

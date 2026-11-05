@@ -33,6 +33,7 @@ from qs.config import LoadedConfig
 from qs.contracts import FrameSource, Health, InspectionRecord, Inspector, TriggerSource
 from qs.errors import ConfigError
 from qs.inspector.appearance import AppearanceInspector
+from qs.inspector.line import LineInspector
 from qs.inspector.model import Scorer
 from qs.inspector.stub import StubInspector
 from qs.operator_view import Status
@@ -171,6 +172,8 @@ def build_inspector(
                 make_scorer=make_scorer,
                 cuda_available=cuda_available,
             )
+        case "line":
+            return LineInspector(loaded.config_hash)
         case other:
             raise StartupRefused(f"inspector.type {other!r}: no such Inspector")
 

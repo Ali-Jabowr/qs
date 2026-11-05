@@ -12,6 +12,7 @@ if TYPE_CHECKING:
 
 CHECK_GEOMETRY = "geometry"
 CHECK_APPEARANCE = "appearance"
+CHECK_EMPTY_CUP = "empty_cup"
 REASONS = frozenset(
     {"capture", "camera", "camera_settings", "lighting", "placement", "inference", "busy"}
 )

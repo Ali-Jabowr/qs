@@ -1,0 +1,62 @@
+# A line station over saved frames: `qs station --config this --replay DIR`.
+#
+# inspector.line's limits are starting values, UNMEASURED on real footage: they have only been
+# tried on frames drawn by the tests. Real accuracy comes from the scoring command.
+#
+# The line has no grey card yet, and a frame whose reference patch is out of band ends in
+# НЕТ РЕШЕНИЯ (lighting) before any check runs.
+version: 1
+station_id: line-replay
+product: mochi-<flavour>-v1
+
+trigger:   { type: replay, key: space }
+camera:
+  type: replay
+  device: none
+  width: 1920
+  height: 1080
+  format: MJPG
+  power_line_hz: 50
+  exposure_us: 10000
+  gain: 0
+  wb_kelvin: 4500
+  focus: 30
+  capture_timeout_ms: 500
+
+lighting:
+  geometry: G2
+  reference_patch:
+    roi:    [1780, 40, 100, 100]
+    expect: 0.62
+    band:   0.05
+
+inspector:
+  type: line
+  checks: [empty_cup]
+  line:
+    zone:           [360, 0, 1200, 1080]   # x, y, w, h: a cup is judged only if all of it is inside
+    rim_axis_px:    [300, 700]             # both full axes of the rim ellipse must lie in this range
+    blob_share_min: 0.30                   # below this share of the cup's middle, the cup is empty
+  # The keys below are required of every inspector. A line inspector does not use them, so they
+  # hold placeholders: no model and no calibration stand behind this file.
+  localize:  { roi: [360, 0, 1200, 1080], threshold: 70, min_area_px: 20000, border_margin_px: 10 }
+  mask_dilate_px: 12
+  model:     patchcore-none-v0-000000000000
+  backend:   torch-cpu
+
+threshold:
+  id:     line-uncalibrated
+  value:  1.0
+  policy: none
+  set_on: { model: patchcore-none-v0-000000000000, backend: torch-cpu, calib_units: 0, localize_threshold: 70, mask_dilate_px: 12 }
+  geometry:
+    area_px:        [1, 2]
+    axis_ratio_min: 0.01
+    solidity_min:   0.01
+
+display:
+  labels: { pass: ГОДЕН, defect: БРАК, no_verdict: НЕТ РЕШЕНИЯ }
+  font:   assets/DejaVuSans.ttf
+
+evidence:  { root: evidence/, retention_days: 400 }
+latency:   { budget_ms: 1000, breach_action: record_and_continue }
