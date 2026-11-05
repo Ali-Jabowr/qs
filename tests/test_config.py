@@ -498,3 +498,14 @@ def test_malformed_check_list_is_refused(
         ),
         message,
     )
+
+
+def test_valid_check_list_is_exposed_on_the_config(tmp_path: Path) -> None:
+    loaded = load_config(
+        _mutated(
+            tmp_path,
+            "  type: appearance\n",
+            "  type: appearance\n  checks: [appearance]\n",
+        )
+    )
+    assert loaded.config.inspector.checks == frozenset({"appearance"})
