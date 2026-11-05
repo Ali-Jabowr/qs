@@ -1,8 +1,9 @@
 """The station config: a strict loader over `yaml.safe_load`, and its canonical hash.
 
-Nothing here has a default — a missing key is a `ConfigError`, never a silent value (C6) —
-and every rule of CONTRACTS §3.3 refuses the config naming the offending key, so a bad
-config fails at start-up instead of quietly ruining a shoot.
+Nothing here has a default — a missing key is a `ConfigError`, never a silent value (C6),
+except `inspector.checks`, which may be left out — and every rule of CONTRACTS §3.3 refuses
+the config naming the offending key, so a bad config fails at start-up instead of quietly
+ruining a shoot.
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ from typing import Any
 
 import yaml
 
+from qs.contracts import CHECK_APPEARANCE, CHECK_GEOMETRY
 from qs.errors import ConfigError
 
 _TRIGGER_TYPES = ("keyboard", "replay")
@@ -27,6 +29,7 @@ _CAMERA_FORMATS = ("YUYV", "MJPG")
 _LIGHTING_GEOMETRIES = ("G1", "G2", "G3")
 _INSPECTOR_TYPES = ("appearance", "stub")
 _INSPECTOR_BACKENDS = ("torch-cuda", "torch-cpu")
+_KNOWN_CHECKS = (CHECK_GEOMETRY, CHECK_APPEARANCE)
 _MODEL_ID = re.compile(r"^patchcore-[a-z0-9]+(-[a-z0-9]+)*-v\d+-[0-9a-f]{12}$")
 
 
@@ -167,8 +170,13 @@ def _mapping(value: object, path: str) -> Mapping[str, Any]:
     return value
 
 
-def _check_keys(mapping: Mapping[str, Any], expected: tuple[str, ...], path: str) -> None:
-    unknown = sorted(set(mapping) - set(expected), key=str)
+def _check_keys(
+    mapping: Mapping[str, Any],
+    expected: tuple[str, ...],
+    path: str,
+    optional: tuple[str, ...] = (),
+) -> None:
+    unknown = sorted(set(mapping) - set(expected) - set(optional), key=str)
     if unknown:
         raise ConfigError("unknown key(s): " + ", ".join(_key(path, str(k)) for k in unknown))
     missing = sorted(set(expected) - set(mapping))
@@ -305,9 +313,23 @@ def _parse_localize(value: object, path: str) -> LocalizeConfig:
     )
 
 
+def _refuse_unknown_checks(mapping: Mapping[str, Any], parent: str) -> None:
+    for name in mapping.get("checks", ()):
+        if name not in _KNOWN_CHECKS:
+            raise ConfigError(
+                f"{_key(parent, 'checks')}: {name!r} is not one of: {', '.join(_KNOWN_CHECKS)}"
+            )
+
+
 def _parse_inspector(value: object, path: str) -> InspectorConfig:
     mapping = _mapping(value, path)
-    _check_keys(mapping, ("type", "localize", "mask_dilate_px", "model", "backend"), path)
+    _check_keys(
+        mapping,
+        ("type", "localize", "mask_dilate_px", "model", "backend"),
+        path,
+        optional=("checks",),
+    )
+    _refuse_unknown_checks(mapping, path)
     return InspectorConfig(
         type=_enum(mapping, "type", path, _INSPECTOR_TYPES),
         localize=_parse_localize(mapping["localize"], _key(path, "localize")),
