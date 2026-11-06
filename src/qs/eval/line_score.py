@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import astuple, dataclass
+from statistics import median
 
 from qs.contracts import Label
 from qs.eval.stats import lower_bound, upper_bound
@@ -43,6 +44,7 @@ class CupScore:
     white: Tally
     pink: Tally
     unpaired: int
+    offsets: tuple[int, ...]
 
 
 def _tally(pairs: Sequence[tuple[Cup, Judged | None]]) -> Tally:
@@ -88,6 +90,7 @@ def score_cups(cups: Sequence[Cup], judged: Sequence[Judged], window: int) -> Cu
         white=_tally([p for p in pairs if p[0].state == "full_white"]),
         pink=_tally([p for p in pairs if p[0].state == "full_pink"]),
         unpaired=sum(id(j) not in paired and first <= j.frame <= last for j in judged),
+        offsets=tuple(j.frame - c.frame for c, j in pairs if j is not None),
     )
 
 
@@ -103,6 +106,7 @@ def combined(scores: Sequence[CupScore]) -> CupScore:
         white=total([s.white for s in scores]),
         pink=total([s.pink for s in scores]),
         unpaired=sum(s.unpaired for s in scores),
+        offsets=tuple(o for s in scores for o in s.offsets),
     )
 
 
@@ -116,7 +120,20 @@ def _rate(what: str, k: int, n: int, *, good: bool) -> str:
     return f"- {what}: {k} of {n} = {k / n * 100:.1f}%, {bound}"
 
 
-def position_lines(score: CupScore) -> list[str]:
+def _offset_lines(offsets: Sequence[int], window: int) -> list[str]:
+    """The median record-minus-label frame, warned about when over half the window: a pair can
+    then fall to the wrong side of it, and a cup never seen take the next cup's record."""
+    if not offsets:
+        return ["- record frame minus labelled frame: no pairs"]
+    middle = median(offsets)
+    lines = [f"- record frame minus labelled frame: median {middle:.1f} over {len(offsets)} pairs"]
+    if abs(middle) > window / 2:
+        lines.append(f"- WARNING: the median offset is over half the window ({window} frames): "
+                     "a cup never seen may have taken the next cup's record")
+    return lines
+
+
+def position_lines(score: CupScore, window: int) -> list[str]:
     """One camera position's numbers."""
     empty, full = score.empty, score.full
     return [
@@ -129,6 +146,7 @@ def position_lines(score: CupScore) -> list[str]:
         _rate("false БРАК on white cups", score.white.defect, score.white.total, good=False),
         _rate("false БРАК on pink cups", score.pink.defect, score.pink.total, good=False),
         f"- records paired with no cup: {score.unpaired}",
+        *_offset_lines(score.offsets, window),
     ]
 
 

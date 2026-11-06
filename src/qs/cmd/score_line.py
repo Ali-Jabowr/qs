@@ -125,7 +125,7 @@ def _score(loaded: LoadedConfig, footage: Path, labels: Labels, window: int) -> 
         scores.append(score_cups(labels.cups_of(video), judged, window))
         labelled += sum(i.startswith(f"{video}#") for i in hands)
         on_hands += [j.label for j in judged if f"{video}#{j.frame}" in hands]
-    return [*position_lines(combined(scores)), hand_line(labelled, on_hands)]
+    return [*position_lines(combined(scores), window), hand_line(labelled, on_hands)]
 
 
 def main(args: argparse.Namespace) -> int:
