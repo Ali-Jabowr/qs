@@ -42,7 +42,7 @@ MVP design must not block. Built on `05-concept.md` (Gate 0 GO) and `decisions/A
 | FR-11 | Each operator key press produces exactly one inspection event. Event sequence numbers are gapless within a run. | MVP | invariant I4 · design C5 | T |
 | FR-12 | Each event captures exactly one frame from the configured camera (USB webcam or Android phone). A stale, partial or corrupt frame is never returned; a failed capture ends in NO_VERDICT (FR-24). | MVP | design C4 | T, D |
 | FR-13 | Capture applies manual exposure, gain, white balance and focus from the config and records the values the camera reports back. A value that cannot be read back is recorded as `unverified`, never assumed. | MVP | R4 · design 11 §5 | T, D |
-| FR-14 | The mean luminance of the fixed reference patch is measured on every frame and recorded. Outside the configured band the result is NO_VERDICT(`lighting`). | MVP | design 10 §3 | T |
+| FR-14 | The mean luminance of the fixed reference patch is measured on every frame and recorded. Outside the configured band the result is NO_VERDICT(`lighting`). **Exception:** a line station may set `lighting.reference_patch: null` while no reference is in view on the line; its frames record no reading and a lighting drift goes unnoticed. The bench may not. | MVP | design 10 §3 | T |
 | FR-15 | The same pipeline runs from a directory of recorded images and their metadata in place of camera and trigger (replay). | MVP | design 11 §6 | T |
 | FR-16 | A photoelectric trigger replaces the key press. | Product | invariant I4 | — |
 | FR-17 | A GigE industrial camera (Hikrobot) replaces the USB or phone camera. | Product | invariant I8 | — |
