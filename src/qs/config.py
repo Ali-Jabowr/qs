@@ -1,9 +1,10 @@
 """The station config: a strict loader over `yaml.safe_load`, and its canonical hash.
 
 Nothing here has a default — a missing key is a `ConfigError`, never a silent value (C6),
-except `inspector.checks`, which may be left out, and `inspector.line`, which only a line
-inspector has — and every rule of CONTRACTS §3.3 refuses the config naming the offending key,
-so a bad config fails at start-up instead of quietly ruining a shoot.
+except `inspector.checks`, which may be left out, `inspector.line`, which only a line inspector
+has, and its `direction` and `fps`, which only a cup trigger needs — and every rule of CONTRACTS
+§3.3 refuses the config naming the offending key, so a bad config fails at start-up instead of
+quietly ruining a shoot.
 """
 
 from __future__ import annotations
@@ -23,7 +24,8 @@ import yaml
 from qs.contracts import CHECK_APPEARANCE, CHECK_EMPTY_CUP, CHECK_GEOMETRY
 from qs.errors import ConfigError
 
-_TRIGGER_TYPES = ("keyboard", "replay")
+_TRIGGER_TYPES = ("keyboard", "replay", "cup")
+TRAVEL_DIRECTIONS = ("right", "left", "down", "up")  # the way the chain moves in the picture
 _CAMERA_TYPES = ("webcam", "phone", "replay")
 _CAMERA_FORMATS = ("YUYV", "MJPG")
 _LIGHTING_GEOMETRIES = ("G1", "G2", "G3")
@@ -87,6 +89,8 @@ class LineConfig:
     zone: tuple[int, int, int, int]
     rim_axis_px: tuple[int, int]
     blob_share_min: float
+    direction: str | None = None
+    fps: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -349,11 +353,17 @@ def _refuse_malformed_checks(mapping: Mapping[str, Any], parent: str) -> None:
 
 def _parse_line(value: object, path: str) -> LineConfig:
     mapping = _mapping(value, path)
-    _check_keys(mapping, ("zone", "rim_axis_px", "blob_share_min"), path)
+    _check_keys(
+        mapping, ("zone", "rim_axis_px", "blob_share_min"), path, optional=("direction", "fps")
+    )
     return LineConfig(
         zone=_roi(mapping, "zone", path),
         rim_axis_px=_pair(mapping, "rim_axis_px", path),
         blob_share_min=_float(mapping, "blob_share_min", path),
+        direction=(
+            _enum(mapping, "direction", path, TRAVEL_DIRECTIONS) if "direction" in mapping else None
+        ),
+        fps=_float(mapping, "fps", path) if "fps" in mapping else None,
     )
 
 
@@ -529,11 +539,25 @@ def _validate_line(line: LineConfig, config: StationConfig) -> None:
         raise ConfigError(f"inspector.line.rim_axis_px: min {low} is below {_RIM_AXIS_MIN_PX}")
     if not 0 < line.blob_share_min < 1:
         raise ConfigError(f"inspector.line.blob_share_min: {line.blob_share_min} is outside (0, 1)")
+    if line.fps is not None and (not math.isfinite(line.fps) or line.fps <= 0):
+        raise ConfigError(f"inspector.line.fps: {line.fps} is not a finite number above 0")
+
+
+def _validate_cup_trigger(config: StationConfig) -> None:
+    line = config.inspector.line
+    if line is None:
+        raise ConfigError("trigger.type: cup needs inspector.line, with its inspection zone")
+    if line.direction is None:
+        raise ConfigError("inspector.line.direction: a cup trigger needs this key")
+    if line.fps is None:
+        raise ConfigError("inspector.line.fps: a cup trigger needs this key")
 
 
 def _validate(config: StationConfig) -> None:
     if config.inspector.line is not None:
         _validate_line(config.inspector.line, config)
+    if config.trigger.type == "cup":
+        _validate_cup_trigger(config)
     if config.camera.exposure_us <= 0:
         raise ConfigError(f"camera.exposure_us: {config.camera.exposure_us} is not above 0")
     if config.camera.power_line_hz == 50 and config.camera.exposure_us % 10000 != 0:

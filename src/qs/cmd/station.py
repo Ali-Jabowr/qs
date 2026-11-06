@@ -13,6 +13,11 @@ keeps retrying (docs/16 §2). Its real run waits for the webcam (#85, A1).
 never rewritten, and its hash is still the file's), the Inspector the config names,
 `NullAnnunciator`, and `SqliteSink`.
 
+**Line replay** (`--replay DIR` on a config with `trigger.type: cup`, ADR-0028) plays `DIR` as one
+recording at `inspector.line.fps`: the cup trigger reads the frames as previews and fires once per
+cup, so a run has one record per cup and not one per file. It has no screen mode and no live mode
+yet.
+
 **Key-paced replay on the screen** (`--replay DIR --screen`, P09 #89) is what the station runs
 on until the webcam arrives (#85, assumption A1). It opens the operator window (ADR-0018),
 arms `KeyboardTrigger` on the config's key, and shows every event through
@@ -58,6 +63,7 @@ from qs.screen import Screen, ScreenLike
 from qs.screen_annunciator import ScreenAnnunciator
 from qs.sink import SqliteSink
 from qs.sources.factory import SourceUnavailable, frame_source
+from qs.sources.line_replay import line_replay_pair
 from qs.sources.replay import ReplayError, ReplaySource, replay_files, replay_pair
 from qs.station import (
     MakeScorer,
@@ -176,12 +182,19 @@ def main(
     replay_name = directory.resolve().name
     if not live:
         source_id = f"replay:{replay_name}"
+    if screen_mode and not live and config.trigger.type == "cup":
+        print("--screen has no cup trigger: each SPACE press takes a frame; leave it out")
+        return 2
     try:
         if not live:
             files = replay_files(directory)
             frames = len(files)
             if screen_mode:
                 source = ReplaySource(config, files, clock=clock)
+            elif config.trigger.type == "cup":
+                trigger, source = line_replay_pair(
+                    config, files, replay_name, clock=clock, wall=wall
+                )
             else:
                 trigger, source = replay_pair(config, files, replay_name, clock=clock, wall=wall)
         if make_inspector is None:

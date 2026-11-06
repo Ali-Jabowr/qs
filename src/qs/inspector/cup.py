@@ -10,6 +10,9 @@ wins: the outline of a моти lies inside its cup's rim. Pure: the input is on
 A cup partly outside the zone is not returned at all, so a neighbouring cup cut by the zone's
 edge can never hide the cup wholly inside it. These numbers have only been tried on drawn
 frames.
+
+`find_rims(pixels, LineConfig)` applies the same rim rules without the zone: every cup in the
+frame, each once, saying whether it is wholly in the zone. The cup trigger follows cups with it.
 """
 
 from __future__ import annotations
@@ -45,6 +48,14 @@ class Cup:
     inside: np.ndarray
 
 
+@dataclass(frozen=True, slots=True)
+class Rim:
+    """One rim seen in a frame: `ellipse` as on `Cup`, and whether all of it is in the zone."""
+
+    ellipse: Ellipse
+    in_zone: bool
+
+
 def _outline(ellipse: Ellipse) -> np.ndarray:
     (cx, cy), (first, second), angle = ellipse
     return np.asarray(
@@ -77,14 +88,15 @@ def _inside(rim: Ellipse, shape: tuple[int, int]) -> np.ndarray:
     return mask
 
 
-def find_cup(pixels: np.ndarray, config: LineConfig) -> Cup | None:
-    """The cup wholly inside `config.zone`, or None when no rim qualifies."""
+def _rim_ellipses(pixels: np.ndarray, config: LineConfig) -> list[Ellipse]:
+    """Every traced edge that passes the rim rules, wherever it is. A full cup gives several: its
+    rim's two edges, and often the outline of the моти inside."""
     grey = cv2.cvtColor(pixels, cv2.COLOR_BGR2GRAY)
     edges = cv2.Canny(cv2.GaussianBlur(grey, _BLUR_KSIZE, 0), *_CANNY)
     near_edge = cv2.dilate(edges, np.ones(_EDGE_TOLERANCE_KSIZE, dtype=np.uint8))
     contours, _ = cv2.findContours(edges, cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)
     low, high = config.rim_axis_px
-    best: Ellipse | None = None
+    ellipses: list[Ellipse] = []
     for contour in contours:
         if len(contour) < _MIN_EDGE_POINTS:
             continue
@@ -92,14 +104,39 @@ def find_cup(pixels: np.ndarray, config: LineConfig) -> Cup | None:
         ellipse: Ellipse = ((cx, cy), (first, second), angle)
         if not (low <= first <= high and low <= second <= high):
             continue
-        outline = _outline(ellipse)
-        if not _in_zone(outline, config.zone):
+        if _edge_share(_outline(ellipse), near_edge) < _RIM_EDGE_SHARE_MIN:
             continue
-        if _edge_share(outline, near_edge) < _RIM_EDGE_SHARE_MIN:
+        ellipses.append(ellipse)
+    return ellipses
+
+
+def _area(ellipse: Ellipse) -> float:
+    return ellipse[1][0] * ellipse[1][1]
+
+
+def find_cup(pixels: np.ndarray, config: LineConfig) -> Cup | None:
+    """The cup wholly inside `config.zone`, or None when no rim qualifies."""
+    best: Ellipse | None = None
+    for ellipse in _rim_ellipses(pixels, config):
+        if not _in_zone(_outline(ellipse), config.zone):
             continue
-        if best is None or first * second > best[1][0] * best[1][1]:
+        if best is None or _area(ellipse) > _area(best):
             best = ellipse
     if best is None:
         return None
     x, y, w, h = cv2.boundingRect(_outline(best))
-    return Cup(rim=best, box=(x, y, w, h), inside=_inside(best, grey.shape))
+    return Cup(rim=best, box=(x, y, w, h), inside=_inside(best, pixels.shape[:2]))
+
+
+def find_rims(pixels: np.ndarray, config: LineConfig) -> tuple[Rim, ...]:
+    """Every cup in the frame, in or out of `config.zone`, each once: an ellipse centred inside a
+    larger one belongs to the larger one's cup."""
+    kept: list[Ellipse] = []
+    for ellipse in sorted(_rim_ellipses(pixels, config), key=_area, reverse=True):
+        (cx, cy), _, _ = ellipse
+        if not any(
+            cv2.pointPolygonTest(_outline(larger).astype(np.float32), (cx, cy), False) >= 0
+            for larger in kept
+        ):
+            kept.append(ellipse)
+    return tuple(Rim(e, _in_zone(_outline(e), config.zone)) for e in kept)

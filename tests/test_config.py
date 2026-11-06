@@ -654,3 +654,68 @@ def test_line_example_loads_and_lists_only_the_empty_cup_check() -> None:
 )
 def test_bad_line_settings_are_refused(tmp_path: Path, replacement: str, words: str) -> None:
     _refused(_mutated(tmp_path, "  type: appearance\n", replacement), words)
+
+
+CUP_TRIGGER = "trigger:   { type: cup, key: space }"
+CUP_LINE_KEYS = "    direction: right\n    fps: 25\n"
+
+
+def _cup_config(tmp_path: Path, inspector: str) -> Path:
+    text = EXAMPLE.read_text(encoding="utf-8")
+    text = text.replace("trigger:   { type: keyboard, key: space }", CUP_TRIGGER)
+    return _written(tmp_path, text.replace("  type: appearance\n", inspector))
+
+
+def test_a_cup_trigger_config_exposes_its_direction_and_pace(tmp_path: Path) -> None:
+    config = load_config(_cup_config(tmp_path, LINE_HEAD + LINE_BLOCK + CUP_LINE_KEYS)).config
+    assert config.trigger.type == "cup"
+    assert config.inspector.line is not None
+    assert config.inspector.line.direction == "right"
+    assert config.inspector.line.fps == 25.0
+
+
+def test_a_line_block_without_a_cup_trigger_needs_no_direction_or_pace(tmp_path: Path) -> None:
+    loaded = load_config(_mutated(tmp_path, "  type: appearance\n", LINE_HEAD + LINE_BLOCK))
+    assert loaded.config.inspector.line is not None
+    assert loaded.config.inspector.line.direction is None
+    assert loaded.config.inspector.line.fps is None
+
+
+@pytest.mark.parametrize(
+    ("inspector", "words"),
+    [
+        ("  type: appearance\n", "trigger.type: cup needs inspector.line"),
+        ("  type: stub\n", "trigger.type: cup needs inspector.line"),
+        (
+            LINE_HEAD + "  line:\n    rim_axis_px: [300, 600]\n    blob_share_min: 0.3\n"
+            + CUP_LINE_KEYS,
+            "missing key(s): inspector.line.zone",
+        ),
+        (
+            LINE_HEAD + LINE_BLOCK + "    fps: 25\n",
+            "inspector.line.direction: a cup trigger needs this key",
+        ),
+        (
+            LINE_HEAD + LINE_BLOCK + "    direction: right\n",
+            "inspector.line.fps: a cup trigger needs this key",
+        ),
+        (
+            LINE_HEAD + LINE_BLOCK + "    direction: sideways\n    fps: 25\n",
+            "inspector.line.direction: 'sideways' is not one of: right, left, down, up",
+        ),
+        (
+            LINE_HEAD + LINE_BLOCK + "    direction: right\n    fps: 0\n",
+            "inspector.line.fps: 0.0 is not a finite number above 0",
+        ),
+        (
+            LINE_HEAD + LINE_BLOCK + "    direction: right\n    fps: .nan\n",
+            "inspector.line.fps: nan is not a finite number above 0",
+        ),
+        (
+            LINE_HEAD + LINE_BLOCK + "    direction: right\n    fps: .inf\n",
+            "inspector.line.fps: inf is not a finite number above 0",
+        ),
+    ],
+)
+def test_bad_cup_trigger_settings_are_refused(tmp_path: Path, inspector: str, words: str) -> None:
+    _refused(_cup_config(tmp_path, inspector), words)
