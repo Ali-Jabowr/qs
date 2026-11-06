@@ -50,6 +50,8 @@ class TriggerEvent:
     t0: float             # perf_counter at the moment of the trigger; the latency clock
     wall: datetime        # UTC, for the record
     source_id: str        # "keyboard" | "photoelectric" | "replay:<dataset>"
+    never_in_zone: bool = False  # cup trigger: the cup left the view never wholly in the zone;
+                                 # the unit is NO_VERDICT(placement), the inspector is not asked
 
 
 @dataclass(frozen=True, slots=True)

@@ -435,6 +435,10 @@ class Pipeline:
             self._lighting = True
             return self._no_verdict_with_frame("lighting", frame, 0.0)
         self._lighting = False
+        if event.never_in_zone:
+            # The frame shows where the cup was, not the cup: it may be the next cup's frame.
+            _log.info("seq %d: placement: the cup was never wholly in the zone", event.seq)
+            return self._no_verdict_with_frame("placement", frame, 0.0)
         # Step 5: inspect.
         self._reached_inspect = True
         inspect_start = self._clock()

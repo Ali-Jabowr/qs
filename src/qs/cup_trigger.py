@@ -49,7 +49,7 @@ class _Track:
 
 
 class CupTracker:
-    """`update` and `finish` return how many events to fire; an event names no cup."""
+    """`fires`, `update` and `finish` say how many events to fire; an event names no cup."""
 
     def __init__(self, tolerance_px: float) -> None:
         self._tolerance_px = tolerance_px
@@ -60,8 +60,13 @@ class CupTracker:
         return min(behind, key=lambda t: abs(t.along - along), default=None)
 
     def update(self, seen: Sequence[SeenCup], now: float) -> int:
-        """One frame's cups. The furthest along are matched first, so each takes its own track."""
-        fires = 0
+        """One frame's cups: how many events, of either kind, to fire."""
+        return sum(self.fires(seen, now))
+
+    def fires(self, seen: Sequence[SeenCup], now: float) -> tuple[int, int]:
+        """One frame's cups: events for cups first wholly in the zone, and for cups gone from
+        view that never were. The furthest along are matched first, so each takes its own track."""
+        in_zone = lost = 0
         free = list(self._tracks)
         for cup in sorted(seen, key=lambda c: c.along, reverse=True):
             track = self._nearest(cup.along, free)
@@ -74,15 +79,16 @@ class CupTracker:
                 track.last_seen = now
             if cup.in_zone and not track.fired:
                 track.fired = True
-                fires += 1
+                in_zone += 1
         for track in free:
             if now - track.last_seen > LOST_AFTER_S:
                 self._tracks.remove(track)
-                fires += not track.fired
-        return fires
+                lost += not track.fired
+        return in_zone, lost
 
     def finish(self) -> int:
-        """No more frames: every followed cup is gone, and those not yet fired fire now."""
+        """No more frames: every followed cup is gone, and those not yet fired fire now, as cups
+        that never were wholly in the zone."""
         fires = sum(not track.fired for track in self._tracks)
         self._tracks.clear()
         return fires
@@ -116,7 +122,8 @@ class CupTrigger:
         # cup can only be that same cup, whatever the camera's resolution.
         self._tracker = CupTracker(line.rim_axis_px[0] / 2)
         self._looked_at: np.ndarray | None = None
-        self._pending = 0
+        self._pending = 0  # events not yet returned, of both kinds
+        self._pending_lost = 0  # of those, for cups never wholly in the zone; returned last
         self._seq = 0
         self._finished = False
 
@@ -131,16 +138,24 @@ class CupTrigger:
         if not self._finished:
             pixels = self._source.preview()
             if pixels is None and self._ended():
-                self._pending += self._tracker.finish()
+                self._add(0, self._tracker.finish())
                 self._finished = True
             elif pixels is not None and pixels is not self._looked_at:
                 self._looked_at = pixels
-                self._pending += self._tracker.update(self._seen(pixels), self._clock())
+                self._add(*self._tracker.fires(self._seen(pixels), self._clock()))
         if self._pending == 0:
             return None
+        never_in_zone = self._pending == self._pending_lost
         self._pending -= 1
+        self._pending_lost -= never_in_zone
         self._seq += 1
-        return TriggerEvent(self._seq, self._clock(), self._wall(), self._source_id)
+        return TriggerEvent(
+            self._seq, self._clock(), self._wall(), self._source_id, never_in_zone=never_in_zone
+        )
+
+    def _add(self, in_zone: int, lost: int) -> None:
+        self._pending += in_zone + lost
+        self._pending_lost += lost
 
     @property
     def exhausted(self) -> bool:
@@ -150,3 +165,4 @@ class CupTrigger:
         """No more events, including any not yet returned."""
         self._finished = True
         self._pending = 0
+        self._pending_lost = 0
