@@ -336,6 +336,10 @@ def build_parser() -> argparse.ArgumentParser:
     from qs.cmd import station as station_cmd  # P04: qs station --replay
 
     station_cmd.add_parser(commands)
+
+    from qs.cmd import score_line
+
+    score_line.add_parser(commands)
     return parser
 
 
@@ -402,6 +406,10 @@ def run(argv: Sequence[str] | None = None) -> int:
         from qs.cmd import station
 
         return station.main(args)
+    if args.command == "score-line":
+        from qs.cmd import score_line
+
+        return score_line.main(args)
     raise AssertionError(f"unhandled command {args.command!r}")
 
 
