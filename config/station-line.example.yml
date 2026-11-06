@@ -56,6 +56,12 @@ threshold:
 display:
   labels: { pass: ГОДЕН, defect: БРАК, no_verdict: НЕТ РЕШЕНИЯ }
   font:   assets/DejaVuSans.ttf
+  # ГОДЕН leaves the screen after this many seconds, shorter than the gap between cups at
+  # 40–60 cups/min, so it never stands for a later cup. БРАК and НЕТ РЕШЕНИЯ stay.
+  pass_expiry_s: 1.0
+  # The line never asks anyone to place an item or press a key.
+  ready_line: ГОТОВ
+  placement_line: стаканчик не проверен
 
 evidence:  { root: evidence/, retention_days: 400 }
 latency:   { budget_ms: 1000, breach_action: record_and_continue }

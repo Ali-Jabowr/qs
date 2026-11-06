@@ -2,7 +2,9 @@
 
 Nothing here has a default — a missing key is a `ConfigError`, never a silent value (C6),
 except `inspector.checks`, which may be left out, `inspector.line`, which only a line inspector
-has, and its `direction` and `fps`, which only a cup trigger needs — and every rule of CONTRACTS
+has, its `direction` and `fps`, which only a cup trigger needs, and `display.pass_expiry_s`,
+`display.ready_line` and `display.placement_line`, which only a line screen sets (#104) — and
+every rule of CONTRACTS
 §3.3 refuses the config naming the offending key, so a bad config fails at start-up instead of
 quietly ruining a shoot.
 """
@@ -140,6 +142,9 @@ class LabelsConfig:
 class DisplayConfig:
     labels: LabelsConfig
     font: str
+    pass_expiry_s: float | None = None  # None: ГОДЕН stays until the next verdict (the bench)
+    ready_line: str | None = None  # None: the bench's "place the item and press SPACE"
+    placement_line: str | None = None  # None: the bench's "place the item in the frame"
 
 
 @dataclass(frozen=True, slots=True)
@@ -458,10 +463,20 @@ def _parse_labels(value: object, path: str) -> LabelsConfig:
 
 def _parse_display(value: object, path: str) -> DisplayConfig:
     mapping = _mapping(value, path)
-    _check_keys(mapping, ("labels", "font"), path)
+    _check_keys(
+        mapping, ("labels", "font"), path,
+        optional=("pass_expiry_s", "ready_line", "placement_line"),
+    )
     return DisplayConfig(
         labels=_parse_labels(mapping["labels"], _key(path, "labels")),
         font=_str(mapping, "font", path),
+        pass_expiry_s=(
+            _float(mapping, "pass_expiry_s", path) if "pass_expiry_s" in mapping else None
+        ),
+        ready_line=_str(mapping, "ready_line", path) if "ready_line" in mapping else None,
+        placement_line=(
+            _str(mapping, "placement_line", path) if "placement_line" in mapping else None
+        ),
     )
 
 
@@ -634,14 +649,20 @@ def _validate(config: StationConfig) -> None:
         ):
             if not 0 < value < 1:
                 raise ConfigError(f"{path}: {value} is outside (0, 1)")
-    labels = config.display.labels
+    display = config.display
+    labels = display.labels
     for path, text in (
         ("display.labels.pass", labels.pass_),
         ("display.labels.defect", labels.defect),
         ("display.labels.no_verdict", labels.no_verdict),
+        ("display.ready_line", display.ready_line),
+        ("display.placement_line", display.placement_line),
     ):
-        if not text.strip():
+        if text is not None and not text.strip():
             raise ConfigError(f"{path}: must not be empty or whitespace-only")
+    expiry = display.pass_expiry_s
+    if expiry is not None and not (math.isfinite(expiry) and expiry > 0):
+        raise ConfigError(f"display.pass_expiry_s: {expiry} is not a finite number above 0")
     threshold = config.threshold.value
     if not math.isfinite(threshold) or threshold <= 0:
         raise ConfigError(
