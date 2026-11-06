@@ -73,7 +73,7 @@ class ReferencePatchConfig:
 @dataclass(frozen=True, slots=True)
 class LightingConfig:
     geometry: str
-    reference_patch: ReferencePatchConfig
+    reference_patch: ReferencePatchConfig | None  # None: no lighting check; a line station only
 
 
 @dataclass(frozen=True, slots=True)
@@ -316,8 +316,10 @@ def _parse_lighting(value: object, path: str) -> LightingConfig:
     _check_keys(mapping, ("geometry", "reference_patch"), path)
     return LightingConfig(
         geometry=_enum(mapping, "geometry", path, _LIGHTING_GEOMETRIES),
-        reference_patch=_parse_reference_patch(
-            mapping["reference_patch"], _key(path, "reference_patch")
+        reference_patch=(
+            None
+            if mapping["reference_patch"] is None
+            else _parse_reference_patch(mapping["reference_patch"], _key(path, "reference_patch"))
         ),
     )
 
@@ -527,7 +529,8 @@ def _validate_line(line: LineConfig, config: StationConfig) -> None:
         raise ConfigError(
             f"inspector.line.zone: [{x}, {y}, {w}, {h}] is outside the {width}x{height} frame"
         )
-    if _overlaps(config.lighting.reference_patch.roi, line.zone):
+    patch = config.lighting.reference_patch
+    if patch is not None and _overlaps(patch.roi, line.zone):
         raise ConfigError(
             "lighting.reference_patch.roi: overlaps inspector.line.zone — the grey card "
             "would be read as part of the view of a cup"
@@ -565,19 +568,24 @@ def _validate(config: StationConfig) -> None:
             f"camera.exposure_us: {config.camera.exposure_us} is not a multiple of 10000 "
             "(10 ms), required with 50 Hz mains to avoid flicker banding"
         )
-    patch = config.lighting.reference_patch.roi
-    localize = config.inspector.localize.roi
-    if _overlaps(patch, localize):
+    reference_patch = config.lighting.reference_patch
+    if reference_patch is None and config.inspector.line is None:
         raise ConfigError(
-            "lighting.reference_patch.roi: overlaps inspector.localize.roi — the localiser "
-            "would find the grey card as a unit"
+            "lighting.reference_patch: only a line station may run without it — the bench "
+            "judges lighting on every frame (FR-14)"
         )
+    localize = config.inspector.localize.roi
+    rois = [("inspector.localize.roi", localize)]
+    if reference_patch is not None:
+        if _overlaps(reference_patch.roi, localize):
+            raise ConfigError(
+                "lighting.reference_patch.roi: overlaps inspector.localize.roi — the localiser "
+                "would find the grey card as a unit"
+            )
+        rois.insert(0, ("lighting.reference_patch.roi", reference_patch.roi))
     width = config.camera.width
     height = config.camera.height
-    for path, (x, y, w, h) in (
-        ("lighting.reference_patch.roi", patch),
-        ("inspector.localize.roi", localize),
-    ):
+    for path, (x, y, w, h) in rois:
         if x < 0 or y < 0 or w < 1 or h < 1 or x + w > width or y + h > height:
             raise ConfigError(
                 f"{path}: [{x}, {y}, {w}, {h}] is outside the {width}x{height} frame"
@@ -619,13 +627,13 @@ def _validate(config: StationConfig) -> None:
     ):
         if not 0 < value <= 1:
             raise ConfigError(f"{path}: {value} is outside (0, 1]")
-    reference_patch = config.lighting.reference_patch
-    for path, value in (
-        ("lighting.reference_patch.band", reference_patch.band),
-        ("lighting.reference_patch.expect", reference_patch.expect),
-    ):
-        if not 0 < value < 1:
-            raise ConfigError(f"{path}: {value} is outside (0, 1)")
+    if reference_patch is not None:
+        for path, value in (
+            ("lighting.reference_patch.band", reference_patch.band),
+            ("lighting.reference_patch.expect", reference_patch.expect),
+        ):
+            if not 0 < value < 1:
+                raise ConfigError(f"{path}: {value} is outside (0, 1)")
     labels = config.display.labels
     for path, text in (
         ("display.labels.pass", labels.pass_),

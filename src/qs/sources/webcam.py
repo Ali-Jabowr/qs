@@ -63,6 +63,12 @@ def open_v4l2_capture(device: str) -> CaptureLike:
     return capture
 
 
+def read_reference(pixels: np.ndarray, config: StationConfig) -> float | None:
+    """`measure_patch` on the config's reference patch, or None for a station without one."""
+    patch = config.lighting.reference_patch
+    return None if patch is None else measure_patch(pixels, patch.roi)
+
+
 def measure_patch(pixels: np.ndarray, roi: tuple[int, int, int, int]) -> float:
     """Mean luminance of the reference patch's ROI [x, y, w, h], from 0 to 1.
 
@@ -232,7 +238,7 @@ class WebcamSource:
             pixels=img,
             grabbed_at=ts,
             camera=to_readback(readings),
-            reference_patch=measure_patch(img, self._config.lighting.reference_patch.roi),
+            reference_patch=read_reference(img, self._config),
             capture_ms=(time.perf_counter() - event.t0) * 1000,
         )
 

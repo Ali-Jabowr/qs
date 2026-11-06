@@ -31,7 +31,7 @@ from qs.config import StationConfig
 from qs.contracts import CameraReadback, Frame, Health, TriggerEvent
 from qs.errors import CaptureError
 from qs.session import FRAMES_FILE
-from qs.sources.webcam import measure_patch
+from qs.sources.webcam import read_reference
 from qs.store import PNG_MAGIC
 
 Clock = Callable[[], float]
@@ -201,7 +201,7 @@ class ReplaySource:
             pixels=pixels,
             grabbed_at=grabbed_at,
             camera=camera,
-            reference_patch=measure_patch(pixels, self._config.lighting.reference_patch.roi),
+            reference_patch=read_reference(pixels, self._config),
             capture_ms=(grabbed_at - start) * 1000.0,
         )
 

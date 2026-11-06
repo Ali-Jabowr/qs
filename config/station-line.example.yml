@@ -25,10 +25,9 @@ camera:
 
 lighting:
   geometry: G2
-  reference_patch:
-    roi:    [1780, 40, 100, 100]
-    expect: 0.62
-    band:   0.05
+  # No grey card is in view on the line yet, so its lighting check is off. Only a line station
+  # may do this; it means a drift in lighting goes unnoticed. The card returns with the mount.
+  reference_patch: null
 
 inspector:
   type: line
