@@ -369,8 +369,9 @@ even with the bench set, changes the `config_hash`, because the hash covers the 
 0) takes ГОДЕН off the screen after that many seconds, back to the waiting state, so it cannot
 stand for a later cup nobody judged; БРАК and НЕТ РЕШЕНИЯ never expire. `ready_line` replaces the
 READY status line and `placement_line` the line under an НЕТ РЕШЕНИЯ for `placement`, so a line
-never asks anyone to place an item or press a key. Left out, as on the bench, ГОДЕН stays until
-the next verdict and the bench wording is used.
+never asks anyone to place an item or press a key. Left out on a line inspector, the two lines
+are ГОТОВ and *стаканчик не проверен*. Left out on the bench, ГОДЕН stays until the next verdict
+and the bench wording is used.
 
 **Two sources of truth are ruled out.** Preprocessing the model was trained with — `window_px`,
 `input_px`, normalisation — lives in the model bundle only; the config names the bundle by its full

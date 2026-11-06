@@ -3,13 +3,15 @@
 Nothing here has a default — a missing key is a `ConfigError`, never a silent value (C6),
 except `inspector.checks`, which may be left out, `inspector.line`, which only a line inspector
 has, its `direction` and `fps`, which only a cup trigger needs, and `display.pass_expiry_s`,
-`display.ready_line` and `display.placement_line`, which only a line screen sets (#104) — and
-every rule of CONTRACTS §3.3 refuses the config naming the offending key, so a bad config fails
-at start-up instead of quietly ruining a shoot.
+`display.ready_line` and `display.placement_line`, which only a line screen sets (#104; left
+out on a line station, the line's own wording fills them) — and every rule of CONTRACTS §3.3
+refuses the config naming the offending key, so a bad config fails at start-up instead of
+quietly ruining a shoot.
 """
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import json
 import math
@@ -39,6 +41,8 @@ _BENCH_CHECKS = frozenset({CHECK_GEOMETRY, CHECK_APPEARANCE})
 # All a line inspector runs today. Any other listed check would never run, and the Pipeline's
 # guard would refuse every verdict.
 _LINE_CHECKS = frozenset({CHECK_EMPTY_CUP})
+_LINE_READY = "ГОТОВ"  # a line station's READY line when display.ready_line is left out
+_LINE_PLACEMENT = "стаканчик не проверен"  # and its placement line
 _RIM_AXIS_MIN_PX = 16  # below this, the inside of a found rim has too few pixels to measure
 _MODEL_ID = re.compile(r"^patchcore-[a-z0-9]+(-[a-z0-9]+)*-v\d+-[0-9a-f]{12}$")
 
@@ -515,7 +519,7 @@ def _parse_station(mapping: Mapping[str, Any]) -> StationConfig:
         ),
         "",
     )
-    return StationConfig(
+    config = StationConfig(
         version=_int(mapping, "version", ""),
         station_id=_str(mapping, "station_id", ""),
         product=_str(mapping, "product", ""),
@@ -527,6 +531,21 @@ def _parse_station(mapping: Mapping[str, Any]) -> StationConfig:
         display=_parse_display(mapping["display"], "display"),
         evidence=_parse_evidence(mapping["evidence"], "evidence"),
         latency=_parse_latency(mapping["latency"], "latency"),
+    )
+    return dataclasses.replace(config, display=_line_wording(config.display, config.inspector))
+
+
+def _line_wording(display: DisplayConfig, inspector: InspectorConfig) -> DisplayConfig:
+    """A line station's display, with the line's wording wherever the file leaves it out, so a
+    line never shows the bench's "place the item and press SPACE"."""
+    if inspector.type != "line":
+        return display
+    return dataclasses.replace(
+        display,
+        ready_line=display.ready_line if display.ready_line is not None else _LINE_READY,
+        placement_line=(
+            display.placement_line if display.placement_line is not None else _LINE_PLACEMENT
+        ),
     )
 
 
