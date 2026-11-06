@@ -65,6 +65,17 @@ def replay_files(directory: Path) -> list[Path]:
     return files
 
 
+def check_pixels(name: str, pixels: np.ndarray, config: StationConfig) -> np.ndarray:
+    """`pixels`, made read-only, if they are a frame the webcam could have given: the config's
+    shape, uint8, not flat; otherwise `CaptureError`."""
+    camera = config.camera
+    if pixels.shape != (camera.height, camera.width, 3) or pixels.dtype != np.uint8:
+        raise CaptureError(f"corrupt frame {name}: {pixels.shape} {pixels.dtype}")
+    if int(pixels.max()) - int(pixels.min()) <= 1:
+        raise CaptureError(f"corrupt frame {name}: flat")
+    pixels.setflags(write=False)
+    return pixels
+
 @dataclass(frozen=True, slots=True)
 class Recorded:
     """One `frames.csv` row as replay uses it; `problem` set when the row cannot be trusted."""
@@ -206,7 +217,6 @@ class ReplaySource:
         )
 
     def _decode(self, name: str, data: bytes) -> np.ndarray:
-        camera = self._config.camera
         if not data.startswith(PNG_MAGIC):
             raise CaptureError(f"{name}: not a PNG")
         buffer = np.frombuffer(data, dtype=np.uint8)
@@ -216,12 +226,7 @@ class ReplaySource:
             raise CaptureError(f"{name}: cannot be decoded: {exc}") from exc
         if pixels is None:
             raise CaptureError(f"{name}: cannot be decoded")
-        if pixels.shape != (camera.height, camera.width, 3) or pixels.dtype != np.uint8:
-            raise CaptureError(f"corrupt frame {name}: {pixels.shape} {pixels.dtype}")
-        if int(pixels.max()) - int(pixels.min()) <= 1:
-            raise CaptureError(f"corrupt frame {name}: flat")
-        pixels.setflags(write=False)
-        return pixels
+        return check_pixels(name, pixels, self._config)
 
     def preview(self) -> np.ndarray | None:
         return None  # replay has no live view (C9)

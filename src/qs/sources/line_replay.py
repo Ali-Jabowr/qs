@@ -19,6 +19,7 @@ from collections.abc import Sequence
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Protocol
 
 import numpy as np
 
@@ -34,22 +35,53 @@ _log = logging.getLogger(__name__)
 _READ_FILE = TriggerEvent(0, 0.0, datetime(1970, 1, 1, tzinfo=UTC), "line-replay")
 
 
-class LineReplaySource:
-    """`FrameSource` over one recording, paced by the clock."""
+class RecordedFrames(Protocol):
+    """A recording's frames by index from 0, each read and checked afresh as a camera's would be."""
+
+    count: int
+
+    def open(self) -> None: ...
+
+    def read(self, index: int) -> Frame: ...
+
+    def health(self) -> Health: ...
+
+    def close(self) -> None: ...
+
+
+class _Files:
+    """`RecordedFrames` over image files, read and checked by `ReplaySource`."""
+
+    def __init__(self, config: StationConfig, files: Sequence[Path], clock: Clock) -> None:
+        self._replay = ReplaySource(config, files, clock=clock)
+        self.count = len(files)
+
+    def open(self) -> None:
+        self._replay.open()
+
+    def read(self, index: int) -> Frame:
+        return self._replay.capture(replace(_READ_FILE, seq=index + 1))
+
+    def health(self) -> Health:
+        return self._replay.health()
+
+    def close(self) -> None:
+        self._replay.close()
+
+
+class _Paced:
+    """`FrameSource` over one recording's frames, paced by the clock."""
 
     def __init__(
-        self, config: StationConfig, files: Sequence[Path], *, fps: float, clock: Clock
+        self, config: StationConfig, frames: RecordedFrames, *, fps: float, clock: Clock
     ) -> None:
-        self._files = ReplaySource(config, files, clock=clock)
-        self._count = len(files)
+        self._frames = frames
+        self._count = frames.count
         self._fps = fps
         self._exposure_s = config.camera.exposure_us / 1e6
         self._clock = clock
         self._start: float | None = None  # the recording plays on through a reconnect
         self._shown: tuple[int, np.ndarray | None] | None = None
-
-    def _read(self, index: int) -> Frame:
-        return self._files.capture(replace(_READ_FILE, seq=index + 1))
 
     def _index_now(self) -> int | None:
         if self._start is None:
@@ -63,7 +95,7 @@ class LineReplaySource:
         return index is not None and index >= self._count
 
     def open(self) -> None:
-        self._files.open()
+        self._frames.open()
         if self._start is None:
             self._start = self._clock()
 
@@ -73,7 +105,7 @@ class LineReplaySource:
         index = int((event.t0 + self._exposure_s - self._start) * self._fps) + 1
         if index >= self._count:
             raise CaptureError(f"the recording ended before a frame after seq {event.seq}")
-        frame = self._read(index)
+        frame = self._frames.read(index)
         return replace(frame, event=event, grabbed_at=self._start + index / self._fps)
 
     def preview(self) -> np.ndarray | None:
@@ -84,17 +116,26 @@ class LineReplaySource:
             return None
         if self._shown is None or self._shown[0] != index:
             try:
-                self._shown = (index, self._read(index).pixels)
+                self._shown = (index, self._frames.read(index).pixels)
             except CaptureError as exc:
                 _log.warning("frame %d cannot be previewed: %s", index, exc)
                 self._shown = (index, None)
         return self._shown[1]
 
     def health(self) -> Health:
-        return self._files.health()
+        return self._frames.health()
 
     def close(self) -> None:
-        self._files.close()
+        self._frames.close()
+
+
+class LineReplaySource(_Paced):
+    """`FrameSource` over one recording saved as image files, paced by the clock."""
+
+    def __init__(
+        self, config: StationConfig, files: Sequence[Path], *, fps: float, clock: Clock
+    ) -> None:
+        super().__init__(config, _Files(config, files, clock), fps=fps, clock=clock)
 
 
 def line_replay_pair(
