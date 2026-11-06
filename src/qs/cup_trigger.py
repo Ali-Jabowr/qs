@@ -7,6 +7,11 @@ followed cup fires once: when first seen wholly in the inspection zone or, havin
 it has been gone from view for `LOST_AFTER_S`. A rim missed for a moment, to glare say, is
 therefore the same cup when it comes back.
 
+A rim hidden for longer than `LOST_AFTER_S` is forgotten, so on a stopped chain the same cup can
+come back as a new cup and be judged twice. This is kept on purpose: remembering it longer would
+let the next cup on a moving chain be taken for it and get no record at all, and a duplicate is
+visible (`qs score-line` counts it among the records paired with no cup) where a lost cup is not.
+
 `CupTrigger` feeds the tracker with `find_rims` on each new preview. A preview is only ever looked
 at for finding: the frame judged is whatever `capture(event)` returns afterwards, one frame on, and
 the inspector looks for the cup there itself. A cup first wholly in the zone is near the zone's
