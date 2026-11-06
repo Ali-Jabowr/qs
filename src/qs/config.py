@@ -4,9 +4,8 @@ Nothing here has a default — a missing key is a `ConfigError`, never a silent 
 except `inspector.checks`, which may be left out, `inspector.line`, which only a line inspector
 has, its `direction` and `fps`, which only a cup trigger needs, and `display.pass_expiry_s`,
 `display.ready_line` and `display.placement_line`, which only a line screen sets (#104) — and
-every rule of CONTRACTS
-§3.3 refuses the config naming the offending key, so a bad config fails at start-up instead of
-quietly ruining a shoot.
+every rule of CONTRACTS §3.3 refuses the config naming the offending key, so a bad config fails
+at start-up instead of quietly ruining a shoot.
 """
 
 from __future__ import annotations
