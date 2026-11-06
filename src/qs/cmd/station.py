@@ -140,7 +140,7 @@ def main(
     make_annunciator: Callable[[], Shows] = NullAnnunciator,
     wrap_source: Callable[[FrameSource], FrameSource] = _identity,
     make_screen: MakeScreen = default_screen,
-    make_screen_annunciator: MakeScreenAnnunciator = ScreenAnnunciator,
+    make_screen_annunciator: MakeScreenAnnunciator | None = None,
     make_source: Callable[[StationConfig], FrameSource] = frame_source,
     sleep: Callable[[float], None] = time.sleep,
     clock: Clock = time.perf_counter,
@@ -149,7 +149,8 @@ def main(
     """Run the station; 0, 1 or 2 as the module says. `make_inspector` replaces the Inspector
     the config names; by default it is built from the config with `make_scorer` and
     `cuda_available`. `make_screen`, `make_screen_annunciator` and `sleep` are the screen
-    modes' seams, and `make_source` the live camera's."""
+    modes' seams, and `make_source` the live camera's. Without `make_screen_annunciator`, a
+    `ScreenAnnunciator` runs on `clock`."""
     try:
         loaded = load_config(Path(args.config))
     except ConfigError as exc:
@@ -214,7 +215,10 @@ def main(
         except tkinter.TclError:
             print(NO_DISPLAY)
             return 2
-        screen_annunciator = make_screen_annunciator(config, screen)
+        if make_screen_annunciator is None:  # on the station's clock, so ГОДЕН expires on it
+            screen_annunciator: Refreshes = ScreenAnnunciator(config, screen, clock=clock)
+        else:
+            screen_annunciator = make_screen_annunciator(config, screen)
         loop = ScreenLoop(screen, screen_annunciator, sleep, frames, source_id)
         annunciator = screen_annunciator
         # Late-bound: armed() is read at each poll, once the station below exists.
