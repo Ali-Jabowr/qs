@@ -1,11 +1,12 @@
 """The time split of one camera position's good line frames into train, calibrate and test (#108).
 
 Neighbouring frames of a video show the same cup, so a random split would put one cup on both
-sides and hide false alarms. Each video is cut by time instead: its labelled span, from its
-first to its last frame, gives the first 70% to training, the next 15% to calibration and the
-last 15% to test, and the frames within `gap_s` after each cut are dropped, so no cup crossing
-the view sits in two parts. `qs train` fits on `train`; the false-alarm report (#110) reads the
-other two from the same rule.
+sides and hide false alarms. Each video is cut by time instead: the span of the frame ids
+given for it, from the first to the last, gives the first 70% to training, the next 15% to
+calibration and the last 15% to test, and the frames within `gap_s` after each cut are
+dropped, so no cup crossing the view sits in two parts. The cuts depend on which ids are
+given: `qs train` gives a video's `unit` frames and fits on `train`, so the false-alarm report
+(#110) must give the same `unit` frames to read the other two parts at the same cuts.
 """
 
 from __future__ import annotations

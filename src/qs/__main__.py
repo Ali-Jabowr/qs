@@ -204,7 +204,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     train = commands.add_parser(
-        "train", help="PatchCore on a dataset's train/good → a model bundle (FR-53, docs/15 §8)"
+        "train",
+        help="PatchCore on a dataset's train/good, or on a line position's labelled good cups,"
+        " → a model bundle (FR-53, docs/15 §8)",
     )
     train.add_argument("--config", required=True, metavar="PATH", help="the station config")
     train_source = train.add_mutually_exclusive_group(required=True)
