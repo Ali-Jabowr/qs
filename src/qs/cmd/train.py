@@ -12,6 +12,17 @@ localize to exactly one unit with the config's `inspector.localize`. Each unit's
 line for `inspector.model`; it edits no config (`qs calibrate`, P08, writes it with the
 threshold).
 
+On a line config (`inspector.type: line`, #108) it reads a labels file and its videos instead:
+
+    bin/qs train --config PATH --labels PATH --footage DIR --window-px N --product P
+                 [--gap-s 3] [--seed 42] [--coreset 0.1] [--input-px 256] [--models models]
+
+The labels file covers one camera position, so a run makes that position's model. The frames
+labelled `unit` are the good ones; no other label trains. They are split by time
+(`qs.eval.line_split`, `inspector.line.fps` and `--gap-s`) and only the training block is read.
+Each of its frames must show a cup wholly in the zone (`find_cup`); the window is centred on
+the rim. An image's unit is its video, and its SHA-256 is that of the decoded frame's pixels.
+
 Exit codes: 0 written · 1 refused (a name, a geometry, a placement) · 2 could not run
 (config, CUDA, weights). Every refusal is one line, never a traceback.
 """
@@ -20,18 +31,22 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import math
 from collections.abc import Callable
 from pathlib import Path
 
 import cv2
 import numpy as np
 
-from qs.config import StationConfig, load_config
+from qs.config import LineConfig, StationConfig, load_config
 from qs.errors import ConfigError, InferenceError, PlacementFault
+from qs.eval.line_split import LineSplitError, split_frames
 from qs.inspector.bundle import PRODUCT, BundleInfo, ImageRecord, write_bundle
+from qs.inspector.cup import find_cup
 from qs.inspector.localize import localize
 from qs.inspector.model import FitSettings, PatchCore, device_for
 from qs.inspector.window import cut_window, to_input
+from qs.labels import FrameReadError, LabelsError, VideoFrames, load_labels
 from qs.names import FrameName, FrameNameError, parse_name
 
 
@@ -72,6 +87,17 @@ def seed(text: str) -> int:
         raise argparse.ArgumentTypeError(f"{text!r} is not an integer") from None
     if not 0 <= value < 2**32:
         raise argparse.ArgumentTypeError(f"{value} is not in 0 … 2**32 − 1")
+    return value
+
+
+def non_negative_float(text: str) -> float:
+    """argparse type: a finite number at or above zero."""
+    try:
+        value = float(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"{text!r} is not a number") from None
+    if not math.isfinite(value) or value < 0:
+        raise argparse.ArgumentTypeError(f"{value:g} is not a finite number at or above 0")
     return value
 
 
@@ -181,6 +207,57 @@ def _dataset_inputs(
     return inputs, images, trained_on
 
 
+def _line_inputs(
+    args: argparse.Namespace, line: LineConfig
+) -> tuple[list[np.ndarray], list[ImageRecord], str]:
+    """The training block of one position's `unit` frames: inputs, records, what they were."""
+    if args.labels is None or args.footage is None:
+        raise _CannotRun("a line config trains with --labels and --footage")
+    if line.fps is None:
+        raise _CannotRun("inspector.line.fps: line training needs this key to split by time")
+    labels_path = Path(args.labels)
+    if not labels_path.is_file():
+        raise _CannotRun(f"labels file {labels_path} not found")
+    try:
+        labels = load_labels(labels_path, labels_path.stem)
+    except LabelsError as exc:
+        raise _CannotRun(f"labels: {exc}") from None
+    good = [frame_id for frame_id, frame in labels.frames.items() if frame.label == "unit"]
+    try:
+        split = split_frames(good, fps=line.fps, gap_s=args.gap_s)
+    except LineSplitError as exc:
+        raise _Refused(str(exc)) from None
+    if not split.train:
+        raise _Refused(f"{labels_path.name}: no frame labelled unit to train on")
+    inputs: list[np.ndarray] = []
+    images: list[ImageRecord] = []
+    videos: dict[str, VideoFrames] = {}
+    try:
+        for frame_id in split.train:
+            video, _, index = frame_id.rpartition("#")
+            if video not in videos:
+                videos[video] = VideoFrames(Path(args.footage) / video)
+            pixels = videos[video].read(int(index))
+            cup = find_cup(pixels, line)
+            if cup is None:
+                raise _Refused(f"{frame_id}: no cup wholly in the zone")
+            window, _ = cut_window(pixels, cup.rim[0], args.window_px)
+            inputs.append(to_input(window, args.input_px))
+            digest = hashlib.sha256(pixels.tobytes()).hexdigest()
+            images.append(ImageRecord(frame_id, video, digest))
+    except FrameReadError as exc:
+        raise _CannotRun(f"footage: {exc}") from None
+    finally:
+        for frames in videos.values():
+            frames.close()
+    trained_on = (
+        f"trained on {len(images)} frames of {len(videos)} videos, "
+        f"held out {len(split.calibrate)} to calibrate and {len(split.test)} to test, "
+        f"{len(split.dropped)} dropped in the gaps"
+    )
+    return inputs, images, trained_on
+
+
 def _train(
     args: argparse.Namespace,
     make_patchcore: Callable[[str], PatchCore],
@@ -196,8 +273,14 @@ def _train(
     except ConfigError as exc:
         print(exc)
         return 2
+    line = config.inspector.line if config.inspector.type == "line" else None
     try:
-        inputs, images, trained_on = _dataset_inputs(args, config)
+        if line is None:
+            if args.labels is not None:
+                raise _CannotRun("--labels trains a line config only (inspector.type: line)")
+            inputs, images, trained_on = _dataset_inputs(args, config)
+        else:
+            inputs, images, trained_on = _line_inputs(args, line)
     except _Refused as exc:
         print(f"refused: {exc}")
         return 1

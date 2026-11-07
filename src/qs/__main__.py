@@ -158,7 +158,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     from qs.cmd.build import golden_name
-    from qs.cmd.train import coreset, positive_int, product, seed
+    from qs.cmd.train import coreset, non_negative_float, positive_int, product, seed
 
     label = commands.add_parser(
         "label", help="hand labels for visit footage: single frames, or whole cups through a video"
@@ -207,8 +207,20 @@ def build_parser() -> argparse.ArgumentParser:
         "train", help="PatchCore on a dataset's train/good → a model bundle (FR-53, docs/15 §8)"
     )
     train.add_argument("--config", required=True, metavar="PATH", help="the station config")
+    train_source = train.add_mutually_exclusive_group(required=True)
+    train_source.add_argument(
+        "--dataset", metavar="DIR", help="the dataset; only DIR/train/good is read"
+    )
+    train_source.add_argument(
+        "--labels", metavar="PATH",
+        help="a line config: the labels file of one camera position (from qs label)",
+    )
     train.add_argument(
-        "--dataset", required=True, metavar="DIR", help="the dataset; only DIR/train/good is read"
+        "--footage", metavar="DIR", help="a line config: the folder holding the labelled videos"
+    )
+    train.add_argument(
+        "--gap-s", type=non_negative_float, default=3.0, metavar="S",
+        help="a line config: seconds dropped before each held-out block (3)",
     )
     train.add_argument(
         "--window-px", required=True, type=positive_int, metavar="N",
