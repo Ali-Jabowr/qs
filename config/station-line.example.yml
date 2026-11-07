@@ -1,15 +1,15 @@
-# A line station over saved frames: `qs station --config this --replay DIR`.
+# A line station over saved footage, one verdict per cup:
+#   qs station --config this --replay DIR
+#   qs score-line --config this --footage DIR --labels POSITION=PATH
 #
 # inspector.line's limits are starting values, UNMEASURED on real footage: they have only been
-# tried on frames drawn by the tests. Real accuracy comes from the scoring command.
-#
-# The line has no grey card yet, and a frame whose reference patch is out of band ends in
-# НЕТ РЕШЕНИЯ (lighting) before any check runs.
+# tried on frames drawn by the tests. Real accuracy comes from `qs score-line`.
 version: 1
 station_id: line-replay
 product: mochi-<flavour>-v1
 
-trigger:   { type: replay, key: space }
+# A cup trigger fires once per cup seen crossing the zone (ADR-0028); `key` is unused.
+trigger:   { type: cup, key: space }
 camera:
   type: replay
   device: none
@@ -36,6 +36,8 @@ inspector:
     zone:           [360, 0, 1200, 1080]   # x, y, w, h: a cup is judged only if all of it is inside
     rim_axis_px:    [300, 700]             # both full axes of the rim ellipse must lie in this range
     blob_share_min: 0.30                   # below this share of the cup's middle, the cup is empty
+    direction:      right                  # the way the chain moves in the picture: set it per footage
+    fps:            30                     # the rate the footage was shot at; the file's own rate is ignored
   # The keys below are required of every inspector. A line inspector does not use them, so they
   # hold placeholders: no model and no calibration stand behind this file.
   localize:  { roi: [360, 0, 1200, 1080], threshold: 70, min_area_px: 20000, border_margin_px: 10 }
