@@ -49,6 +49,10 @@ from qs.inspector.window import cut_window, to_input
 from qs.labels import FrameReadError, LabelsError, VideoFrames, load_labels
 from qs.names import FrameName, FrameNameError, parse_name
 
+# Seconds dropped before each held-out block of a line split when `--gap-s` is not given; the
+# flag has no argparse default so that a bench config can refuse it.
+DEFAULT_GAP_S = 3.0
+
 
 def product(text: str) -> str:
     """argparse type: a product name for the model_id, e.g. `mochi`."""
@@ -224,7 +228,8 @@ def _line_inputs(
         raise _CannotRun(f"labels: {exc}") from None
     good = [frame_id for frame_id, frame in labels.frames.items() if frame.label == "unit"]
     try:
-        split = split_frames(good, fps=line.fps, gap_s=args.gap_s)
+        gap_s = DEFAULT_GAP_S if args.gap_s is None else args.gap_s
+        split = split_frames(good, fps=line.fps, gap_s=gap_s)
     except LineSplitError as exc:
         raise _Refused(str(exc)) from None
     if not split.train:
@@ -278,6 +283,10 @@ def _train(
         if line is None:
             if args.labels is not None:
                 raise _CannotRun("--labels trains a line config only (inspector.type: line)")
+            if args.footage is not None or args.gap_s is not None:
+                raise _CannotRun(
+                    "--footage and --gap-s are for a line config only (inspector.type: line)"
+                )
             inputs, images, trained_on = _dataset_inputs(args, config)
         else:
             inputs, images, trained_on = _line_inputs(args, line)

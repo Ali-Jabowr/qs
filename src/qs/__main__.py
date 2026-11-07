@@ -219,7 +219,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--footage", metavar="DIR", help="a line config: the folder holding the labelled videos"
     )
     train.add_argument(
-        "--gap-s", type=non_negative_float, default=3.0, metavar="S",
+        "--gap-s", type=non_negative_float, default=None, metavar="S",
         help="a line config: seconds dropped before each held-out block (3)",
     )
     train.add_argument(
