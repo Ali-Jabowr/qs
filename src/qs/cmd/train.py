@@ -79,6 +79,10 @@ class _Refused(Exception):
     """The run is refused: exit 1, one line."""
 
 
+class _CannotRun(Exception):
+    """The run could not start: exit 2, one line."""
+
+
 def _training_frames(good: Path) -> tuple[list[tuple[Path, FrameName]], str]:
     """Every `*.png` in `train/good` by name, checked before any is read; and the geometry."""
     paths = sorted(good.glob("*.png"))
@@ -155,6 +159,28 @@ def main(
         return 2
 
 
+def _dataset_inputs(
+    args: argparse.Namespace, config: StationConfig
+) -> tuple[list[np.ndarray], list[ImageRecord], str]:
+    """A dataset's `train/good`: the model inputs, their records, and what they were."""
+    good = Path(args.dataset) / "train" / "good"
+    if not good.is_dir():
+        raise _CannotRun(f"dataset: {good} is not a directory")
+    inputs: list[np.ndarray] = []
+    images: list[ImageRecord] = []
+    try:
+        frames, geometry = _training_frames(good)
+        for path, name in frames:
+            window_input, digest = _window_input(path, config, args.window_px, args.input_px)
+            inputs.append(window_input)
+            images.append(ImageRecord(path.name, name.unit, digest))
+    except OSError as exc:
+        raise _CannotRun(f"dataset: {_first_line(exc)}") from None
+    units = {image.unit for image in images}
+    trained_on = f"trained on {len(images)} frames of {len(units)} units, geometry {geometry}"
+    return inputs, images, trained_on
+
+
 def _train(
     args: argparse.Namespace,
     make_patchcore: Callable[[str], PatchCore],
@@ -170,24 +196,13 @@ def _train(
     except ConfigError as exc:
         print(exc)
         return 2
-    good = Path(args.dataset) / "train" / "good"
-    if not good.is_dir():
-        print(f"dataset: {good} is not a directory")
-        return 2
-
-    inputs: list[np.ndarray] = []
-    images: list[ImageRecord] = []
     try:
-        frames, geometry = _training_frames(good)
-        for path, name in frames:
-            window_input, digest = _window_input(path, config, args.window_px, args.input_px)
-            inputs.append(window_input)
-            images.append(ImageRecord(path.name, name.unit, digest))
+        inputs, images, trained_on = _dataset_inputs(args, config)
     except _Refused as exc:
         print(f"refused: {exc}")
         return 1
-    except OSError as exc:
-        print(f"dataset: {_first_line(exc)}")
+    except _CannotRun as exc:
+        print(exc)
         return 2
 
     try:
@@ -216,11 +231,9 @@ def _train(
         print(f"bundle: {_first_line(exc)}")
         return 2
 
-    units = sorted({image.unit for image in images})
     rows, features = fitted.bank.shape
     print(
-        f"trained on {len(images)} frames of {len(units)} units, geometry {geometry}: "
-        f"window {args.window_px} px → input {args.input_px} px, device {device}"
+        f"{trained_on}: window {args.window_px} px → input {args.input_px} px, device {device}"
     )
     print(f"memory bank: {rows} rows × {features} · coreset {args.coreset:g} · seed {args.seed}")
     if fitted.peak_gpu_bytes is not None:
