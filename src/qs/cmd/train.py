@@ -40,7 +40,7 @@ import numpy as np
 
 from qs.config import LineConfig, StationConfig, load_config
 from qs.errors import ConfigError, InferenceError, PlacementFault
-from qs.eval.line_split import LineSplitError, split_frames
+from qs.eval.line_split import LineSplitError, split_frames, video_frame
 from qs.inspector.bundle import PRODUCT, BundleInfo, ImageRecord, write_bundle
 from qs.inspector.cup import find_cup
 from qs.inspector.localize import localize
@@ -239,10 +239,10 @@ def _line_inputs(
     videos: dict[str, VideoFrames] = {}
     try:
         for frame_id in split.train:
-            video, _, index = frame_id.rpartition("#")
+            video, index = video_frame(frame_id)
             if video not in videos:
                 videos[video] = VideoFrames(Path(args.footage) / video)
-            pixels = videos[video].read(int(index))
+            pixels = videos[video].read(index)
             cup = find_cup(pixels, line)
             if cup is None:
                 raise _Refused(f"{frame_id}: no cup wholly in the zone")

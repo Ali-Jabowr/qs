@@ -32,7 +32,8 @@ TRAIN_PERCENT = 70
 CALIBRATE_END_PERCENT = 85
 
 
-def _video_frame(frame_id: str) -> tuple[str, int]:
+def video_frame(frame_id: str) -> tuple[str, int]:
+    """A `<video>#<index>` frame id as its video file name and frame index."""
     video, sep, index = frame_id.rpartition("#")
     if not sep or not video or not index.isdigit():
         raise LineSplitError(f"{frame_id!r} is not a video frame (<video file name>#<index>)")
@@ -43,7 +44,7 @@ def split_frames(frame_ids: Iterable[str], *, fps: float, gap_s: float) -> LineS
     """Split `<video>#<index>` frame ids by time within each video, as the module says."""
     by_video: dict[str, list[int]] = {}
     for frame_id in frame_ids:
-        video, index = _video_frame(frame_id)
+        video, index = video_frame(frame_id)
         by_video.setdefault(video, []).append(index)
     gap = round(gap_s * fps)
     parts: dict[str, list[str]] = {"train": [], "calibrate": [], "test": [], "dropped": []}
