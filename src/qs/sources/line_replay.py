@@ -19,7 +19,6 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable, Sequence
 from dataclasses import replace
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Protocol
 
@@ -31,6 +30,7 @@ from qs.cup_trigger import CupTrigger
 from qs.errors import CaptureError
 from qs.labels import FrameReadError, VideoFrames
 from qs.sources.replay import (
+    READ_BY_INDEX,
     Clock,
     ReplayError,
     ReplaySource,
@@ -41,9 +41,6 @@ from qs.sources.replay import (
 from qs.sources.webcam import read_reference
 
 _log = logging.getLogger(__name__)
-
-# `ReplaySource` chooses a file by the event's `seq` and uses nothing else of it.
-_READ_FILE = TriggerEvent(0, 0.0, datetime(1970, 1, 1, tzinfo=UTC), "line-replay")
 
 
 class RecordedFrames(Protocol):
@@ -58,26 +55,6 @@ class RecordedFrames(Protocol):
     def health(self) -> Health: ...
 
     def close(self) -> None: ...
-
-
-class _Files:
-    """`RecordedFrames` over image files, read and checked by `ReplaySource`."""
-
-    def __init__(self, config: StationConfig, files: Sequence[Path], clock: Clock) -> None:
-        self._replay = ReplaySource(config, files, clock=clock)
-        self.count = len(files)
-
-    def open(self) -> None:
-        self._replay.open()
-
-    def read(self, index: int) -> Frame:
-        return self._replay.capture(replace(_READ_FILE, seq=index + 1))
-
-    def health(self) -> Health:
-        return self._replay.health()
-
-    def close(self) -> None:
-        self._replay.close()
 
 
 class _Paced:
@@ -159,7 +136,7 @@ class LineReplaySource(_Paced):
     def __init__(
         self, config: StationConfig, files: Sequence[Path], *, fps: float, clock: Clock
     ) -> None:
-        super().__init__(config, _Files(config, files, clock), fps=fps, clock=clock)
+        super().__init__(config, ReplaySource(config, files, clock=clock), fps=fps, clock=clock)
 
 
 class _Video:
@@ -183,7 +160,7 @@ class _Video:
         except FrameReadError as exc:
             raise CaptureError(str(exc)) from exc
         return Frame(
-            event=_READ_FILE,
+            event=READ_BY_INDEX,
             pixels=pixels,
             grabbed_at=0.0,
             camera=CameraReadback(None, None, None, None, verified=False),

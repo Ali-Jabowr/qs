@@ -14,7 +14,7 @@ from statistics import median
 
 from qs.contracts import Label
 from qs.eval.stats import lower_bound, upper_bound
-from qs.labels import Cup
+from qs.labels import Cup, CupState
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,10 +85,10 @@ def score_cups(cups: Sequence[Cup], judged: Sequence[Judged], window: int) -> Cu
     last = max(c.frame for c in cups) + window
     paired = {id(j) for _, j in pairs if j is not None}
     return CupScore(
-        empty=_tally([p for p in pairs if p[0].state == "empty"]),
-        full=_tally([p for p in pairs if p[0].state != "empty"]),
-        white=_tally([p for p in pairs if p[0].state == "full_white"]),
-        pink=_tally([p for p in pairs if p[0].state == "full_pink"]),
+        empty=_tally([p for p in pairs if p[0].state == CupState.EMPTY]),
+        full=_tally([p for p in pairs if p[0].state != CupState.EMPTY]),
+        white=_tally([p for p in pairs if p[0].state == CupState.FULL_WHITE]),
+        pink=_tally([p for p in pairs if p[0].state == CupState.FULL_PINK]),
         unpaired=sum(id(j) not in paired and first <= j.frame <= last for j in judged),
         offsets=tuple(j.frame - c.frame for c, j in pairs if j is not None),
     )

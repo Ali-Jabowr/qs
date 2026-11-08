@@ -14,7 +14,9 @@ import time
 import tkinter as tk
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
+from qs.cmd.train import positive_int
 from qs.config import DisplayConfig, load_config
 from qs.errors import ConfigError
 from qs.labels import (
@@ -51,6 +53,30 @@ class _LabelScreen(Screen):
     def _on_key(self, event: tk.Event[tk.Misc]) -> None:
         name = named_key(str(event.keysym), int(event.state))
         self._keys.append(KeyPress(name, int(event.time), self._last_pump_end))
+
+
+def add_parser(commands: Any) -> None:
+    """Register `label` on the `qs` subcommands."""
+    parser = commands.add_parser(
+        "label", help="hand labels for visit footage: single frames, or whole cups through a video"
+    )
+    parser.add_argument("--config", required=True, metavar="PATH", help="the station config")
+    parser.add_argument(
+        "--mode", required=True, choices=("frames", "cups"),
+        help="frames: unit, empty cup, nothing or hand; cups: full or empty, counted in order",
+    )
+    parser.add_argument(
+        "--source", required=True, metavar="PATH",
+        help="a folder of images or a video; --mode cups needs a video",
+    )
+    parser.add_argument(
+        "--every", type=positive_int, default=None, metavar="N",
+        help="with --mode frames on a video (required there): sample every Nth frame",
+    )
+    parser.add_argument(
+        "--labels", default=None, metavar="PATH",
+        help="the labels file (default data/labels/<source name>.json)",
+    )
 
 
 def _open_source(source: Path, mode: str, every: int | None) -> ImageFolder | VideoFrames:

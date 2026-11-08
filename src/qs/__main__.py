@@ -157,29 +157,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--report-dir", metavar="DIR", default="reports/pilot", help="where the report goes"
     )
 
+    from qs.cmd import label
+
+    label.add_parser(commands)
+
     from qs.cmd.build import golden_name
     from qs.cmd.train import coreset, non_negative_float, positive_int, product, seed
-
-    label = commands.add_parser(
-        "label", help="hand labels for visit footage: single frames, or whole cups through a video"
-    )
-    label.add_argument("--config", required=True, metavar="PATH", help="the station config")
-    label.add_argument(
-        "--mode", required=True, choices=("frames", "cups"),
-        help="frames: unit, empty cup, nothing or hand; cups: full or empty, counted in order",
-    )
-    label.add_argument(
-        "--source", required=True, metavar="PATH",
-        help="a folder of images or a video; --mode cups needs a video",
-    )
-    label.add_argument(
-        "--every", type=positive_int, default=None, metavar="N",
-        help="with --mode frames on a video (required there): sample every Nth frame",
-    )
-    label.add_argument(
-        "--labels", default=None, metavar="PATH",
-        help="the labels file (default data/labels/<source name>.json)",
-    )
 
     build = commands.add_parser(
         "build",
