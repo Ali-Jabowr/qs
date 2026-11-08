@@ -45,7 +45,7 @@ from qs.inspector.appearance import (
     real_cuda_available,
     real_scorer,
 )
-from qs.inspector.cup import find_cup
+from qs.inspector.cup import find_cup, no_cup_reason
 from qs.inspector.model import Scorer
 
 LINE_MODEL_ID = "none"
@@ -118,7 +118,7 @@ class LineInspector:
             raise InferenceError("the line inspector was not loaded")
         cup = find_cup(frame.pixels, line)
         if cup is None:
-            raise PlacementFault("no cup wholly in the zone")
+            raise PlacementFault(no_cup_reason(frame.pixels, line))
         share = blob_share(frame.pixels, cup.inside)
         passed = share >= line.blob_share_min
         check = CheckResult(

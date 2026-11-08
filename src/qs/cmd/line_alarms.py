@@ -40,7 +40,7 @@ from qs.inspector.appearance import (
     real_cuda_available,
     real_scorer,
 )
-from qs.inspector.cup import find_cup
+from qs.inspector.cup import find_cup, no_cup_reason
 from qs.inspector.model import Scorer
 from qs.labels import FrameReadError, LabelsError, VideoFrames, load_labels
 
@@ -99,7 +99,7 @@ def _scores(
             pixels = videos[video].read(index)
             cup = find_cup(pixels, line)
             if cup is None:
-                raise _Refused(f"{frame_id}: no cup wholly in the zone")
+                raise _Refused(f"{frame_id}: {no_cup_reason(pixels, line)}")
             check, _, _ = check_appearance(pixels, cup.rim[0], cup.inside, model, config)
             if check.value is None:  # check_appearance always sets the score
                 raise RuntimeError(f"{frame_id}: the appearance check carries no score")

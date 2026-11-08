@@ -88,26 +88,34 @@ def _inside(rim: Ellipse, shape: tuple[int, int]) -> np.ndarray:
     return mask
 
 
-def _rim_ellipses(pixels: np.ndarray, config: LineConfig) -> list[Ellipse]:
-    """Every traced edge that passes the rim rules, wherever it is. A full cup gives several: its
-    rim's two edges, and often the outline of the моти inside."""
+def _traced_ellipses(pixels: np.ndarray) -> list[Ellipse]:
+    """Every traced edge that fits an ellipse with edges along most of it, of any size."""
     grey = cv2.cvtColor(pixels, cv2.COLOR_BGR2GRAY)
     edges = cv2.Canny(cv2.GaussianBlur(grey, _BLUR_KSIZE, 0), *_CANNY)
     near_edge = cv2.dilate(edges, np.ones(_EDGE_TOLERANCE_KSIZE, dtype=np.uint8))
     contours, _ = cv2.findContours(edges, cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)
-    low, high = config.rim_axis_px
     ellipses: list[Ellipse] = []
     for contour in contours:
         if len(contour) < _MIN_EDGE_POINTS:
             continue
         (cx, cy), (first, second), angle = cv2.fitEllipse(contour)
         ellipse: Ellipse = ((cx, cy), (first, second), angle)
-        if not (low <= first <= high and low <= second <= high):
-            continue
         if _edge_share(_outline(ellipse), near_edge) < _RIM_EDGE_SHARE_MIN:
             continue
         ellipses.append(ellipse)
     return ellipses
+
+
+def _rim_sized(ellipse: Ellipse, config: LineConfig) -> bool:
+    low, high = config.rim_axis_px
+    _, (first, second), _ = ellipse
+    return low <= first <= high and low <= second <= high
+
+
+def _rim_ellipses(pixels: np.ndarray, config: LineConfig) -> list[Ellipse]:
+    """Every traced edge that passes the rim rules, wherever it is. A full cup gives several: its
+    rim's two edges, and often the outline of the моти inside."""
+    return [e for e in _traced_ellipses(pixels) if _rim_sized(e, config)]
 
 
 def _area(ellipse: Ellipse) -> float:
@@ -126,6 +134,11 @@ def find_cup(pixels: np.ndarray, config: LineConfig) -> Cup | None:
         return None
     x, y, w, h = cv2.boundingRect(_outline(best))
     return Cup(rim=best, box=(x, y, w, h), inside=_inside(best, pixels.shape[:2]))
+
+
+def no_cup_reason(pixels: np.ndarray, config: LineConfig) -> str:
+    """Why `find_cup` found no cup in `pixels`, for the log of a frame it returned None for."""
+    return "no cup wholly in the zone"
 
 
 def find_rims(pixels: np.ndarray, config: LineConfig) -> tuple[Rim, ...]:
