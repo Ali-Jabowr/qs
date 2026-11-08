@@ -354,6 +354,10 @@ def build_parser() -> argparse.ArgumentParser:
     from qs.cmd import score_line
 
     score_line.add_parser(commands)
+
+    from qs.cmd import line_alarms
+
+    line_alarms.add_parser(commands)
     return parser
 
 
@@ -424,6 +428,10 @@ def run(argv: Sequence[str] | None = None) -> int:
         from qs.cmd import score_line
 
         return score_line.main(args)
+    if args.command == "line-alarms":
+        from qs.cmd import line_alarms
+
+        return line_alarms.main(args)
     raise AssertionError(f"unhandled command {args.command!r}")
 
 
