@@ -628,11 +628,13 @@ def test_line_example_loads_and_lists_only_the_empty_cup_check() -> None:
         ),
         (
             "  type: line\n" + LINE_BLOCK,
-            "inspector.checks: a line inspector must list exactly ['empty_cup']",
+            "inspector.checks: a line inspector must list ['empty_cup'] or "
+            "['appearance', 'empty_cup']",
         ),
         (
             "  type: line\n  checks: [geometry, empty_cup]\n" + LINE_BLOCK,
-            "inspector.checks: a line inspector must list exactly ['empty_cup']",
+            "inspector.checks: a line inspector must list ['empty_cup'] or "
+            "['appearance', 'empty_cup']",
         ),
         (
             "  type: line\n  checks: [not_a_check]\n" + LINE_BLOCK,

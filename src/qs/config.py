@@ -38,9 +38,13 @@ KNOWN_CHECKS = (CHECK_GEOMETRY, CHECK_APPEARANCE, CHECK_EMPTY_CUP)
 # What a config without `inspector.checks` runs. Fixed on purpose: a check added to
 # KNOWN_CHECKS later must not start running on stations that never asked for it.
 _BENCH_CHECKS = frozenset({CHECK_GEOMETRY, CHECK_APPEARANCE})
-# All a line inspector runs today. Any other listed check would never run, and the Pipeline's
-# guard would refuse every verdict.
-_LINE_CHECKS = frozenset({CHECK_EMPTY_CUP})
+# The check lists a line inspector runs. Any other listed check would never run, and the
+# Pipeline's guard would refuse every verdict. `empty_cup` is in every one: an empty cup is
+# never judged only by a model trained on full cups.
+_LINE_CHECK_SETS = (
+    frozenset({CHECK_EMPTY_CUP}),
+    frozenset({CHECK_EMPTY_CUP, CHECK_APPEARANCE}),
+)
 _LINE_READY = "ГОТОВ"  # a line station's READY line when display.ready_line is left out
 _LINE_PLACEMENT = "стаканчик не проверен"  # and its placement line
 _RIM_AXIS_MIN_PX = 16  # below this, the inside of a found rim has too few pixels to measure
@@ -393,10 +397,9 @@ def _parse_inspector(value: object, path: str) -> InspectorConfig:
         raise ConfigError(
             f"{_key(path, 'checks')}: an appearance inspector must list {CHECK_APPEARANCE!r}"
         )
-    if inspector_type == "line" and checks != _LINE_CHECKS:
-        raise ConfigError(
-            f"{_key(path, 'checks')}: a line inspector must list exactly {sorted(_LINE_CHECKS)}"
-        )
+    if inspector_type == "line" and checks not in _LINE_CHECK_SETS:
+        allowed = " or ".join(str(sorted(listed)) for listed in _LINE_CHECK_SETS)
+        raise ConfigError(f"{_key(path, 'checks')}: a line inspector must list {allowed}")
     if inspector_type != "line" and CHECK_EMPTY_CUP in checks:
         raise ConfigError(
             f"{_key(path, 'checks')}: {CHECK_EMPTY_CUP!r} runs only on a line inspector"

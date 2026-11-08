@@ -173,7 +173,12 @@ def build_inspector(
                 cuda_available=cuda_available,
             )
         case "line":
-            return LineInspector(loaded.config_hash)
+            return LineInspector(
+                loaded.config_hash,
+                models_root=MODELS_ROOT,
+                make_scorer=make_scorer,
+                cuda_available=cuda_available,
+            )
         case other:
             raise StartupRefused(f"inspector.type {other!r}: no such Inspector")
 
