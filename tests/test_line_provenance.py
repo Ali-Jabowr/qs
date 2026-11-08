@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import cv2
 import pytest
 import yaml
 
@@ -17,6 +18,7 @@ from qs.cmd import line_alarms, train
 from qs.errors import ConfigError
 from qs.inspector.bundle import LineRecord, load_bundle
 from test_bundle import _rehashed
+from test_cup import drawn_frame
 from test_line_alarms import _config, _footage, _labels
 
 
@@ -43,6 +45,15 @@ def _alarms(root: Path, model_id: str, gap_s: str = "0.2") -> int:
     ])
     return line_alarms.main(args, make_scorer=lambda device, bank: FakePatchCore().scorer(bank),
                             cuda_available=lambda: True)
+
+
+def _rewrite(video: Path, pink: tuple[int, ...]) -> None:
+    """Write the 40-frame video again under the same name, pink at the frames `pink` names."""
+    writer = cv2.VideoWriter(str(video), cv2.VideoWriter_fourcc(*"FFV1"), 10.0, (320, 240))
+    assert writer.isOpened()
+    for index in range(40):
+        writer.write(drawn_frame("pink" if index in pink else "pale"))
+    writer.release()
 
 
 def test_a_line_bundle_records_the_gap_and_the_labels_file_it_was_split_with(
@@ -104,4 +115,34 @@ def test_a_bundle_made_before_the_split_was_recorded_warns_and_still_counts(
     assert capsys.readouterr().out.splitlines()[0] == (
         "WARNING: the bundle records no gap_s (made before #112), so --gap-s is not checked "
         "against training"
+    )
+
+
+def test_footage_whose_trained_frame_differs_from_the_bundles_is_refused(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # The same file name, but frame 3 — a training frame — now shows a pink моти.
+    bundle = _train(tmp_path)
+    _rewrite(tmp_path / "footage" / "line.avi", pink=(3, 36, 37))
+    capsys.readouterr()
+
+    assert _alarms(tmp_path, bundle.name) == 1
+    assert capsys.readouterr().out.strip() == (
+        "refused: line.avi#3: its pixels differ from the frame the model was trained on "
+        "(SHA-256); re-encoded or renamed footage also does this — retrain on the footage used"
+    )
+
+
+def test_a_bundle_trained_on_image_files_not_video_frames_is_refused(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    bundle = _train(tmp_path)
+    image = {"file": "u001_good_G2_r0.png", "unit": "line.avi", "sha256": "a" * 64}
+    bench = _rehashed(bundle.parent, bundle.name, {"images": [image]})
+    capsys.readouterr()
+
+    assert _alarms(tmp_path, bench) == 1
+    assert capsys.readouterr().out.strip() == (
+        "refused: the bundle's training image 'u001_good_G2_r0.png' is not a video frame "
+        "(<video file name>#<index>)"
     )

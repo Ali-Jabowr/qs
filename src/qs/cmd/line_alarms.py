@@ -7,16 +7,19 @@ The frames of one camera position labelled `unit` are split by time exactly as `
 them (`qs.eval.line_split`, the same frames and `--gap-s`), so the model never saw the two
 held-out blocks. A held-out frame the bundle lists among its training images is refused, and so is
 a `--gap-s` other than the one the bundle records (#112); a bundle that records none, made before
-#112, gets a one-line WARNING and is counted. Each held-out frame is scored as the
-line station scores it: the cup wholly in the zone (`find_cup`), the window of the bundle's size
-centred on the rim, the map masked to the cup's inside (`check_appearance`). The threshold is
-chosen on the calibrate block at `--far` (`choose_threshold`), and the test block's frames above
-it are the false alarms. Only numbers are printed: no image, config or record is written, so the
-threshold reaches a station config by hand.
+#112, gets a one-line WARNING and is counted. Every frame the bundle was trained on is read again
+from `--footage` and must hash to the bundle's SHA-256, or the run is refused: another video under
+the same name could hold training cups at held-out ids. Re-encoded or renamed footage is refused
+the same way; retrain on the footage used. Each held-out frame is scored as the line station
+scores it: the cup wholly in the zone (`find_cup`), the window of the bundle's size centred on the
+rim, the map masked to the cup's inside (`check_appearance`). The threshold is chosen on the
+calibrate block at `--far` (`choose_threshold`), and the test block's frames above it are the
+false alarms. Only numbers are printed: no image, config or record is written, so the threshold
+reaches a station config by hand.
 
 Exit codes: 0 counted · 1 refused (a held-out frame with no cup or trained on, an empty block, a
-gap other than the bundle's) · 2 could not run (config, labels, footage, bundle, a model scoring
-not a number).
+gap other than the bundle's, a trained frame whose pixels differ) · 2 could not run (config,
+labels, footage, bundle, a model scoring not a number).
 """
 
 from __future__ import annotations
@@ -43,6 +46,7 @@ from qs.inspector.appearance import (
     real_cuda_available,
     real_scorer,
 )
+from qs.inspector.bundle import ImageRecord, pixels_sha256
 from qs.inspector.cup import find_cup
 from qs.inspector.model import Scorer
 from qs.labels import FrameReadError, LabelsError, VideoFrames, load_labels
@@ -105,6 +109,22 @@ def _footage_frames(footage: Path) -> Iterator[Callable[[str], np.ndarray]]:
             frames.close()
 
 
+def _check_trained_pixels(
+    images: Sequence[ImageRecord], read: Callable[[str], np.ndarray]
+) -> None:
+    """Refuse footage whose frame under a trained id is not the frame the bundle hashed: the
+    same id over other pixels would let training cups into the held-out blocks unseen."""
+    for image in images:
+        try:
+            pixels = read(image.file)
+        except LineSplitError as exc:
+            raise _Refused(f"the bundle's training image {exc}") from None
+        if pixels_sha256(pixels) != image.sha256:
+            raise _Refused(f"{image.file}: its pixels differ from the frame the model was "
+                           "trained on (SHA-256); re-encoded or renamed footage also does this "
+                           "— retrain on the footage used")
+
+
 def _scores(
     frame_ids: Sequence[str], read: Callable[[str], np.ndarray], config: StationConfig,
     line: LineConfig, model: LoadedModel,
@@ -146,12 +166,13 @@ def _report(args: argparse.Namespace, make_scorer: Callable[[str, np.ndarray], S
     elif recorded.gap_s != args.gap_s:
         raise _Refused(f"--gap-s {args.gap_s:g} is not the {recorded.gap_s:g} s the model was "
                        "split with; use the gap it was trained with")
-    trained ={image.file for image in model.bundle.images}
+    trained = {image.file for image in model.bundle.images}
     seen = [frame_id for frame_id in (*split.calibrate, *split.test) if frame_id in trained]
     if seen:
         raise _Refused(f"{seen[0]}: the model was trained on this held-out frame; use the "
                        "labels and --gap-s it was trained with")
     with _footage_frames(Path(args.footage)) as read:
+        _check_trained_pixels(model.bundle.images, read)
         calibrate = _scores(split.calibrate, read, config, line, model)
         test = _scores(split.test, read, config, line, model)
     choice = choose_threshold(
