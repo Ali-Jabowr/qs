@@ -20,7 +20,8 @@ Exit codes: 0 counted · 1 refused (a held-out frame with no cup or trained on, 
 from __future__ import annotations
 
 import argparse
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
+from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -84,29 +85,39 @@ def _line_config(path: Path) -> tuple[StationConfig, LineConfig, float]:
     return config, line, line.fps
 
 
-def _scores(
-    frame_ids: Sequence[str], footage: Path, config: StationConfig, line: LineConfig,
-    model: LoadedModel,
-) -> list[float]:
-    """Each frame's appearance score, as the line station computes it."""
+@contextmanager
+def _footage_frames(footage: Path) -> Iterator[Callable[[str], np.ndarray]]:
+    """A reader of `<video>#<index>` frames under `footage`, each video opened once."""
     videos: dict[str, VideoFrames] = {}
-    scores: list[float] = []
+
+    def read(frame_id: str) -> np.ndarray:
+        video, index = video_frame(frame_id)
+        if video not in videos:
+            videos[video] = VideoFrames(footage / video)
+        return videos[video].read(index)
+
     try:
-        for frame_id in frame_ids:
-            video, index = video_frame(frame_id)
-            if video not in videos:
-                videos[video] = VideoFrames(footage / video)
-            pixels = videos[video].read(index)
-            cup = find_cup(pixels, line)
-            if cup is None:
-                raise _Refused(f"{frame_id}: no cup wholly in the zone")
-            check, _, _ = check_appearance(pixels, cup.rim[0], cup.inside, model, config)
-            if check.value is None:  # check_appearance always sets the score
-                raise RuntimeError(f"{frame_id}: the appearance check carries no score")
-            scores.append(check.value)
+        yield read
     finally:
         for frames in videos.values():
             frames.close()
+
+
+def _scores(
+    frame_ids: Sequence[str], read: Callable[[str], np.ndarray], config: StationConfig,
+    line: LineConfig, model: LoadedModel,
+) -> list[float]:
+    """Each frame's appearance score, as the line station computes it."""
+    scores: list[float] = []
+    for frame_id in frame_ids:
+        pixels = read(frame_id)
+        cup = find_cup(pixels, line)
+        if cup is None:
+            raise _Refused(f"{frame_id}: no cup wholly in the zone")
+        check, _, _ = check_appearance(pixels, cup.rim[0], cup.inside, model, config)
+        if check.value is None:  # check_appearance always sets the score
+            raise RuntimeError(f"{frame_id}: the appearance check carries no score")
+        scores.append(check.value)
     return scores
 
 
@@ -131,9 +142,9 @@ def _report(args: argparse.Namespace, make_scorer: Callable[[str, np.ndarray], S
     if seen:
         raise _Refused(f"{seen[0]}: the model was trained on this held-out frame; use the "
                        "labels and --gap-s it was trained with")
-    footage = Path(args.footage)
-    calibrate = _scores(split.calibrate, footage, config, line, model)
-    test = _scores(split.test, footage, config, line, model)
+    with _footage_frames(Path(args.footage)) as read:
+        calibrate = _scores(split.calibrate, read, config, line, model)
+        test = _scores(split.test, read, config, line, model)
     choice = choose_threshold(
         [UnitScore(f, s, geometry_failed=False) for f, s in zip(split.calibrate, calibrate,
                                                                  strict=True)],

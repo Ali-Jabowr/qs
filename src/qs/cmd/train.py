@@ -42,7 +42,7 @@ from qs.config import LineConfig, StationConfig, load_config
 from qs.errors import ConfigError, InferenceError, PlacementFault
 from qs.eval.line_split import LineSplitError, split_units, video_frame
 from qs.inspector.appearance import real_cuda_available
-from qs.inspector.bundle import PRODUCT, BundleInfo, ImageRecord, write_bundle
+from qs.inspector.bundle import PRODUCT, BundleInfo, ImageRecord, pixels_sha256, write_bundle
 from qs.inspector.cup import find_cup
 from qs.inspector.localize import localize
 from qs.inspector.model import FitSettings, PatchCore, device_for
@@ -242,8 +242,7 @@ def _line_inputs(
                 raise _Refused(f"{frame_id}: no cup wholly in the zone")
             window, _ = cut_window(pixels, cup.rim[0], args.window_px)
             inputs.append(to_input(window, args.input_px))
-            digest = hashlib.sha256(pixels.tobytes()).hexdigest()
-            images.append(ImageRecord(frame_id, video, digest))
+            images.append(ImageRecord(frame_id, video, pixels_sha256(pixels)))
     except FrameReadError as exc:
         raise _CannotRun(f"footage: {exc}") from None
     finally:

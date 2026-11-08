@@ -85,6 +85,11 @@ class ImageRecord:
     sha256: str
 
 
+def pixels_sha256(pixels: np.ndarray) -> str:
+    """The SHA-256 a line frame's `ImageRecord` holds: that of its decoded pixels."""
+    return hashlib.sha256(pixels.tobytes()).hexdigest()
+
+
 @dataclass(frozen=True, slots=True)
 class BundleInfo:
     """What a caller knows about a fit; the pins and library versions are added on write."""
