@@ -30,7 +30,7 @@ import numpy as np
 from qs.cmd.train import DEFAULT_GAP_S, non_negative_float
 from qs.config import LineConfig, StationConfig, load_config
 from qs.errors import ConfigError
-from qs.eval.line_split import LineSplitError, split_frames, video_frame
+from qs.eval.line_split import LineSplitError, split_units, video_frame
 from qs.eval.stats import upper_bound
 from qs.eval.threshold import UnitScore, choose_threshold
 from qs.inspector.appearance import (
@@ -117,9 +117,8 @@ def _report(args: argparse.Namespace, make_scorer: Callable[[str, np.ndarray], S
     if not labels_path.is_file():
         raise _CannotRun(f"labels file {labels_path} not found")
     labels = load_labels(labels_path, labels_path.stem)
-    good = [frame_id for frame_id, frame in labels.frames.items() if frame.label == "unit"]
     try:
-        split = split_frames(good, fps=fps, gap_s=args.gap_s)
+        split = split_units(labels, fps=fps, gap_s=args.gap_s)
     except LineSplitError as exc:
         raise _Refused(str(exc)) from None
     if not split.calibrate or not split.test:

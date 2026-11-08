@@ -47,6 +47,7 @@ import yaml
 
 from qs.config import StationConfig, load_config
 from qs.errors import ConfigError, InferenceError, PlacementFault
+from qs.inspector.appearance import real_cuda_available
 from qs.inspector.geometry import GeometryMeasures, measure
 from qs.inspector.localize import Silhouette, localize
 from qs.inspector.model import FitSettings, PatchCore, Scorer, device_for
@@ -73,12 +74,6 @@ def _real_patchcore(device: str) -> PatchCore:
     from qs.inspector.patchcore import AnomalibPatchCore
 
     return AnomalibPatchCore(device)
-
-
-def _cuda_available() -> bool:
-    from qs.inspector.patchcore import cuda_available
-
-    return cuda_available()
 
 
 def _first_line(exc: BaseException) -> str:
@@ -474,7 +469,7 @@ def main(
     args: argparse.Namespace,
     *,
     make_patchcore: Callable[[str], PatchCore] = _real_patchcore,
-    cuda_available: Callable[[], bool] = _cuda_available,
+    cuda_available: Callable[[], bool] = real_cuda_available,
 ) -> int:
     """Report one pilot session; 0 recommended, 1 refused or nothing passed, 2 cannot run."""
     try:

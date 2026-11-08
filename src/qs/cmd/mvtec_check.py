@@ -42,6 +42,7 @@ import cv2
 import numpy as np
 
 from qs.errors import ConfigError, InferenceError
+from qs.inspector.appearance import real_cuda_available
 from qs.inspector.bundle import (
     PRODUCT,
     Bundle,
@@ -92,12 +93,6 @@ def _real_patchcore(device: str) -> PatchCore:
     from qs.inspector.patchcore import AnomalibPatchCore
 
     return AnomalibPatchCore(device)
-
-
-def _cuda_available() -> bool:
-    from qs.inspector.patchcore import cuda_available
-
-    return cuda_available()
 
 
 def _hide_cuda() -> None:
@@ -322,7 +317,7 @@ def main(
     args: argparse.Namespace,
     *,
     make_patchcore: Callable[[str], PatchCore] = _real_patchcore,
-    cuda_available: Callable[[], bool] = _cuda_available,
+    cuda_available: Callable[[], bool] = real_cuda_available,
     hide_cuda: Callable[[], None] = _hide_cuda,
 ) -> int:
     """Check one MVTec category; 0 on the pass line, 1 below it or non-square, 2 cannot run."""

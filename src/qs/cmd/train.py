@@ -40,7 +40,8 @@ import numpy as np
 
 from qs.config import LineConfig, StationConfig, load_config
 from qs.errors import ConfigError, InferenceError, PlacementFault
-from qs.eval.line_split import LineSplitError, split_frames, video_frame
+from qs.eval.line_split import LineSplitError, split_units, video_frame
+from qs.inspector.appearance import real_cuda_available
 from qs.inspector.bundle import PRODUCT, BundleInfo, ImageRecord, write_bundle
 from qs.inspector.cup import find_cup
 from qs.inspector.localize import localize
@@ -164,12 +165,6 @@ def _real_patchcore(device: str) -> PatchCore:
     return AnomalibPatchCore(device)
 
 
-def _cuda_available() -> bool:
-    from qs.inspector.patchcore import cuda_available
-
-    return cuda_available()
-
-
 def _first_line(exc: BaseException) -> str:
     text = str(exc).strip()
     return text.splitlines()[0] if text else type(exc).__name__
@@ -179,7 +174,7 @@ def main(
     args: argparse.Namespace,
     *,
     make_patchcore: Callable[[str], PatchCore] = _real_patchcore,
-    cuda_available: Callable[[], bool] = _cuda_available,
+    cuda_available: Callable[[], bool] = real_cuda_available,
 ) -> int:
     """Train one bundle; 0 written, 1 refused, 2 could not run."""
     try:
@@ -226,10 +221,9 @@ def _line_inputs(
         labels = load_labels(labels_path, labels_path.stem)
     except LabelsError as exc:
         raise _CannotRun(f"labels: {exc}") from None
-    good = [frame_id for frame_id, frame in labels.frames.items() if frame.label == "unit"]
     try:
         gap_s = DEFAULT_GAP_S if args.gap_s is None else args.gap_s
-        split = split_frames(good, fps=line.fps, gap_s=gap_s)
+        split = split_units(labels, fps=line.fps, gap_s=gap_s)
     except LineSplitError as exc:
         raise _Refused(str(exc)) from None
     if not split.train:

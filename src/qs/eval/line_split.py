@@ -14,6 +14,8 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass
 
+from qs.labels import Labels
+
 
 class LineSplitError(ValueError):
     """A frame id the split cannot place."""
@@ -39,6 +41,13 @@ def video_frame(frame_id: str) -> tuple[str, int]:
     if not sep or not video or not index.isdigit():
         raise LineSplitError(f"{frame_id!r} is not a video frame (<video file name>#<index>)")
     return video, int(index)
+
+
+def split_units(labels: Labels, *, fps: float, gap_s: float) -> LineSplit:
+    """The split of the frames `labels` marks `unit`: the one `qs train` fits on and `qs
+    line-alarms` reads back, so both always cut at the same frames."""
+    good = [frame_id for frame_id, frame in labels.frames.items() if frame.label == "unit"]
+    return split_frames(good, fps=fps, gap_s=gap_s)
 
 
 def split_frames(frame_ids: Iterable[str], *, fps: float, gap_s: float) -> LineSplit:
