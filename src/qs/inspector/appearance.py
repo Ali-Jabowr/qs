@@ -56,6 +56,55 @@ def _cuda_available() -> bool:
     return cuda_available()
 
 
+def load_scorer(
+    models_root: Path,
+    config: StationConfig,
+    *,
+    validation: bool,
+    make_scorer: Callable[[str, np.ndarray], Scorer],
+    cuda_available: Callable[[], bool],
+) -> tuple[Bundle, Scorer]:
+    """The verified bundle `config.inspector.model` names and its scorer, warmed up on a black
+    window."""
+    bundle = load_bundle(models_root, config.inspector.model, validation=validation)
+    device = device_for(config.inspector.backend, cuda_available=cuda_available())
+    scorer = make_scorer(device, bundle.bank)
+    black = np.zeros((bundle.window_px, bundle.window_px, 3), dtype=np.uint8)
+    scorer.score(to_input(black, bundle.input_px))
+    return bundle, scorer
+
+
+def check_appearance(
+    pixels: np.ndarray,
+    centre: tuple[float, float],
+    mask: np.ndarray,
+    bundle: Bundle,
+    scorer: Scorer,
+    config: StationConfig,
+) -> tuple[CheckResult, np.ndarray, tuple[int, int, int, int]]:
+    """The appearance check on the window centred on `centre`, with the map masked to the
+    frame-sized `mask`: the check, the heatmap and the window's box."""
+    window, window_box = cut_window(pixels, centre, bundle.window_px)
+    scored = scorer.score(to_input(window, bundle.input_px))
+    heatmap, score = score_map(
+        scored.anomaly_map, mask, window_box, bundle.window_px, config.inspector.mask_dilate_px
+    )
+    pred_score = float(scored.pred_score)
+    if not math.isfinite(pred_score):
+        raise InferenceError(f"the model's pred_score {pred_score} is not finite")
+    limit = config.threshold.value
+    passed = score <= limit
+    check = CheckResult(
+        name=CHECK_APPEARANCE,
+        passed=passed,
+        value=score,
+        limit=limit,
+        measures=(("pred_score", pred_score),),
+        failed_on=None if passed else "score>threshold",
+    )
+    return check, heatmap, window_box
+
+
 @dataclass(frozen=True, slots=True)
 class _Loaded:
     """Everything `load` fixed: the config, the verified bundle and its scorer."""
@@ -100,13 +149,10 @@ class AppearanceInspector:
     def load(self, config: StationConfig) -> None:
         """Load, verify and warm up the bundle `config.inspector.model` names."""
         self._loaded = None
-        bundle = load_bundle(
-            self._models_root, config.inspector.model, validation=self._validation
+        bundle, scorer = load_scorer(
+            self._models_root, config, validation=self._validation,
+            make_scorer=self._make_scorer, cuda_available=self._cuda_available,
         )
-        device = device_for(config.inspector.backend, cuda_available=self._cuda_available())
-        scorer = self._make_scorer(device, bundle.bank)
-        black = np.zeros((bundle.window_px, bundle.window_px, 3), dtype=np.uint8)
-        scorer.score(to_input(black, bundle.input_px))
         self._loaded = _Loaded(config, bundle, scorer)
 
     def inspect(self, frame: Frame) -> Verdict:
@@ -124,24 +170,8 @@ class AppearanceInspector:
             if CHECK_GEOMETRY in listed
             else None
         )
-        window, window_box = cut_window(pixels, silhouette.centroid, bundle.window_px)
-        scored = loaded.scorer.score(to_input(window, bundle.input_px))
-        heatmap, score = score_map(
-            scored.anomaly_map, silhouette.mask, window_box, bundle.window_px,
-            config.inspector.mask_dilate_px,
-        )
-        pred_score = float(scored.pred_score)
-        if not math.isfinite(pred_score):
-            raise InferenceError(f"the model's pred_score {pred_score} is not finite")
-        limit = config.threshold.value
-        passed = score <= limit
-        appearance = CheckResult(
-            name=CHECK_APPEARANCE,
-            passed=passed,
-            value=score,
-            limit=limit,
-            measures=(("pred_score", pred_score),),
-            failed_on=None if passed else "score>threshold",
+        appearance, heatmap, window_box = check_appearance(
+            pixels, silhouette.centroid, silhouette.mask, bundle, loaded.scorer, config
         )
         checks = (appearance,) if geometry is None else (geometry, appearance)
         return Verdict(
