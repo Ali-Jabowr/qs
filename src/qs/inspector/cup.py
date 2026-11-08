@@ -13,6 +13,10 @@ frames.
 
 `find_rims(pixels, LineConfig)` applies the same rim rules without the zone: every cup in the
 frame, each once, saying whether it is wholly in the zone. The cup trigger follows cups with it.
+
+`no_cup_reason(pixels, LineConfig)` says why `find_cup` found nothing. When every traced ellipse
+failed `rim_axis_px`, it names the size and the largest one's axes, so a camera remounted at
+another scale is not logged as a cup out of position. A round glare patch counts here too.
 """
 
 from __future__ import annotations
@@ -137,8 +141,22 @@ def find_cup(pixels: np.ndarray, config: LineConfig) -> Cup | None:
 
 
 def no_cup_reason(pixels: np.ndarray, config: LineConfig) -> str:
-    """Why `find_cup` found no cup in `pixels`, for the log of a frame it returned None for."""
-    return "no cup wholly in the zone"
+    """Why `find_cup` found no cup in `pixels`, for the log of a frame it returned None for.
+
+    When ellipses were traced but none is the size of `rim_axis_px`, the reason says so with the
+    largest one's axes, as a remounted camera sees cups at another scale. Otherwise the reason is
+    position, or no rim at all, as before.
+    """
+    reason = "no cup wholly in the zone"
+    traced = _traced_ellipses(pixels)
+    if not traced or any(_rim_sized(e, config) for e in traced):
+        return reason
+    low, high = config.rim_axis_px
+    _, (first, second), _ = max(traced, key=_area)
+    return (
+        f"{reason}: no rim the size of rim_axis_px {low}–{high}, "
+        f"the largest seen is {first:.0f}×{second:.0f} px"
+    )
 
 
 def find_rims(pixels: np.ndarray, config: LineConfig) -> tuple[Rim, ...]:
