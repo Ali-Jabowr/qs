@@ -1,12 +1,17 @@
 """The station config: a strict loader over `yaml.safe_load`, and its canonical hash.
 
-Nothing here has a default — a missing key is a `ConfigError`, never a silent value (C6) —
-and every rule of CONTRACTS §3.3 refuses the config naming the offending key, so a bad
-config fails at start-up instead of quietly ruining a shoot.
+Nothing here has a default — a missing key is a `ConfigError`, never a silent value (C6),
+except `inspector.checks`, which may be left out, `inspector.line`, which only a line inspector
+has, its `direction` and `fps`, which only a cup trigger needs, and `display.pass_expiry_s`,
+`display.ready_line` and `display.placement_line`, which only a line screen sets (#104; left
+out on a line station, the line's own wording fills them) — and every rule of CONTRACTS §3.3
+refuses the config naming the offending key, so a bad config fails at start-up instead of
+quietly ruining a shoot.
 """
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import json
 import math
@@ -19,14 +24,30 @@ from typing import Any
 
 import yaml
 
+from qs.contracts import CHECK_APPEARANCE, CHECK_EMPTY_CUP, CHECK_GEOMETRY
 from qs.errors import ConfigError
 
-_TRIGGER_TYPES = ("keyboard", "replay")
+_TRIGGER_TYPES = ("keyboard", "replay", "cup")
+TRAVEL_DIRECTIONS = ("right", "left", "down", "up")  # the way the chain moves in the picture
 _CAMERA_TYPES = ("webcam", "phone", "replay")
 _CAMERA_FORMATS = ("YUYV", "MJPG")
 _LIGHTING_GEOMETRIES = ("G1", "G2", "G3")
-_INSPECTOR_TYPES = ("appearance", "stub")
+_INSPECTOR_TYPES = ("appearance", "line", "stub")
 _INSPECTOR_BACKENDS = ("torch-cuda", "torch-cpu")
+KNOWN_CHECKS = (CHECK_GEOMETRY, CHECK_APPEARANCE, CHECK_EMPTY_CUP)
+# What a config without `inspector.checks` runs. Fixed on purpose: a check added to
+# KNOWN_CHECKS later must not start running on stations that never asked for it.
+_BENCH_CHECKS = frozenset({CHECK_GEOMETRY, CHECK_APPEARANCE})
+# The check lists a line inspector runs. Any other listed check would never run, and the
+# Pipeline's guard would refuse every verdict. `empty_cup` is in every one: an empty cup is
+# never judged only by a model trained on full cups.
+_LINE_CHECK_SETS = (
+    frozenset({CHECK_EMPTY_CUP}),
+    frozenset({CHECK_EMPTY_CUP, CHECK_APPEARANCE}),
+)
+_LINE_READY = "ГОТОВ"  # a line station's READY line when display.ready_line is left out
+_LINE_PLACEMENT = "стаканчик не проверен"  # and its placement line
+_RIM_AXIS_MIN_PX = 16  # below this, the inside of a found rim has too few pixels to measure
 _MODEL_ID = re.compile(r"^patchcore-[a-z0-9]+(-[a-z0-9]+)*-v\d+-[0-9a-f]{12}$")
 
 
@@ -61,7 +82,7 @@ class ReferencePatchConfig:
 @dataclass(frozen=True, slots=True)
 class LightingConfig:
     geometry: str
-    reference_patch: ReferencePatchConfig
+    reference_patch: ReferencePatchConfig | None  # None: no lighting check; a line station only
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,12 +94,23 @@ class LocalizeConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class LineConfig:
+    zone: tuple[int, int, int, int]
+    rim_axis_px: tuple[int, int]
+    blob_share_min: float
+    direction: str | None = None
+    fps: float | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class InspectorConfig:
     type: str
     localize: LocalizeConfig
     mask_dilate_px: int
     model: str
     backend: str
+    checks: frozenset[str] = _BENCH_CHECKS
+    line: LineConfig | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,6 +149,9 @@ class LabelsConfig:
 class DisplayConfig:
     labels: LabelsConfig
     font: str
+    pass_expiry_s: float | None = None  # None: ГОДЕН stays until the next verdict (the bench)
+    ready_line: str | None = None  # None: the bench's "place the item and press SPACE"
+    placement_line: str | None = None  # None: the bench's "place the item in the frame"
 
 
 @dataclass(frozen=True, slots=True)
@@ -167,8 +202,13 @@ def _mapping(value: object, path: str) -> Mapping[str, Any]:
     return value
 
 
-def _check_keys(mapping: Mapping[str, Any], expected: tuple[str, ...], path: str) -> None:
-    unknown = sorted(set(mapping) - set(expected), key=str)
+def _check_keys(
+    mapping: Mapping[str, Any],
+    expected: tuple[str, ...],
+    path: str,
+    optional: tuple[str, ...] = (),
+) -> None:
+    unknown = sorted(set(mapping) - set(expected) - set(optional), key=str)
     if unknown:
         raise ConfigError("unknown key(s): " + ", ".join(_key(path, str(k)) for k in unknown))
     missing = sorted(set(expected) - set(mapping))
@@ -288,8 +328,10 @@ def _parse_lighting(value: object, path: str) -> LightingConfig:
     _check_keys(mapping, ("geometry", "reference_patch"), path)
     return LightingConfig(
         geometry=_enum(mapping, "geometry", path, _LIGHTING_GEOMETRIES),
-        reference_patch=_parse_reference_patch(
-            mapping["reference_patch"], _key(path, "reference_patch")
+        reference_patch=(
+            None
+            if mapping["reference_patch"] is None
+            else _parse_reference_patch(mapping["reference_patch"], _key(path, "reference_patch"))
         ),
     )
 
@@ -305,15 +347,75 @@ def _parse_localize(value: object, path: str) -> LocalizeConfig:
     )
 
 
+def _refuse_malformed_checks(mapping: Mapping[str, Any], parent: str) -> None:
+    if "checks" not in mapping:
+        return
+    names = mapping["checks"]
+    path = _key(parent, "checks")
+    if not isinstance(names, list):
+        raise ConfigError(f"{path}: expected a list, got {_kind(names)}")
+    if not names:
+        raise ConfigError(f"{path}: must list at least one check")
+    for name in names:
+        if not isinstance(name, str):
+            raise ConfigError(f"{path}: expected a string, got {_kind(name)}")
+        if name not in KNOWN_CHECKS:
+            raise ConfigError(f"{path}: {name!r} is not one of: {', '.join(KNOWN_CHECKS)}")
+        if names.count(name) > 1:
+            raise ConfigError(f"{path}: {name!r} is repeated")
+
+
+def _parse_line(value: object, path: str) -> LineConfig:
+    mapping = _mapping(value, path)
+    _check_keys(
+        mapping, ("zone", "rim_axis_px", "blob_share_min"), path, optional=("direction", "fps")
+    )
+    return LineConfig(
+        zone=_roi(mapping, "zone", path),
+        rim_axis_px=_pair(mapping, "rim_axis_px", path),
+        blob_share_min=_float(mapping, "blob_share_min", path),
+        direction=(
+            _enum(mapping, "direction", path, TRAVEL_DIRECTIONS) if "direction" in mapping else None
+        ),
+        fps=_float(mapping, "fps", path) if "fps" in mapping else None,
+    )
+
+
 def _parse_inspector(value: object, path: str) -> InspectorConfig:
     mapping = _mapping(value, path)
-    _check_keys(mapping, ("type", "localize", "mask_dilate_px", "model", "backend"), path)
+    _check_keys(
+        mapping,
+        ("type", "localize", "mask_dilate_px", "model", "backend"),
+        path,
+        optional=("checks", "line"),
+    )
+    _refuse_malformed_checks(mapping, path)
+    checks = frozenset(mapping["checks"]) if "checks" in mapping else _BENCH_CHECKS
+    inspector_type = _enum(mapping, "type", path, _INSPECTOR_TYPES)
+    if inspector_type == "appearance" and CHECK_APPEARANCE not in checks:
+        # Such a station would load the model and never score with it.
+        raise ConfigError(
+            f"{_key(path, 'checks')}: an appearance inspector must list {CHECK_APPEARANCE!r}"
+        )
+    if inspector_type == "line" and checks not in _LINE_CHECK_SETS:
+        allowed = " or ".join(str(sorted(listed)) for listed in _LINE_CHECK_SETS)
+        raise ConfigError(f"{_key(path, 'checks')}: a line inspector must list {allowed}")
+    if inspector_type != "line" and CHECK_EMPTY_CUP in checks:
+        raise ConfigError(
+            f"{_key(path, 'checks')}: {CHECK_EMPTY_CUP!r} runs only on a line inspector"
+        )
+    if inspector_type == "line" and "line" not in mapping:
+        raise ConfigError(f"{_key(path, 'line')}: a line inspector needs this block")
+    if inspector_type != "line" and "line" in mapping:
+        raise ConfigError(f"{_key(path, 'line')}: only a line inspector takes this block")
     return InspectorConfig(
-        type=_enum(mapping, "type", path, _INSPECTOR_TYPES),
+        type=inspector_type,
         localize=_parse_localize(mapping["localize"], _key(path, "localize")),
         mask_dilate_px=_int(mapping, "mask_dilate_px", path),
         model=_str(mapping, "model", path),
         backend=_enum(mapping, "backend", path, _INSPECTOR_BACKENDS),
+        checks=checks,
+        line=_parse_line(mapping["line"], _key(path, "line")) if "line" in mapping else None,
     )
 
 
@@ -367,10 +469,20 @@ def _parse_labels(value: object, path: str) -> LabelsConfig:
 
 def _parse_display(value: object, path: str) -> DisplayConfig:
     mapping = _mapping(value, path)
-    _check_keys(mapping, ("labels", "font"), path)
+    _check_keys(
+        mapping, ("labels", "font"), path,
+        optional=("pass_expiry_s", "ready_line", "placement_line"),
+    )
     return DisplayConfig(
         labels=_parse_labels(mapping["labels"], _key(path, "labels")),
         font=_str(mapping, "font", path),
+        pass_expiry_s=(
+            _float(mapping, "pass_expiry_s", path) if "pass_expiry_s" in mapping else None
+        ),
+        ready_line=_str(mapping, "ready_line", path) if "ready_line" in mapping else None,
+        placement_line=(
+            _str(mapping, "placement_line", path) if "placement_line" in mapping else None
+        ),
     )
 
 
@@ -410,7 +522,7 @@ def _parse_station(mapping: Mapping[str, Any]) -> StationConfig:
         ),
         "",
     )
-    return StationConfig(
+    config = StationConfig(
         version=_int(mapping, "version", ""),
         station_id=_str(mapping, "station_id", ""),
         product=_str(mapping, "product", ""),
@@ -423,6 +535,21 @@ def _parse_station(mapping: Mapping[str, Any]) -> StationConfig:
         evidence=_parse_evidence(mapping["evidence"], "evidence"),
         latency=_parse_latency(mapping["latency"], "latency"),
     )
+    return dataclasses.replace(config, display=_line_wording(config.display, config.inspector))
+
+
+def _line_wording(display: DisplayConfig, inspector: InspectorConfig) -> DisplayConfig:
+    """A line station's display, with the line's wording wherever the file leaves it out, so a
+    line never shows the bench's "place the item and press SPACE"."""
+    if inspector.type != "line":
+        return display
+    return dataclasses.replace(
+        display,
+        ready_line=display.ready_line if display.ready_line is not None else _LINE_READY,
+        placement_line=(
+            display.placement_line if display.placement_line is not None else _LINE_PLACEMENT
+        ),
+    )
 
 
 def _overlaps(a: tuple[int, int, int, int], b: tuple[int, int, int, int]) -> bool:
@@ -431,7 +558,47 @@ def _overlaps(a: tuple[int, int, int, int], b: tuple[int, int, int, int]) -> boo
     return ax < bx + bw and bx < ax + aw and ay < by + bh and by < ay + ah
 
 
+def _check_in_frame(path: str, roi: tuple[int, int, int, int], config: StationConfig) -> None:
+    x, y, w, h = roi
+    width, height = config.camera.width, config.camera.height
+    if x < 0 or y < 0 or w < 1 or h < 1 or x + w > width or y + h > height:
+        raise ConfigError(f"{path}: [{x}, {y}, {w}, {h}] is outside the {width}x{height} frame")
+
+
+def _validate_line(line: LineConfig, config: StationConfig) -> None:
+    _check_in_frame("inspector.line.zone", line.zone, config)
+    patch = config.lighting.reference_patch
+    if patch is not None and _overlaps(patch.roi, line.zone):
+        raise ConfigError(
+            "lighting.reference_patch.roi: overlaps inspector.line.zone — the grey card "
+            "would be read as part of the view of a cup"
+        )
+    low, high = line.rim_axis_px
+    if low >= high:
+        raise ConfigError(f"inspector.line.rim_axis_px: min {low} is not below max {high}")
+    if low < _RIM_AXIS_MIN_PX:
+        raise ConfigError(f"inspector.line.rim_axis_px: min {low} is below {_RIM_AXIS_MIN_PX}")
+    if not 0 < line.blob_share_min < 1:
+        raise ConfigError(f"inspector.line.blob_share_min: {line.blob_share_min} is outside (0, 1)")
+    if line.fps is not None and (not math.isfinite(line.fps) or line.fps <= 0):
+        raise ConfigError(f"inspector.line.fps: {line.fps} is not a finite number above 0")
+
+
+def _validate_cup_trigger(config: StationConfig) -> None:
+    line = config.inspector.line
+    if line is None:
+        raise ConfigError("trigger.type: cup needs inspector.line, with its inspection zone")
+    if line.direction is None:
+        raise ConfigError("inspector.line.direction: a cup trigger needs this key")
+    if line.fps is None:
+        raise ConfigError("inspector.line.fps: a cup trigger needs this key")
+
+
 def _validate(config: StationConfig) -> None:
+    if config.inspector.line is not None:
+        _validate_line(config.inspector.line, config)
+    if config.trigger.type == "cup":
+        _validate_cup_trigger(config)
     if config.camera.exposure_us <= 0:
         raise ConfigError(f"camera.exposure_us: {config.camera.exposure_us} is not above 0")
     if config.camera.power_line_hz == 50 and config.camera.exposure_us % 10000 != 0:
@@ -439,23 +606,23 @@ def _validate(config: StationConfig) -> None:
             f"camera.exposure_us: {config.camera.exposure_us} is not a multiple of 10000 "
             "(10 ms), required with 50 Hz mains to avoid flicker banding"
         )
-    patch = config.lighting.reference_patch.roi
-    localize = config.inspector.localize.roi
-    if _overlaps(patch, localize):
+    reference_patch = config.lighting.reference_patch
+    if reference_patch is None and config.inspector.line is None:
         raise ConfigError(
-            "lighting.reference_patch.roi: overlaps inspector.localize.roi — the localiser "
-            "would find the grey card as a unit"
+            "lighting.reference_patch: only a line station may run without it — the bench "
+            "judges lighting on every frame (FR-14)"
         )
-    width = config.camera.width
-    height = config.camera.height
-    for path, (x, y, w, h) in (
-        ("lighting.reference_patch.roi", patch),
-        ("inspector.localize.roi", localize),
-    ):
-        if x < 0 or y < 0 or w < 1 or h < 1 or x + w > width or y + h > height:
+    localize = config.inspector.localize.roi
+    rois = [("inspector.localize.roi", localize)]
+    if reference_patch is not None:
+        if _overlaps(reference_patch.roi, localize):
             raise ConfigError(
-                f"{path}: [{x}, {y}, {w}, {h}] is outside the {width}x{height} frame"
+                "lighting.reference_patch.roi: overlaps inspector.localize.roi — the localiser "
+                "would find the grey card as a unit"
             )
+        rois.insert(0, ("lighting.reference_patch.roi", reference_patch.roi))
+    for path, roi in rois:
+        _check_in_frame(path, roi, config)
     if _MODEL_ID.fullmatch(config.inspector.model) is None:
         raise ConfigError(
             f"inspector.model: {config.inspector.model!r} is not a full model_id — expected "
@@ -493,21 +660,27 @@ def _validate(config: StationConfig) -> None:
     ):
         if not 0 < value <= 1:
             raise ConfigError(f"{path}: {value} is outside (0, 1]")
-    reference_patch = config.lighting.reference_patch
-    for path, value in (
-        ("lighting.reference_patch.band", reference_patch.band),
-        ("lighting.reference_patch.expect", reference_patch.expect),
-    ):
-        if not 0 < value < 1:
-            raise ConfigError(f"{path}: {value} is outside (0, 1)")
-    labels = config.display.labels
+    if reference_patch is not None:
+        for path, value in (
+            ("lighting.reference_patch.band", reference_patch.band),
+            ("lighting.reference_patch.expect", reference_patch.expect),
+        ):
+            if not 0 < value < 1:
+                raise ConfigError(f"{path}: {value} is outside (0, 1)")
+    display = config.display
+    labels = display.labels
     for path, text in (
         ("display.labels.pass", labels.pass_),
         ("display.labels.defect", labels.defect),
         ("display.labels.no_verdict", labels.no_verdict),
+        ("display.ready_line", display.ready_line),
+        ("display.placement_line", display.placement_line),
     ):
-        if not text.strip():
+        if text is not None and not text.strip():
             raise ConfigError(f"{path}: must not be empty or whitespace-only")
+    expiry = display.pass_expiry_s
+    if expiry is not None and not (math.isfinite(expiry) and expiry > 0):
+        raise ConfigError(f"display.pass_expiry_s: {expiry} is not a finite number above 0")
     threshold = config.threshold.value
     if not math.isfinite(threshold) or threshold <= 0:
         raise ConfigError(

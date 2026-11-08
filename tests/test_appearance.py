@@ -373,3 +373,56 @@ def test_a_frame_between_two_others_is_judged_alone(
     inspector.inspect(frame_of(_disc(210, (900, 500)), seq=2))
     again = inspector.inspect(frame_of(_disc(190), seq=3))
     _same_but_timing(alone, again)
+
+
+def _appearance_only(tmp_path: Path, models: Path) -> LoadedConfig:
+    return config_naming(
+        tmp_path, _bundle(models),
+        replace=(("  type: appearance\n", "  type: appearance\n  checks: [appearance]\n"),),
+    )
+
+
+def _inspected_without_geometry(
+    tmp_path: Path, models: Path, value: float, radius: int = 190
+) -> Verdict:
+    loaded = _appearance_only(tmp_path, models)
+    inspector, _ = _inspector(loaded, models, ConstantScorer(value))
+    inspector.load(loaded.config)
+    return inspector.inspect(frame_of(_disc(radius)))
+
+
+def test_a_station_without_geometry_passes_an_oversized_disc_on_appearance_alone(
+    tmp_path: Path, models: Path
+) -> None:
+    verdict = _inspected_without_geometry(tmp_path, models, 0.5, radius=210)
+    assert verdict.label is Label.PASS
+    assert [check.name for check in verdict.checks] == [CHECK_APPEARANCE]
+    assert verdict.checks[0].passed is True
+    assert verdict.checks[0].value == 0.5
+
+
+def test_a_station_without_geometry_still_fails_a_high_score(
+    tmp_path: Path, models: Path
+) -> None:
+    verdict = _inspected_without_geometry(tmp_path, models, 1.8301)
+    assert verdict.label is Label.DEFECT
+    assert [check.name for check in verdict.checks] == [CHECK_APPEARANCE]
+
+
+def test_a_station_without_geometry_still_centres_the_window_on_the_unit(
+    tmp_path: Path, models: Path
+) -> None:
+    verdict = _inspected_without_geometry(tmp_path, models, 0.5, radius=210)
+    assert verdict.window_box == (760, 340, WINDOW_PX, WINDOW_PX)
+    assert verdict.unit_box == (750, 330, 421, 421)
+
+
+def test_a_station_without_geometry_still_needs_a_unit_in_the_frame(
+    tmp_path: Path, models: Path
+) -> None:
+    loaded = _appearance_only(tmp_path, models)
+    inspector, _ = _inspector(loaded, models, ConstantScorer(0.5))
+    inspector.load(loaded.config)
+    with pytest.raises(PlacementFault) as caught:
+        inspector.inspect(frame_of(Paint().floor()))
+    assert caught.value.detail == "no unit"

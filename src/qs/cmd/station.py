@@ -13,6 +13,11 @@ keeps retrying (docs/16 §2). Its real run waits for the webcam (#85, A1).
 never rewritten, and its hash is still the file's), the Inspector the config names,
 `NullAnnunciator`, and `SqliteSink`.
 
+**Line replay** (`--replay DIR` on a config with `trigger.type: cup`, ADR-0028) plays `DIR` as one
+recording at `inspector.line.fps`: the cup trigger reads the frames as previews and fires once per
+cup, so a run has one record per cup and not one per file. It has no screen mode and no live mode
+yet.
+
 **Key-paced replay on the screen** (`--replay DIR --screen`, P09 #89) is what the station runs
 on until the webcam arrives (#85, assumption A1). It opens the operator window (ADR-0018),
 arms `KeyboardTrigger` on the config's key, and shows every event through
@@ -52,12 +57,14 @@ from qs.annunciator import NullAnnunciator
 from qs.config import DisplayConfig, LoadedConfig, StationConfig, load_config
 from qs.contracts import FrameSource, Inspector, TriggerSource
 from qs.errors import ConfigError
+from qs.inspector.appearance import real_cuda_available, real_scorer
 from qs.keyboard import KeyboardTrigger
 from qs.pipeline import Clock, Pipeline, Shows, StationSink, WallClock, utc_now
 from qs.screen import Screen, ScreenLike
 from qs.screen_annunciator import ScreenAnnunciator
 from qs.sink import SqliteSink
 from qs.sources.factory import SourceUnavailable, frame_source
+from qs.sources.line_replay import line_replay_pair
 from qs.sources.replay import ReplayError, ReplaySource, replay_files, replay_pair
 from qs.station import (
     MakeScorer,
@@ -66,8 +73,6 @@ from qs.station import (
     StartupRefused,
     Station,
     build_inspector,
-    real_cuda_available,
-    real_scorer,
 )
 from qs.station_report import RunFacts, nfr01_line, render_report
 from qs.store import DB_NAME
@@ -134,7 +139,7 @@ def main(
     make_annunciator: Callable[[], Shows] = NullAnnunciator,
     wrap_source: Callable[[FrameSource], FrameSource] = _identity,
     make_screen: MakeScreen = default_screen,
-    make_screen_annunciator: MakeScreenAnnunciator = ScreenAnnunciator,
+    make_screen_annunciator: MakeScreenAnnunciator | None = None,
     make_source: Callable[[StationConfig], FrameSource] = frame_source,
     sleep: Callable[[float], None] = time.sleep,
     clock: Clock = time.perf_counter,
@@ -143,7 +148,8 @@ def main(
     """Run the station; 0, 1 or 2 as the module says. `make_inspector` replaces the Inspector
     the config names; by default it is built from the config with `make_scorer` and
     `cuda_available`. `make_screen`, `make_screen_annunciator` and `sleep` are the screen
-    modes' seams, and `make_source` the live camera's."""
+    modes' seams, and `make_source` the live camera's. Without `make_screen_annunciator`, a
+    `ScreenAnnunciator` runs on `clock`."""
     try:
         loaded = load_config(Path(args.config))
     except ConfigError as exc:
@@ -176,12 +182,19 @@ def main(
     replay_name = directory.resolve().name
     if not live:
         source_id = f"replay:{replay_name}"
+    if screen_mode and not live and config.trigger.type == "cup":
+        print("--screen has no cup trigger: each SPACE press takes a frame; leave it out")
+        return 2
     try:
         if not live:
             files = replay_files(directory)
             frames = len(files)
             if screen_mode:
                 source = ReplaySource(config, files, clock=clock)
+            elif config.trigger.type == "cup":
+                trigger, source = line_replay_pair(
+                    config, files, replay_name, clock=clock, wall=wall
+                )
             else:
                 trigger, source = replay_pair(config, files, replay_name, clock=clock, wall=wall)
         if make_inspector is None:
@@ -201,7 +214,10 @@ def main(
         except tkinter.TclError:
             print(NO_DISPLAY)
             return 2
-        screen_annunciator = make_screen_annunciator(config, screen)
+        if make_screen_annunciator is None:  # on the station's clock, so ГОДЕН expires on it
+            screen_annunciator: Refreshes = ScreenAnnunciator(config, screen, clock=clock)
+        else:
+            screen_annunciator = make_screen_annunciator(config, screen)
         loop = ScreenLoop(screen, screen_annunciator, sleep, frames, source_id)
         annunciator = screen_annunciator
         # Late-bound: armed() is read at each poll, once the station below exists.

@@ -1,0 +1,150 @@
+"""`LineInspector`: the line station's `Inspector` — one frame, one cup, one verdict (ADR-0028).
+
+`load(config)` keeps the config. Without `appearance` in `inspector.checks` there is no model
+to load, so `model_id` is `"none"` and no record of this inspector can be mistaken for a
+model's. With it, the bundle `inspector.model` names is loaded, verified and warmed up as on
+`AppearanceInspector`, and `model_id` is the bundle's.
+
+`inspect(frame)` finds the cup wholly in the inspection zone (`find_cup`); no such cup is a
+`PlacementFault`. Then the empty-cup check, measured from the inside of the found cup and never
+learned: `blob_share` is the share of the cup's middle covered by the largest single region that
+looks different from the cup's own inner edge. A моти is one large such region. An empty cup
+shows the same floor and steel in the middle as at the edge, so only small marks differ. A
+saturated pixel is glare and never part of the region, so a large glare patch cannot pass an
+empty cup. The check passes when `blob_share` is at least `inspector.line.blob_share_min`. The
+limit has only been tried on drawn frames. With `appearance` listed, the window is then centred
+on the rim's centre, as `qs train` cut the training windows, scored, and its map masked to the
+cup's inside (ADR-0009); it runs on an empty cup too, so every record holds both checks. Pure:
+no I/O, the frame is only ever read, and nothing changes between frames (C1, C2).
+"""
+
+from __future__ import annotations
+
+import math
+import time
+from collections.abc import Callable
+from pathlib import Path
+
+import cv2
+import numpy as np
+
+from qs.config import LineConfig, StationConfig
+from qs.contracts import (
+    CHECK_APPEARANCE,
+    CHECK_EMPTY_CUP,
+    CheckResult,
+    Frame,
+    Verdict,
+    derive_label,
+)
+from qs.errors import ConfigError, InferenceError, PlacementFault
+from qs.inspector.appearance import (
+    LoadedModel,
+    check_appearance,
+    load_model,
+    real_cuda_available,
+    real_scorer,
+)
+from qs.inspector.cup import find_cup
+from qs.inspector.model import Scorer
+
+LINE_MODEL_ID = "none"
+_EDGE_BAND_SHARE = 0.2  # the inner edge's width, as a share of the inside's radius
+_DIFFERS_BY = 25  # grey levels, on any one channel, for a pixel to differ from the inner edge
+_GLARE_MIN = 245  # every channel at or above this is glare: it counts as no blob, however large
+
+
+def blob_share(pixels: np.ndarray, inside: np.ndarray) -> float:
+    """The share of the middle of `inside` covered by its largest region unlike the inner edge."""
+    radius = math.sqrt(np.count_nonzero(inside) / math.pi)
+    side = 2 * max(1, round(radius * _EDGE_BAND_SHARE)) + 1
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (side, side))
+    middle = cv2.erode(inside.astype(np.uint8), kernel).astype(bool)
+    reference = np.median(pixels[inside & ~middle], axis=0)
+    differs = np.abs(pixels.astype(np.int16) - reference).max(axis=2) > _DIFFERS_BY
+    differs &= pixels.min(axis=2) < _GLARE_MIN
+    count, _, stats, _ = cv2.connectedComponentsWithStats(
+        (differs & middle).astype(np.uint8), connectivity=4
+    )
+    largest = int(stats[1:, cv2.CC_STAT_AREA].max()) if count > 1 else 0
+    return largest / int(np.count_nonzero(middle))
+
+
+class LineInspector:
+    """The `Inspector` of a line station. `config_hash` is the loaded config's hash (C6);
+    `models_root`, `make_scorer` and `cuda_available` are used only when `appearance` is listed,
+    as on `AppearanceInspector`."""
+
+    def __init__(
+        self,
+        config_hash: str,
+        models_root: str | Path = "models",
+        *,
+        make_scorer: Callable[[str, np.ndarray], Scorer] = real_scorer,
+        cuda_available: Callable[[], bool] = real_cuda_available,
+    ) -> None:
+        self._config_hash = config_hash
+        self._models_root = Path(models_root)
+        self._make_scorer = make_scorer
+        self._cuda_available = cuda_available
+        self._config: StationConfig | None = None
+        self._line: LineConfig | None = None
+        self._appearance: LoadedModel | None = None
+
+    @property
+    def model_id(self) -> str:
+        """The loaded bundle's `model_id` when `appearance` is listed, else `"none"`."""
+        return LINE_MODEL_ID if self._appearance is None else self._appearance.bundle.model_id
+
+    def load(self, config: StationConfig) -> None:
+        if config.inspector.line is None:
+            raise ConfigError("inspector.line: a line inspector needs this block")
+        self._config = None
+        self._line = None
+        self._appearance = None
+        if CHECK_APPEARANCE in config.inspector.checks:
+            self._appearance = load_model(
+                self._models_root, config, validation=False,
+                make_scorer=self._make_scorer, cuda_available=self._cuda_available,
+            )
+        self._config = config
+        self._line = config.inspector.line
+
+    def inspect(self, frame: Frame) -> Verdict:
+        """One `Verdict` carrying the empty-cup check (C8)."""
+        start = time.perf_counter()
+        config, line = self._config, self._line
+        if config is None or line is None:
+            raise InferenceError("the line inspector was not loaded")
+        cup = find_cup(frame.pixels, line)
+        if cup is None:
+            raise PlacementFault("no cup wholly in the zone")
+        share = blob_share(frame.pixels, cup.inside)
+        passed = share >= line.blob_share_min
+        check = CheckResult(
+            name=CHECK_EMPTY_CUP,
+            passed=passed,
+            value=share,
+            limit=line.blob_share_min,
+            measures=(("rim_axis_a_px", cup.rim[1][0]), ("rim_axis_b_px", cup.rim[1][1])),
+            failed_on=None if passed else "blob_share<min",
+        )
+        checks: tuple[CheckResult, ...] = (check,)
+        heatmap, window_box = None, None
+        if self._appearance is not None:
+            # Run on an empty cup too: one path, and every record holds both checks.
+            appearance, heatmap, window_box = check_appearance(
+                frame.pixels, cup.rim[0], cup.inside, self._appearance, config
+            )
+            checks = (check, appearance)
+        return Verdict(
+            label=derive_label(checks, config.inspector.checks),
+            checks=checks,
+            heatmap=heatmap,
+            window_box=window_box,
+            unit_box=cup.box,
+            model_id=self.model_id,
+            threshold_id=config.threshold.id,
+            config_hash=self._config_hash,
+            inspect_ms=(time.perf_counter() - start) * 1000.0,
+        )

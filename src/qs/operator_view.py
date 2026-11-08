@@ -134,17 +134,22 @@ class View:
     recent: tuple[tuple[int | None, Label], ...]  # oldest first
 
 
-def status_line(status: Status, labels: LabelsConfig) -> str:
-    """The status bar's text."""
+def status_line(status: Status, labels: LabelsConfig, *, ready: str | None = None) -> str:
+    """The status bar's text; `ready`, when given, replaces the bench's READY line."""
     if status.mode == "ready" and status.caption is not None:
         return status.caption
+    if status.mode == "ready" and ready is not None:
+        return ready
     return _STATUS[status.mode]
 
 
-def reason_line(reason: str | None) -> str:
-    """The short line under an НЕТ РЕШЕНИЯ: what the operator should fix."""
+def reason_line(reason: str | None, *, placement: str | None = None) -> str:
+    """The short line under an НЕТ РЕШЕНИЯ: what the operator should fix. `placement`, when
+    given, replaces the bench's line for `placement`."""
     if reason is None:
         return _UNKNOWN_REASON
+    if reason == "placement" and placement is not None:
+        return placement
     return _REASONS.get(reason, _UNKNOWN_REASON)
 
 
@@ -278,12 +283,17 @@ def _render_fault(canvas: Image.Image, status: Status, font_path: str) -> Image.
 
 
 def render(
-    view: View, labels: LabelsConfig, font_path: Path, cache: FitCache | None = None
+    view: View,
+    labels: LabelsConfig,
+    font_path: Path,
+    cache: FitCache | None = None,
+    *,
+    ready: str | None = None,
 ) -> Image.Image:
     """The operator screen as a 1280 × 800 RGB image (docs/16 §5).
 
     `cache` keeps the verdict's fitted image between calls; the pixels are the same with or
-    without it."""
+    without it. `ready` is the station's READY line, as `status_line` takes it."""
     path = str(font_path)
     canvas = Image.new("RGB", SIZE, BLACK)
     status = view.status
@@ -339,7 +349,7 @@ def render(
             fill=label_colour(label),
         )
 
-    text = status_line(status, labels)
+    text = status_line(status, labels, ready=ready)
     font = _fitted_font(path, text, _LINE_PX, _TEXT_W)
     draw.text((20, sum(_STATUS_Y) // 2), text, fill=WHITE, font=font, anchor="lm")
     return canvas

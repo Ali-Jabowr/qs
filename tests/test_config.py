@@ -463,3 +463,261 @@ def test_the_bench_config_in_git_loads() -> None:
     loaded = load_config(bench)
     assert loaded.config.station_id == "A-bench"
     assert loaded.config.camera.type == "webcam"
+
+
+def test_unknown_check_name_is_refused_naming_it(tmp_path: Path) -> None:
+    _refused(
+        _mutated(
+            tmp_path,
+            "  type: appearance\n",
+            "  type: appearance\n  checks: [appearance, not_a_check]\n",
+        ),
+        "inspector.checks: 'not_a_check'",
+    )
+
+
+@pytest.mark.parametrize(
+    ("listed", "message"),
+    [
+        ("[]", "inspector.checks: must list at least one check"),
+        ("appearance", "inspector.checks: expected a list, got str"),
+        ("5", "inspector.checks: expected a list, got int"),
+        ("", "inspector.checks: expected a list, got null"),
+        ("[appearance, 7]", "inspector.checks: expected a string, got int"),
+        ("[appearance, appearance]", "inspector.checks: 'appearance' is repeated"),
+    ],
+)
+def test_malformed_check_list_is_refused(
+    tmp_path: Path, listed: str, message: str
+) -> None:
+    _refused(
+        _mutated(
+            tmp_path,
+            "  type: appearance\n",
+            f"  type: appearance\n  checks: {listed}\n",
+        ),
+        message,
+    )
+
+
+def test_valid_check_list_is_exposed_on_the_config(tmp_path: Path) -> None:
+    loaded = load_config(
+        _mutated(
+            tmp_path,
+            "  type: appearance\n",
+            "  type: appearance\n  checks: [appearance]\n",
+        )
+    )
+    assert loaded.config.inspector.checks == frozenset({"appearance"})
+
+
+def test_config_without_checks_gets_the_bench_set() -> None:
+    loaded = load_config(EXAMPLE)
+    assert loaded.config.inspector.checks == frozenset({"geometry", "appearance"})
+
+
+def test_config_without_checks_keeps_its_hash() -> None:
+    loaded = load_config(EXAMPLE)
+    assert loaded.config_hash == (
+        "cd1b5c35ec61a26fd5c58b64ce941591797ca4d5d9f1aaec362f6dc044b425e7"
+    )
+
+
+def test_listing_checks_changes_the_hash(tmp_path: Path) -> None:
+    loaded = load_config(
+        _mutated(
+            tmp_path,
+            "  type: appearance\n",
+            "  type: appearance\n  checks: [geometry, appearance]\n",
+        )
+    )
+    assert loaded.config_hash != (
+        "cd1b5c35ec61a26fd5c58b64ce941591797ca4d5d9f1aaec362f6dc044b425e7"
+    )
+
+
+def test_appearance_inspector_without_the_appearance_check_is_refused(
+    tmp_path: Path,
+) -> None:
+    _refused(
+        _mutated(
+            tmp_path,
+            "  type: appearance\n",
+            "  type: appearance\n  checks: [geometry]\n",
+        ),
+        "inspector.checks: an appearance inspector must list 'appearance'",
+    )
+
+
+def test_stub_inspector_may_leave_out_the_appearance_check(tmp_path: Path) -> None:
+    loaded = load_config(
+        _mutated(
+            tmp_path,
+            "  type: appearance\n",
+            "  type: stub\n  checks: [geometry]\n",
+        )
+    )
+    assert loaded.config.inspector.checks == frozenset({"geometry"})
+
+
+LINE_EXAMPLE = EXAMPLE.parent / "station-line.example.yml"
+LINE_HEAD = "  type: line\n  checks: [empty_cup]\n"
+LINE_BLOCK = (
+    "  line:\n"
+    "    zone: [360, 0, 1200, 1080]\n"
+    "    rim_axis_px: [300, 600]\n"
+    "    blob_share_min: 0.3\n"
+)
+
+
+def test_line_block_is_exposed_on_the_config(tmp_path: Path) -> None:
+    loaded = load_config(_mutated(tmp_path, "  type: appearance\n", LINE_HEAD + LINE_BLOCK))
+    line = loaded.config.inspector.line
+    assert line is not None
+    assert line.zone == (360, 0, 1200, 1080)
+    assert line.rim_axis_px == (300, 600)
+    assert line.blob_share_min == 0.3
+    assert loaded.config.inspector.checks == frozenset({"empty_cup"})
+
+
+def test_bench_config_has_no_line_block_and_needs_none() -> None:
+    assert load_config(EXAMPLE).config.inspector.line is None
+
+
+def test_line_example_loads_and_lists_only_the_empty_cup_check() -> None:
+    inspector = load_config(LINE_EXAMPLE).config.inspector
+    assert inspector.type == "line"
+    assert inspector.checks == frozenset({"empty_cup"})
+
+
+@pytest.mark.parametrize(
+    ("replacement", "words"),
+    [
+        (LINE_HEAD, "inspector.line: a line inspector needs this block"),
+        (
+            LINE_HEAD + "  line:\n    rim_axis_px: [300, 600]\n    blob_share_min: 0.3\n",
+            "missing key(s): inspector.line.zone",
+        ),
+        (
+            LINE_HEAD + LINE_BLOCK.replace("[360, 0, 1200, 1080]", "[360, 0, 1700, 1080]"),
+            "inspector.line.zone: [360, 0, 1700, 1080] is outside the 1920x1080 frame",
+        ),
+        (
+            LINE_HEAD + LINE_BLOCK.replace("[360, 0, 1200, 1080]", "[1000, 0, 800, 1080]"),
+            "lighting.reference_patch.roi: overlaps inspector.line.zone",
+        ),
+        (
+            LINE_HEAD + LINE_BLOCK.replace("[300, 600]", "[600, 600]"),
+            "inspector.line.rim_axis_px: min 600 is not below max 600",
+        ),
+        (
+            LINE_HEAD + LINE_BLOCK.replace("[300, 600]", "[15, 600]"),
+            "inspector.line.rim_axis_px: min 15 is below 16",
+        ),
+        (
+            LINE_HEAD + LINE_BLOCK.replace("0.3", "0"),
+            "inspector.line.blob_share_min: 0.0 is outside (0, 1)",
+        ),
+        (
+            LINE_HEAD + LINE_BLOCK.replace("0.3", "1.5"),
+            "inspector.line.blob_share_min: 1.5 is outside (0, 1)",
+        ),
+        (
+            LINE_HEAD + LINE_BLOCK.replace("0.3", ".nan"),
+            "inspector.line.blob_share_min: nan is outside (0, 1)",
+        ),
+        (
+            "  type: line\n" + LINE_BLOCK,
+            "inspector.checks: a line inspector must list ['empty_cup'] or "
+            "['appearance', 'empty_cup']",
+        ),
+        (
+            "  type: line\n  checks: [geometry, empty_cup]\n" + LINE_BLOCK,
+            "inspector.checks: a line inspector must list ['empty_cup'] or "
+            "['appearance', 'empty_cup']",
+        ),
+        (
+            "  type: line\n  checks: [not_a_check]\n" + LINE_BLOCK,
+            "inspector.checks: 'not_a_check' is not one of",
+        ),
+        (
+            "  type: appearance\n" + LINE_BLOCK,
+            "inspector.line: only a line inspector takes this block",
+        ),
+        (
+            "  type: appearance\n  checks: [appearance, empty_cup]\n",
+            "inspector.checks: 'empty_cup' runs only on a line inspector",
+        ),
+        (
+            "  type: stub\n  checks: [empty_cup]\n",
+            "inspector.checks: 'empty_cup' runs only on a line inspector",
+        ),
+    ],
+)
+def test_bad_line_settings_are_refused(tmp_path: Path, replacement: str, words: str) -> None:
+    _refused(_mutated(tmp_path, "  type: appearance\n", replacement), words)
+
+
+CUP_TRIGGER = "trigger:   { type: cup, key: space }"
+CUP_LINE_KEYS = "    direction: right\n    fps: 25\n"
+
+
+def _cup_config(tmp_path: Path, inspector: str) -> Path:
+    text = EXAMPLE.read_text(encoding="utf-8")
+    text = text.replace("trigger:   { type: keyboard, key: space }", CUP_TRIGGER)
+    return _written(tmp_path, text.replace("  type: appearance\n", inspector))
+
+
+def test_a_cup_trigger_config_exposes_its_direction_and_pace(tmp_path: Path) -> None:
+    config = load_config(_cup_config(tmp_path, LINE_HEAD + LINE_BLOCK + CUP_LINE_KEYS)).config
+    assert config.trigger.type == "cup"
+    assert config.inspector.line is not None
+    assert config.inspector.line.direction == "right"
+    assert config.inspector.line.fps == 25.0
+
+
+def test_a_line_block_without_a_cup_trigger_needs_no_direction_or_pace(tmp_path: Path) -> None:
+    loaded = load_config(_mutated(tmp_path, "  type: appearance\n", LINE_HEAD + LINE_BLOCK))
+    assert loaded.config.inspector.line is not None
+    assert loaded.config.inspector.line.direction is None
+    assert loaded.config.inspector.line.fps is None
+
+
+@pytest.mark.parametrize(
+    ("inspector", "words"),
+    [
+        ("  type: appearance\n", "trigger.type: cup needs inspector.line"),
+        ("  type: stub\n", "trigger.type: cup needs inspector.line"),
+        (
+            LINE_HEAD + "  line:\n    rim_axis_px: [300, 600]\n    blob_share_min: 0.3\n"
+            + CUP_LINE_KEYS,
+            "missing key(s): inspector.line.zone",
+        ),
+        (
+            LINE_HEAD + LINE_BLOCK + "    fps: 25\n",
+            "inspector.line.direction: a cup trigger needs this key",
+        ),
+        (
+            LINE_HEAD + LINE_BLOCK + "    direction: right\n",
+            "inspector.line.fps: a cup trigger needs this key",
+        ),
+        (
+            LINE_HEAD + LINE_BLOCK + "    direction: sideways\n    fps: 25\n",
+            "inspector.line.direction: 'sideways' is not one of: right, left, down, up",
+        ),
+        (
+            LINE_HEAD + LINE_BLOCK + "    direction: right\n    fps: 0\n",
+            "inspector.line.fps: 0.0 is not a finite number above 0",
+        ),
+        (
+            LINE_HEAD + LINE_BLOCK + "    direction: right\n    fps: .nan\n",
+            "inspector.line.fps: nan is not a finite number above 0",
+        ),
+        (
+            LINE_HEAD + LINE_BLOCK + "    direction: right\n    fps: .inf\n",
+            "inspector.line.fps: inf is not a finite number above 0",
+        ),
+    ],
+)
+def test_bad_cup_trigger_settings_are_refused(tmp_path: Path, inspector: str, words: str) -> None:
+    _refused(_cup_config(tmp_path, inspector), words)

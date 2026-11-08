@@ -50,6 +50,8 @@ class TriggerEvent:
     t0: float             # perf_counter at the moment of the trigger; the latency clock
     wall: datetime        # UTC, for the record
     source_id: str        # "keyboard" | "photoelectric" | "replay:<dataset>"
+    never_in_zone: bool = False  # cup trigger: the cup left the view never wholly in the zone;
+                                 # the unit is NO_VERDICT(placement), the inspector is not asked
 
 
 @dataclass(frozen=True, slots=True)
@@ -229,7 +231,7 @@ for a unit — the factory's photoelectric sensor.
 | C2 | `Inspector` performs no I/O and holds no per-frame state | Latency becomes unpredictable; replay stops matching live |
 | C3 | `Sink.write` never raises and never blocks | A full disk stops the line, which is the failure the client will never forgive |
 | C4 | `FrameSource.capture` returns only a frame stamped later than `event.t0` plus one exposure, and raises rather than return a stale, partial or corrupt one | A silent stale frame passes the previous unit's verdict onto this one |
-| C5 | `TriggerEvent.seq` is gapless within a run, and every `seq` gets exactly one record | Missed units become invisible, and the count on the report stops matching the count on the line |
+| C5 | `TriggerEvent.seq` is gapless within a run, and every `seq` gets exactly one record. Exception, the v1 line trigger (ADR-0028): a cup the finder never sees has no `seq`, so the station's count can fall short of the line's, and that shortfall is measured | Missed units become invisible, and the count on the report stops matching the count on the line |
 | C6 | Every implementation is constructed from `StationConfig` alone | "It worked on my machine" — configuration drifts into code |
 | C7 | `Label.NO_VERDICT` is never rendered or recorded as a pass | Invariant I6. This is the one that matters over open food |
 | C8 | For a completed inspection, `Verdict.label` is derived from `checks` alone: DEFECT if any check failed; PASS only if **every configured check** ran and passed. An exception anywhere inside `inspect()` is NO_VERDICT, and any partial results are discarded | A PASS with a check missing behind it is a silent pass |
@@ -312,7 +314,7 @@ they do not decide.
 | `FrameSource` | `CameraSettingsDrift` — a readable setting no longer matches the config | `NO_VERDICT(reason="camera_settings")`, raises the `CAMERA_SETTINGS` warning, stays READY. A setting that cannot be read at all is not drift: the record carries `camera_verified = 0` |
 | `FrameSource` | `CameraLost` | `NO_VERDICT(reason="camera")`, transitions to `FAULT(camera)`, reconnects with backoff ([`16-failure-model.md`](16-failure-model.md) §3) |
 | Pipeline | `LightingFault` | `NO_VERDICT(reason="lighting")`, raises the `LIGHTING` warning, keeps running and keeps recording |
-| `Inspector` | `PlacementFault` — no unit, more than one, or not wholly in the inspection area | `NO_VERDICT(reason="placement")`, stays READY. Not a fault count: a misplaced unit is an operator event, not a station fault |
+| `Inspector` | `PlacementFault` — no unit, more than one, or not wholly in the inspection area; on the line, a cup seen but never wholly in the inspection zone. An empty cup is not a placement fault (ADR-0028) | `NO_VERDICT(reason="placement")`, stays READY. Not a fault count: a misplaced unit is an operator event, not a station fault |
 | `Inspector` | `InferenceError`, or any other exception inside `inspect()` | `NO_VERDICT(reason="inference")`, partial results discarded (C8), fault counter, stays READY; three in a row is `FAULT(inference)` |
 | Pipeline | A unit trigger (photoelectric) while inspecting or starting | `NO_VERDICT(reason="busy")`, no image — the unit is accounted for, not checked. Key presses are handled by `KeyboardTrigger` instead (§3) |
 | `Inspector` | exceeds its latency budget | verdict is still used; a budget breach is counted and reported, not discarded |

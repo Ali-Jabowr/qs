@@ -76,7 +76,7 @@ does, and any number can be active at once:
 | F3 | Only a stale frame available | `capture()` waits for one stamped after `t0` (C4) | Never inspected; becomes F2 on timeout | — | — |
 | F4 | Settings drift — auto re-enabled, exposure changed | A readable value differs on a capture: `CameraSettingsDrift` | NO_VERDICT(`camera_settings`) | `CAMERA_SETTINGS` | Read-back matches |
 | F5 | Lighting out of band — lamp moved, box open, bulb ageing | Reference patch (FR-14) | NO_VERDICT(`lighting`) | `LIGHTING` | A frame back in band |
-| F6 | No unit, or unit not wholly in the area | `PlacementFault` (FR-25) | NO_VERDICT(`placement`) | Stays READY — an operator event, not a fault | — |
+| F6 | Bench: no unit, or unit not wholly in the area. Line: a cup seen but never wholly in the inspection zone (an empty cup is DEFECT, FR-29) | `PlacementFault` (FR-25) | NO_VERDICT(`placement`) | Stays READY — an operator event, not a fault | — |
 | F7 | Inference fails — CUDA error, non-finite score, any exception inside `inspect()` | `InferenceError` | NO_VERDICT(`inference`); partial results discarded (C8) | FAULT(inference) after 3 in a row. **No automatic exit** — a model failing three times running is not retried blindly | The operator restarts the station |
 | F8 | Inspection over the latency budget | Timing | The verdict stands; the breach is counted | `LATENCY` above 10% of the last 50 | Back under 10% |
 | F9 | A unit trigger (factory photoelectric) while inspecting or starting | Pipeline | NO_VERDICT(`busy`), no image | — | — |
@@ -127,9 +127,9 @@ Russian, from `display` in the station config; the wording is a draft for Ali to
 | Situation | Screen |
 |---|---|
 | Ready | Live view, status bar **ГОТОВ** |
-| PASS | Green, **ГОДЕН** |
-| DEFECT | Red, **БРАК**, heatmap or the failed measurement |
-| NO_VERDICT, placement | Amber, **НЕТ РЕШЕНИЯ** — *положите изделие в рамку* |
+| PASS | Green, **ГОДЕН**. On the line it expires to Ready after a short time, so it cannot stand for a cup nobody judged (ADR-0028) |
+| DEFECT | Red, **БРАК**, heatmap or the failed measurement; on an empty cup, *пустой стаканчик* |
+| NO_VERDICT, placement | Amber, **НЕТ РЕШЕНИЯ** — bench: *положите изделие в рамку*; line: *стаканчик не проверен* |
 | NO_VERDICT, lighting | Amber, **НЕТ РЕШЕНИЯ** — *проверьте освещение* |
 | NO_VERDICT, capture or camera settings | Amber, **НЕТ РЕШЕНИЯ** — *нет кадра* / *настройки камеры изменились* |
 | NO_VERDICT, inference | Amber, **НЕТ РЕШЕНИЯ** — *ошибка анализа* |

@@ -26,7 +26,7 @@ meta:
   location: Volgograd
   location_ru: Волгоград
   repo: /home/marxel/PROJECTS/QS
-  updated: 2026-09-24
+  updated: 2026-11-04
   # GitHub is the primary board from 2026-09-22. This file stays the state file and is
   # kept in sync with it; the duplication is accepted. Each migrated question and risk
   # carries its issue number as `issue:`.
@@ -86,6 +86,8 @@ tracks:
 # Dates re-planned 2026-09-17 (ADR-0006) and again 2026-09-21, the design day: the
 # MVP week runs 21.09–27.09 (ADR-0007, plans/ROADMAP.md). Gate A keeps 13.10 on
 # fresh units, as stage GA. Each code task names the executor plan that builds it.
+# Re-planned 2026-11-04 after the site visit (ADR-0027): line work (L1, L2) goes first;
+# the bench stages S2, S3 and GA wait for the bench and carry no end date.
 
 stages:
 
@@ -271,8 +273,10 @@ stages:
     name_en: Rig, pilot and MVP shoot
     name_ru: Стенд, пробная съёмка освещения и съёмка для MVP
     planned_start: 2026-09-22
-    planned_end: 2026-09-25
-    status: not_started
+    planned_end: null
+    status: blocked
+    blocked_on: bench access (ADR-0027)
+    blocked_on_ru: доступ к стенду (ADR-0027)
     goal_en: >
       A dataset shot so that its numbers mean something — locked camera, paired good and
       damaged frames, controls against drift — and the answer to which lighting shows a
@@ -338,8 +342,10 @@ stages:
     name_en: Train and measure — INDICATIVE
     name_ru: Обучение и измерение — ориентировочно
     planned_start: 2026-09-25
-    planned_end: 2026-09-26
-    status: in_progress
+    planned_end: null
+    status: blocked
+    blocked_on: the S2 dataset, which needs the bench (ADR-0027)
+    blocked_on_ru: датасет этапа S2, для которого нужен стенд (ADR-0027)
     goal_en: Indicative numbers from the frozen MVP golden set, with bounds, stamped INDICATIVE — the method works or it does not (14 §9, ADR-0007).
     goal_ru: Ориентировочные показатели по замороженному эталонному набору MVP, с доверительными границами и пометкой «ОРИЕНТИРОВОЧНО» — метод работает или нет (14 §9, ADR-0007).
     tasks:
@@ -420,8 +426,10 @@ stages:
     name_en: Gate A — the full protocol on fresh моти
     name_ru: Рубеж A — полный протокол на новых моти
     planned_start: 2026-09-28
-    planned_end: 2026-10-13
-    status: not_started
+    planned_end: null
+    status: blocked
+    blocked_on: bench access (ADR-0027)
+    blocked_on_ru: доступ к стенду (ADR-0027)
     goal_en: "The one bench number that can be defended: Gate A on 133 freshly bought units, paired, in the pilot's geometry (14 §6, 13 §9)."
     goal_ru: "Единственный стендовый показатель, который можно отстаивать: рубеж A на 133 заново закупленных изделиях, парная съёмка, при освещении по итогам пробной съёмки (14 §6, 13 §9)."
     tasks:
@@ -445,11 +453,9 @@ stages:
     track: appearance
     name_en: Site visit with the demo in hand
     name_ru: Выезд на производство с демонстрацией
-    planned_start: 2026-10-26
+    planned_start: 2026-10-14
     planned_end: null
-    status: blocked
-    blocked_on: client scheduling — and deferred by decision for the MVP week (2026-09-21)
-    blocked_on_ru: согласование даты с заказчиком — и отложено решением на неделю MVP (21.09.2026)
+    status: in_progress
     goal_en: >
       Physical evidence. This is the scarcest resource in the project and no amount of
       documentation substitutes for it.
@@ -465,12 +471,12 @@ stages:
       - id: S5.2
         text_en: "5+ minutes of video from the camera mounting point, plus slow motion"
         text_ru: "Не менее 5 минут видео с точки предполагаемой установки камеры, плюс замедленная съёмка"
-        status: todo
-        evidence: null
+        status: done
+        evidence: docs/mentor/2026-10-19-report.md §1.3 — 29 min of line video from the C920; no slow motion
       - id: S5.3
         text_en: 30+ good units photographed at the inspection point
         text_ru: Не менее 30 годных изделий, отснятых в точке контроля
-        status: todo
+        status: doing
         evidence: null
       - id: S5.4
         text_en: Every defective unit they have — physical samples if allowed
@@ -480,8 +486,8 @@ stages:
       - id: S5.5
         text_en: Mounting space measured with a tape measure in frame
         text_ru: Место установки, снятое с рулеткой в кадре
-        status: todo
-        evidence: null
+        status: done
+        evidence: docs/mentor/2026-10-19-report.md §1.1 — photos with a tape measure; approximate
       - id: S5.6
         text_en: One escape priced in rubles
         text_ru: Стоимость одного пропущенного дефекта в рублях
@@ -505,11 +511,104 @@ stages:
     planned_start: null
     planned_end: null
     status: blocked
-    blocked_on: S5
-    blocked_on_ru: этап S5
+    blocked_on: L2
+    blocked_on_ru: этап L2
     goal_en: Same code, their images, their defects. The real MVP, and the first honest price.
     goal_ru: Тот же код, их снимки, их дефекты. Настоящий минимально жизнеспособный продукт и первая честная цена.
     tasks: []
+
+  - id: L1
+    track: appearance
+    name_en: Cup-first localizer and the empty cup
+    name_ru: Поиск стаканчика и моти, пустой стаканчик
+    planned_start: null
+    planned_end: null
+    status: in_progress
+    goal_en: >
+      Find the cup, then the моти inside it, on polished steel under glare, and report an empty
+      cup as a defect: the main defect at this factory (Ali, 2026-11-04; frequency not counted).
+      Today's localizer finds the unit in 0 of 2 883 line frames, so no defect check can run on
+      the line until this works (ADR-0027).
+    goal_ru: >
+      Находить стаканчик, затем моти внутри него, на полированной стали в бликах, и сообщать о
+      пустом стаканчике как о браке — это основной дефект на этом производстве (Али, 04.11.2026;
+      частота не подсчитана). Нынешний модуль находит изделие в 0 из 2 883 кадров с линии, поэтому
+      ни одна проверка дефектов на линии не работает, пока не решена эта задача (ADR-0027).
+    tasks:
+      - id: L1.1
+        text_en: "Define unit, cup, empty cup and no cup in CONTEXT.md, with the verdict each one gets; amend FR-25"
+        text_ru: "Определить в CONTEXT.md изделие, стаканчик, пустой стаканчик и отсутствие стаканчика и решение для каждого случая; изменить FR-25"
+        status: done
+        evidence: CONTEXT.md, decisions/ADR-0028-line-unit-cup-software-trigger.md, docs/06-requirements.md FR-25
+      - id: L1.2
+        text_en: Recover the cup-finding code from the spike of 19.10
+        text_ru: Восстановить код поиска стаканчика из пробного эксперимента от 19.10
+        status: todo
+        evidence: null
+      - id: L1.3
+        text_en: "Local labelling tool — line frames marked unit, empty cup, nothing or hand, and whole cups counted through the video; labelled by Ali"
+        text_ru: "Локальный инструмент разметки — кадры с линии с отметками «изделие», «пустой стаканчик», «ничего», «рука» и подсчёт целых стаканчиков по видео; размечает Али"
+        status: todo
+        evidence: null
+      - id: L1.4
+        text_en: Cup-first localizer in src/qs, test-first on synthetic images
+        text_ru: Поиск стаканчика и моти в src/qs, сначала тесты на синтетических изображениях
+        status: todo
+        evidence: null
+      - id: L1.5
+        text_en: The empty cup reaches the operator as a defect, through the same verdict rule as every other check
+        text_ru: Пустой стаканчик доходит до оператора как брак — по тому же правилу решения, что и остальные проверки
+        status: todo
+        evidence: null
+      - id: L1.6
+        text_en: Score the localizer and the empty-cup check on the labelled footage, with the share of empty cups caught per cup as the main number, numbers only, stamped INDICATIVE
+        text_ru: "Оценить поиск и проверку пустого стаканчика на размеченной съёмке — главный показатель: доля найденных пустых стаканчиков по стаканчикам; только числа, с пометкой «ОРИЕНТИРОВОЧНО»"
+        status: todo
+        evidence: null
+      - id: L1.7
+        text_en: Train PatchCore on the labelled good line frames and report false alarms only, split by time or series, stamped INDICATIVE; recall on real defects stays unmeasured
+        text_ru: Обучить PatchCore на размеченных годных кадрах с линии и сообщить только долю ложных срабатываний — разбиение по времени или сериям, с пометкой «ОРИЕНТИРОВОЧНО»; полнота по реальному браку остаётся неизмеренной
+        status: todo
+        evidence: null
+
+  - id: L2
+    track: appearance
+    name_en: Second visit — a fixed camera on the line
+    name_ru: Второй выезд — неподвижная камера на линии
+    planned_start: null
+    planned_end: null
+    status: blocked
+    blocked_on: L1, and the food-safety requirements for equipment over open product (ADR-0027)
+    blocked_on_ru: этап L1 и требования пищевой безопасности к оборудованию над открытым продуктом (ADR-0027)
+    goal_en: >
+      Footage fit for the geometry check and for training: a rigid overhead camera, the glare
+      tamed, capture triggered by the cup. Then PatchCore trained on the client's good units and
+      an advisory trial, with real defects labelled on site.
+    goal_ru: >
+      Съёмка, пригодная для геометрической проверки и обучения: жёсткое крепление камеры сверху,
+      подавленные блики, запуск по стаканчику. Затем обучение PatchCore на годных моти заказчика и
+      пробная работа в режиме подсказки с разметкой реального брака на месте.
+    tasks:
+      - id: L2.1
+        text_en: Rigid overhead camera mount and glare diffuser, the one Gate C exception (ADR-0027)
+        text_ru: Жёсткое крепление камеры сверху и рассеиватель бликов — единственное исключение из рубежа C (ADR-0027)
+        status: todo
+        evidence: null
+      - id: L2.2
+        text_en: Capture triggered per cup, from a read-only tap of the existing photo sensor or in software from the video
+        text_ru: Запуск съёмки по стаканчику — чтение сигнала существующего фотодатчика или программно по видеопотоку
+        status: todo
+        evidence: null
+      - id: L2.3
+        text_en: Several hundred good units from the fixed camera; PatchCore trained on them
+        text_ru: Несколько сотен годных изделий с неподвижной камеры; обучение PatchCore на них
+        status: todo
+        evidence: null
+      - id: L2.4
+        text_en: Advisory trial on the line; real defects labelled on site; line speed timed and defect frequency counted
+        text_ru: Пробная работа на линии в режиме подсказки; разметка реального брака на месте; замер скорости линии и подсчёт частоты дефектов
+        status: todo
+        evidence: null
 
   - id: M0
     track: marking
@@ -552,9 +651,9 @@ gates:
   - id: A
     name_en: Bench detection gate
     name_ru: Рубеж обнаружения на стенде
-    due: 2026-10-13
+    due: null                    # no date until the bench is back (ADR-0027)
     status: pending
-    blocks: [S5]
+    blocks: []
     definition_ref: docs/14-eval-protocol.md
     statement_en: >
       On one flavour of моти, under the lighting geometry selected in the pilot, with the
@@ -585,9 +684,9 @@ gates:
   - id: B
     name_en: Latency gate
     name_ru: Рубеж быстродействия
-    due: 2026-10-13
+    due: 2026-11-15
     status: pending
-    blocks: [S5]
+    blocks: []
     definition_ref: docs/14-eval-protocol.md
     statement_en: >
       Until an N100 exists (ADR-0017): on replay, camera excluded, laptop CPU pinned to 4
@@ -610,10 +709,14 @@ gates:
     statement_en: >
       No hardware is purchased beyond the product being inspected (моти) until Gate A has passed, AND the site visit
       has produced video and defective samples, AND the metrology question (OQ-1) is answered.
+      One exception (ADR-0027): a rigid camera mount and a glare diffuser for the second visit, once
+      the food-safety requirements for equipment over open product are known.
     statement_ru: >
       Никакое оборудование, кроме самого контролируемого продукта (моти), не закупается, пока не пройден
       рубеж A, И выезд на производство не дал видео и бракованные образцы, И не получен
-      ответ на вопрос о метрологии (OQ-1).
+      ответ на вопрос о метрологии (OQ-1). Одно исключение (ADR-0027): жёсткое крепление камеры и
+      рассеиватель бликов для второго выезда, когда известны требования пищевой безопасности к
+      оборудованию над открытым продуктом.
 
 # --------------------------------------------------------------------------------
 # OPEN QUESTIONS — each blocks something concrete. `owner` says who can answer.
@@ -729,12 +832,12 @@ risks:
   - id: R1
     issue: 13
     severity: high
-    text_en: No physical evidence exists — no video, no photographs, no defective samples.
-    text_ru: Физических свидетельств нет — ни видео, ни фотографий, ни бракованных образцов.
-    signal_en: Still true. Identified 2026-09-02, unchanged 15 days later.
-    signal_ru: Положение не изменилось. Зафиксировано 02.09.2026, спустя 15 дней без движения.
-    response_en: Stage S5. Nothing about hardware or price can be settled without it.
-    response_ru: Этап S5. Без этого невозможно определить ни оборудование, ни цену.
+    text_en: Physical evidence is partial — line video and photographs exist, but no defective samples and no defects labelled by the client.
+    text_ru: Физические свидетельства неполные — есть видео и фотографии линии, но нет бракованных образцов и брака, размеченного заказчиком.
+    signal_en: The visit of 14–16.10 produced ~29 min of video and ~860 photographs from a temporary camera; defect frequency is not counted.
+    signal_ru: Выезд 14–16.10 дал ~29 минут видео и ~860 фотографий с временно закреплённой камеры; частота дефектов не подсчитана.
+    response_en: Stage L2. Recall on real defects cannot be measured without them.
+    response_ru: Этап L2. Без этого полноту обнаружения реального брака измерить нельзя.
   - id: R2
     issue: 14
     severity: high
@@ -834,3 +937,11 @@ risks:
     signal_ru: План не проходит проверку или съёмка сдвигается позже 25.09.2026.
     response_en: The order protects the shoot — tools first, then the shoot, then the report. P09's polish slips first (plans/ROADMAP.md).
     response_ru: Порядок работ защищает съёмку — сначала инструменты, затем съёмка, затем отчёт. Первой сдвигается доводка P09 (plans/ROADMAP.md).
+  - id: R13
+    severity: medium
+    text_en: A localizer tuned on the first visit's footage may not carry over, because that camera was temporary and angled and the second visit plans an overhead one.
+    text_ru: Поиск, настроенный на кадрах первого выезда, может не перенестись на новую съёмку — та камера стояла временно и под углом, а для второго выезда планируется камера сверху.
+    signal_en: Good scores on the first visit's frames, then a sharp drop on the overhead footage.
+    signal_ru: Хорошие показатели на кадрах первого выезда и резкое падение на съёмке сверху.
+    response_en: Light tuning only in L1; its numbers stay INDICATIVE; re-measure on the overhead footage in L2.
+    response_ru: В этапе L1 только минимальная настройка; показатели остаются ориентировочными; повторный замер на съёмке сверху в этапе L2.

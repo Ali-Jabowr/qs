@@ -2,24 +2,28 @@
 # QS — status
 
 **Automated visual quality inspection for a food production line**  
-Owner: Ali, Volgograd · Rendered 2026-09-24
+Owner: Ali, Volgograd · Rendered 2026-11-04
 
-Overall: **18/60 tasks** `███████·················` 30%
+Overall: **21/71 tasks** `███████·················` 30%
 
 > Verbal intent to pay. No signed contract, no money moved.  
 > Acceptance criterion: **up to 95% (Q28, client verbatim)**
 
 ## ⚠ Attention
 
+- E0 passed its planned end 2026-09-26 (39 days ago) and is 'in_progress'.
+- S0 passed its planned end 2026-09-25 (40 days ago) and is 'in_progress'.
+- S1 passed its planned end 2026-09-24 (41 days ago) and is 'in_progress'.
+- S4 passed its planned end 2026-09-27 (38 days ago) and is 'in_progress'.
 - 7 client question(s) are open but have never been sent: OQ-1, OQ-2, OQ-3, OQ-4, OQ-5, OQ-6, OQ-9. Every one of them blocks a decision.
 
 ## Gates
 
 | Gate | Due | Status | Blocks | Statement |
 |---|---|---|---|---|
-| **A** — Bench detection gate | 2026-10-13 | `pending` | S5 | On one flavour of моти, under the lighting geometry selected in the pilot, with the threshold set on the combined verdict to a 5% false-alarm target on 30 calibration units: dent recall at or above 90% on 30 held-out dented UNITS (at least 27 of 30), whose 95% one-sided lower bound therefore clears 75%; combined false-alarm rate on 70 held-out good units at or below 10% as a point estimate, reported with its upper bound; and the whole result regenerated from the frozen golden set by one command. |
-| **B** — Latency gate | 2026-10-13 | `pending` | S5 | Until an N100 exists (ADR-0017): on replay, camera excluded, laptop CPU pinned to 4 threads, at least 200 consecutive inspections — p95 inspection time × 3 at or under 400 ms. The real gate, trigger to verdict at or under 700 ms at p95 on an N100 with the factory camera, persistence off the critical path, runs after Gate C. |
-| **C** — Hardware spend gate | — | `pending` | — | No hardware is purchased beyond the product being inspected (моти) until Gate A has passed, AND the site visit has produced video and defective samples, AND the metrology question (OQ-1) is answered. |
+| **A** — Bench detection gate | — | `pending` | — | On one flavour of моти, under the lighting geometry selected in the pilot, with the threshold set on the combined verdict to a 5% false-alarm target on 30 calibration units: dent recall at or above 90% on 30 held-out dented UNITS (at least 27 of 30), whose 95% one-sided lower bound therefore clears 75%; combined false-alarm rate on 70 held-out good units at or below 10% as a point estimate, reported with its upper bound; and the whole result regenerated from the frozen golden set by one command. |
+| **B** — Latency gate | 2026-11-15 | `pending` | — | Until an N100 exists (ADR-0017): on replay, camera excluded, laptop CPU pinned to 4 threads, at least 200 consecutive inspections — p95 inspection time × 3 at or under 400 ms. The real gate, trigger to verdict at or under 700 ms at p95 on an N100 with the factory camera, persistence off the critical path, runs after Gate C. |
+| **C** — Hardware spend gate | — | `pending` | — | No hardware is purchased beyond the product being inspected (моти) until Gate A has passed, AND the site visit has produced video and defective samples, AND the metrology question (OQ-1) is answered. One exception (ADR-0027): a rigid camera mount and a glare diffuser for the second visit, once the food-safety requirements for equipment over open product are known. |
 
 ## Stages
 
@@ -31,12 +35,14 @@ Overall: **18/60 tasks** `███████················�
 |---|---|---|---|---|
 | `[~]` | **S0** Environment and моти | 21.09 – 25.09 | `███████·····` 4/7 | in_progress |
 | `[~]` | **S1** Prove the pipeline on public data | 24.09 – 24.09 | `············` 0/3 | in_progress |
-| `[ ]` | **S2** Rig, pilot and MVP shoot | 22.09 – 25.09 | `············` 0/9 | not_started |
-| `[~]` | **S3** Train and measure — INDICATIVE | 25.09 – 26.09 | `············` 0/5 | in_progress |
+| `[!]` | **S2** Rig, pilot and MVP shoot | 22.09 – ? | `············` 0/9 | blocked — blocked on bench access (ADR-0027) |
+| `[!]` | **S3** Train and measure — INDICATIVE | 25.09 – ? | `············` 0/5 | blocked — blocked on the S2 dataset, which needs the bench (ADR-0027) |
 | `[~]` | **S4** Wrap it as a demo | 26.09 – 27.09 | `············` 0/5 | in_progress |
-| `[ ]` | **GA** Gate A — the full protocol on fresh моти | 28.09 – 13.10 | `············` 0/3 | not_started |
-| `[!]` | **S5** Site visit with the demo in hand | 26.10 – ? | `············` 0/8 | blocked — blocked on client scheduling — and deferred by decision for the MVP week (2026-09-21) |
-| `[!]` | **S6** Retrain on their product | — | `············` 0/0 | blocked — blocked on S5 |
+| `[!]` | **GA** Gate A — the full protocol on fresh моти | 28.09 – ? | `············` 0/3 | blocked — blocked on bench access (ADR-0027) |
+| `[~]` | **S5** Site visit with the demo in hand | 14.10 – ? | `███·········` 2/8 | in_progress |
+| `[!]` | **S6** Retrain on their product | — | `············` 0/0 | blocked — blocked on L2 |
+| `[~]` | **L1** Cup-first localizer and the empty cup | — | `██··········` 1/7 | in_progress |
+| `[!]` | **L2** Second visit — a fixed camera on the line | — | `············` 0/4 | blocked — blocked on L1, and the food-safety requirements for equipment over open product (ADR-0027) |
 
 ### Marking station
 
@@ -125,16 +131,33 @@ Overall: **18/60 tasks** `███████················�
 - [ ] `GA.2` Shoot per 13 §9 — 30 train, 30 calib, 70 test paired (30 dent, 20 tear, 20 deformed), 3 controls
 - [ ] `GA.3` Evaluate Gate A with the same commands as the MVP
 
-**S5 · Site visit with the demo in hand** — 0/8
+**S5 · Site visit with the demo in hand** — 2/8
 
 - [ ] `S5.1` Answers to the six follow-up questions, above all metrology versus pass/fail
-- [ ] `S5.2` 5+ minutes of video from the camera mounting point, plus slow motion
-- [ ] `S5.3` 30+ good units photographed at the inspection point
+- [x] `S5.2` 5+ minutes of video from the camera mounting point, plus slow motion  ↳ `docs/mentor/2026-10-19-report.md §1.3 — 29 min of line video from the C920; no slow motion`
+- [~] `S5.3` 30+ good units photographed at the inspection point
 - [ ] `S5.4` Every defective unit they have — physical samples if allowed
-- [ ] `S5.5` Mounting space measured with a tape measure in frame
+- [x] `S5.5` Mounting space measured with a tape measure in frame  ↳ `docs/mentor/2026-10-19-report.md §1.1 — photos with a tape measure; approximate`
 - [ ] `S5.6` One escape priced in rubles
 - [ ] `S5.7` Name of whoever signs off food safety over open product
 - [ ] `S5.8` Marking conveyor — printer type, failure modes, the returned-batch story in their words
+
+**L1 · Cup-first localizer and the empty cup** — 1/7
+
+- [x] `L1.1` Define unit, cup, empty cup and no cup in CONTEXT.md, with the verdict each one gets; amend FR-25  ↳ `CONTEXT.md, decisions/ADR-0028-line-unit-cup-software-trigger.md, docs/06-requirements.md FR-25`
+- [ ] `L1.2` Recover the cup-finding code from the spike of 19.10
+- [ ] `L1.3` Local labelling tool — line frames marked unit, empty cup, nothing or hand, and whole cups counted through the video; labelled by Ali
+- [ ] `L1.4` Cup-first localizer in src/qs, test-first on synthetic images
+- [ ] `L1.5` The empty cup reaches the operator as a defect, through the same verdict rule as every other check
+- [ ] `L1.6` Score the localizer and the empty-cup check on the labelled footage, with the share of empty cups caught per cup as the main number, numbers only, stamped INDICATIVE
+- [ ] `L1.7` Train PatchCore on the labelled good line frames and report false alarms only, split by time or series, stamped INDICATIVE; recall on real defects stays unmeasured
+
+**L2 · Second visit — a fixed camera on the line** — 0/4
+
+- [ ] `L2.1` Rigid overhead camera mount and glare diffuser, the one Gate C exception (ADR-0027)
+- [ ] `L2.2` Capture triggered per cup, from a read-only tap of the existing photo sensor or in software from the video
+- [ ] `L2.3` Several hundred good units from the fixed camera; PatchCore trained on them
+- [ ] `L2.4` Advisory trial on the line; real defects labelled on site; line speed timed and defect frequency counted
 
 **M0 · Marking station discovery** — 0/4
 
@@ -160,7 +183,7 @@ Overall: **18/60 tasks** `███████················�
 
 | | Severity | Risk | Signal | Response |
 |---|---|---|---|---|
-| `R1` | high | No physical evidence exists — no video, no photographs, no defective samples. | Still true. Identified 2026-09-02, unchanged 15 days later. | Stage S5. Nothing about hardware or price can be settled without it. |
+| `R1` | high | Physical evidence is partial — line video and photographs exist, but no defective samples and no defects labelled by the client. | The visit of 14–16.10 produced ~29 min of video and ~860 photographs from a temporary camera; defect frequency is not counted. | Stage L2. Recall on real defects cannot be measured without them. |
 | `R2` | high | Natural food variation swamps the defect signal, producing constant false alarms. | A high false-alarm rate on good units at S3. | More training data, tighter lighting control, or narrow the scope to one SKU. The central risk of the appearance station. |
 | `R3` | high | "Foreign objects" inside a 95% acceptance clause promises safety-critical detection that optics cannot deliver. | Present in the defect list and the acceptance criterion simultaneously. | Scope it out in writing — surface-visible contrasting objects, best effort, not a substitute for metal detection or X-ray. |
 | `R4` | medium | Camera automatic settings destroy the dataset by re-exposing for the defect. | Images inconsistent between sessions. | Lock exposure, gain, white balance and focus, and read them back; the lock test and the grey card prove the sensor applies them (ADR-0010). |
@@ -172,6 +195,7 @@ Overall: **18/60 tasks** `███████················�
 | `R10` | medium | моти change during a session — drying, softening, condensation — and the model learns time instead of damage. | The control units' scores drift between the start and the end of a session. | Paired shooting in random order, controls at start, middle and end, 30 minutes to room temperature in the packaging (ADR-0014, 13 §2). |
 | `R11` | high | The ImageNet-pretrained backbone weights (timm's racm_in1k, ADR-0020) declare Apache-2.0 on their model card, but whether ImageNet's non-commercial terms reach them is unresolved; so is their commercial use. | Every PatchCore variant depends on them. | The lawyer budget line before anything ships (OQ-10). Fallbacks — a commercially licensed pretraining, or self-supervised pretraining on the line's own images (15-model.md §11). |
 | `R12` | medium | The week is tight — nine executor plans and a shoot in six days. | A plan fails review, or the shoot moves past 2026-09-25. | The order protects the shoot — tools first, then the shoot, then the report. P09's polish slips first (plans/ROADMAP.md). |
+| `R13` | medium | A localizer tuned on the first visit's footage may not carry over, because that camera was temporary and angled and the second visit plans an overhead one. | Good scores on the first visit's frames, then a sharp drop on the overhead footage. | Light tuning only in L1; its numbers stay INDICATIVE; re-measure on the overhead footage in L2. |
 
 ---
 

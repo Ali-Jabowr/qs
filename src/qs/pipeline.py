@@ -26,8 +26,6 @@ import numpy as np
 
 from qs.config import StationConfig
 from qs.contracts import (
-    CHECK_APPEARANCE,
-    CHECK_GEOMETRY,
     CheckResult,
     Frame,
     FrameSource,
@@ -56,9 +54,6 @@ _log = logging.getLogger(__name__)
 
 Clock = Callable[[], float]
 WallClock = Callable[[], datetime]
-
-# Station A decides with two checks (ADR-0008), for `appearance` and `stub` alike.
-CONFIGURED_CHECKS = frozenset({CHECK_GEOMETRY, CHECK_APPEARANCE})
 
 
 class State(StrEnum):
@@ -311,9 +306,9 @@ class Pipeline:
         self._capture_streak = 0
         try:
             preview = self._source.preview()
-            if preview is not None:
-                roi = self._config.lighting.reference_patch.roi
-                self._lighting = not self._in_band(measure_patch(preview, roi))
+            patch = self._config.lighting.reference_patch
+            if preview is not None and patch is not None:
+                self._lighting = not self._in_band(measure_patch(preview, patch.roi))
         except Exception as exc:  # a preview that cannot be measured is not a lit card
             _log.warning("the reference patch could not be read at start: %s", exc)
             self._lighting = True
@@ -440,6 +435,10 @@ class Pipeline:
             self._lighting = True
             return self._no_verdict_with_frame("lighting", frame, 0.0)
         self._lighting = False
+        if event.never_in_zone:
+            # The frame shows where the cup was, not the cup: it may be the next cup's frame.
+            _log.info("seq %d: placement: the cup was never wholly in the zone", event.seq)
+            return self._no_verdict_with_frame("placement", frame, 0.0)
         # Step 5: inspect.
         self._reached_inspect = True
         inspect_start = self._clock()
@@ -509,8 +508,11 @@ class Pipeline:
         return frame
 
     def _in_band(self, patch: float | None) -> bool:
-        """`|patch − expect| ≤ band × expect`, the boundary included; None is out of band."""
+        """`|patch − expect| ≤ band × expect`, the boundary included; None is out of band.
+        A station with no reference patch has no lighting check: every reading is in band."""
         reference = self._config.lighting.reference_patch
+        if reference is None:
+            return True
         if not _finite_or_none(patch) or patch is None:
             return False
         low = reference.expect * (1 - reference.band)
@@ -534,7 +536,7 @@ class Pipeline:
                 f"checks is a {type(verdict.checks).__name__}, not a tuple of CheckResult"
             )
         try:
-            derived = derive_label(verdict.checks, CONFIGURED_CHECKS)
+            derived = derive_label(verdict.checks, self._config.inspector.checks)
         except ValueError as exc:
             raise _Refused(f"the checks do not make a verdict: {exc}") from exc
         if verdict.label is not derived:

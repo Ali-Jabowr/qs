@@ -7,13 +7,12 @@ gantt
     section Appearance station
     S0 Environment and моти :active, s0, 2026-09-21, 2026-09-25
     S1 Prove the pipeline on public data :active, s1, 2026-09-24, 2026-09-24
-    S2 Rig, pilot and MVP shoot :s2, 2026-09-22, 2026-09-25
-    S3 Train and measure — INDICATIVE :active, s3, 2026-09-25, 2026-09-26
+    S2 Rig, pilot and MVP shoot :crit, s2, 2026-09-22, 7d
+    S3 Train and measure — INDICATIVE :crit, s3, 2026-09-25, 7d
     S4 Wrap it as a demo :active, s4, 2026-09-26, 2026-09-27
-    GA Gate A — the full protocol on fresh моти :ga, 2026-09-28, 2026-10-13
-    S5 Site visit with the demo in hand :crit, s5, 2026-10-26, 7d
+    GA Gate A — the full protocol on fresh моти :crit, ga, 2026-09-28, 7d
+    S5 Site visit with the demo in hand :active, s5, 2026-10-14, 7d
     section Engineering foundation
     E0 Design spine and runnable skeleton :active, e0, 2026-09-17, 2026-09-26
     section Gates
-    Gate A — Bench detection gate :milestone, gatea, 2026-10-13, 0d
-    Gate B — Latency gate :milestone, gateb, 2026-10-13, 0d
+    Gate B — Latency gate :milestone, gateb, 2026-11-15, 0d

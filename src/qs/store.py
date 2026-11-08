@@ -90,10 +90,12 @@ CREATE TABLE inspection (
 
 CREATE TABLE inspection_check (
     inspection_id     INTEGER NOT NULL REFERENCES inspection(id),
-    name              TEXT    NOT NULL,        -- 'geometry' | 'appearance'
+    name              TEXT    NOT NULL,        -- 'geometry' | 'appearance' | 'empty_cup'
     passed            INTEGER NOT NULL CHECK (passed IN (0, 1)),
-    value             REAL,                    -- appearance: the anomaly score
-    limit_value       REAL,                    -- appearance: the threshold ("limit" is reserved)
+    value             REAL,                    -- appearance: the anomaly score;
+                                               -- empty_cup: the share of the cup one blob covers
+    limit_value       REAL,                    -- appearance: the threshold ("limit" is reserved);
+                                               -- empty_cup: the smallest share that passes
     failed_on         TEXT,                    -- e.g. 'area_px<min', 'score>threshold'
     measures          TEXT    NOT NULL DEFAULT '{}',  -- JSON
     PRIMARY KEY (inspection_id, name)

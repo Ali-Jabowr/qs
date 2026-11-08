@@ -42,10 +42,11 @@ MVP design must not block. Built on `05-concept.md` (Gate 0 GO) and `decisions/A
 | FR-11 | Each operator key press produces exactly one inspection event. Event sequence numbers are gapless within a run. | MVP | invariant I4 · design C5 | T |
 | FR-12 | Each event captures exactly one frame from the configured camera (USB webcam or Android phone). A stale, partial or corrupt frame is never returned; a failed capture ends in NO_VERDICT (FR-24). | MVP | design C4 | T, D |
 | FR-13 | Capture applies manual exposure, gain, white balance and focus from the config and records the values the camera reports back. A value that cannot be read back is recorded as `unverified`, never assumed. | MVP | R4 · design 11 §5 | T, D |
-| FR-14 | The mean luminance of the fixed reference patch is measured on every frame and recorded. Outside the configured band the result is NO_VERDICT(`lighting`). | MVP | design 10 §3 | T |
+| FR-14 | The mean luminance of the fixed reference patch is measured on every frame and recorded. Outside the configured band the result is NO_VERDICT(`lighting`). **Exception:** a line station may set `lighting.reference_patch: null` while no reference is in view on the line; its frames record no reading and a lighting drift goes unnoticed. The bench may not. | MVP | design 10 §3 | T |
 | FR-15 | The same pipeline runs from a directory of recorded images and their metadata in place of camera and trigger (replay). | MVP | design 11 §6 | T |
 | FR-16 | A photoelectric trigger replaces the key press. | Product | invariant I4 | — |
 | FR-17 | A GigE industrial camera (Hikrobot) replaces the USB or phone camera. | Product | invariant I8 | — |
+| FR-18 | **Line trigger, v1.** A cup found in view produces one inspection event per cup, judged on the first frame showing all of it in the inspection zone. A cup never found in any frame gets no event (ADR-0028). | Line | site visit | T, R |
 
 ### 2.2 Inspection
 
@@ -55,10 +56,11 @@ MVP design must not block. Built on `05-concept.md` (Gate 0 GO) and `decisions/A
 | FR-22 | **Appearance check.** A PatchCore anomaly score is compared with the threshold; above it is DEFECT. The verdict carries the score, the threshold applied, `model_id`, `threshold_id` and `config_hash`. | MVP | CLAUDE.md §7 (ADR-0002) | T |
 | FR-23 | Every appearance DEFECT carries a heatmap that locates the anomaly. | MVP | build plan S4.3 | T, D |
 | FR-24 | Capture failure, lighting fault, placement fault and inference error each end in NO_VERDICT with a stated reason. NO_VERDICT is never shown or recorded as PASS. | MVP | invariant I6 · design C7 | T |
-| FR-25 | **Placement.** A frame with no unit, or with the unit not wholly inside the inspection area, ends in NO_VERDICT(`placement`) — not DEFECT. | MVP | new: a stranger at the demo will place units anywhere | T, D |
-| FR-26 | **Geometry check.** The unit's silhouette area, axis ratio and solidity are compared with tolerances derived from good units (diameter is reported for people, not tested — `15-model.md` §3); outside them is DEFECT(`geometry`). Pass/fail against a golden reference, in pixels — not millimetres. Shares the segmentation step of FR-25. | MVP (ADR-0008) | fact: client defect list (shape and dimension deviation) · OQ-1 | T, R |
+| FR-25 | **Placement.** On the bench, a frame with no unit, or with the unit not wholly inside the inspection area, ends in NO_VERDICT(`placement`) — not DEFECT. On the line, a cup seen in view that never has a frame showing all of it in the inspection zone ends in NO_VERDICT(`placement`); an empty cup is not a placement fault (FR-29, ADR-0028). | MVP, Line | new: a stranger at the demo will place units anywhere · site visit | T, D |
+| FR-26 | **Geometry check.** The unit's silhouette area, axis ratio and solidity are compared with tolerances derived from good units (diameter is reported for people, not tested — `15-model.md` §3); outside them is DEFECT(`geometry`). Pass/fail against a golden reference, in pixels — not millimetres. Shares the segmentation step of FR-25. Off on the line until overhead footage shows it works there (ADR-0028). | MVP (ADR-0008) | fact: client defect list (shape and dimension deviation) · OQ-1 | T, R |
 | FR-27 | Millimetre measurement with a stated tolerance. | Product | OQ-1 | — |
 | FR-28 | Marking check on the other conveyor. | Product | fact Q21 | — |
+| FR-29 | **Empty-cup check.** A measured check of the inside of a found cup; a cup with no моти is DEFECT(`empty_cup`), and the operator is told the cup is empty. Results are reported separately for white моти (ADR-0028). | Line | site visit | T, R |
 
 Why FR-26 exists: two of the client's four defect types — shape deviation and dimension deviation
 — are global properties of the unit. PatchCore compares small patches with small patches; a моти

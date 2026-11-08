@@ -20,7 +20,9 @@ Between events `refresh()` presents the station's status and the live picture.
 
 from __future__ import annotations
 
+import time
 from collections import deque
+from collections.abc import Callable
 from pathlib import Path
 
 import cv2
@@ -28,7 +30,15 @@ import numpy as np
 from PIL import Image
 
 from qs.config import StationConfig
-from qs.contracts import CHECK_APPEARANCE, CHECK_GEOMETRY, CheckResult, Frame, Label, Verdict
+from qs.contracts import (
+    CHECK_APPEARANCE,
+    CHECK_EMPTY_CUP,
+    CHECK_GEOMETRY,
+    CheckResult,
+    Frame,
+    Label,
+    Verdict,
+)
 from qs.inspector.heatmap import heatmap_overlay
 from qs.inspector.window import cut_window
 from qs.operator_view import (
@@ -47,6 +57,7 @@ from qs.screen import ScreenLike
 _RECENT = 10
 _OUTLINE_PX = 3
 _FRAME_REASONS = frozenset({"placement", "lighting", "inference"})
+_EMPTY_CUP = "пустой стаканчик"
 
 
 def _rgb(pixels: np.ndarray) -> np.ndarray:
@@ -107,8 +118,10 @@ def _detail(verdict: Verdict, config: StationConfig) -> str:
     if verdict.label is Label.PASS:
         return ""
     if verdict.label is Label.NO_VERDICT:
-        return reason_line(verdict.reason)
+        return reason_line(verdict.reason, placement=config.display.placement_line)
     parts: list[str] = []
+    if _failed(verdict, CHECK_EMPTY_CUP) is not None:
+        parts.append(_EMPTY_CUP)
     looks = _failed(verdict, CHECK_APPEARANCE)
     if looks is not None:
         parts.append(f"внешний вид: {looks.value:.2f} > порог {looks.limit:.2f}")
@@ -126,12 +139,20 @@ def _detail(verdict: Verdict, config: StationConfig) -> str:
 class ScreenAnnunciator:
     """Shows every verdict on the operator screen, and the station's state between them."""
 
-    def __init__(self, config: StationConfig, screen: ScreenLike) -> None:
+    def __init__(
+        self,
+        config: StationConfig,
+        screen: ScreenLike,
+        *,
+        clock: Callable[[], float] = time.perf_counter,
+    ) -> None:
         self._config = config
         self._screen = screen
+        self._clock = clock
         self._font = Path(config.display.font)
         self._status = Status("starting", None, frozenset(), None)
         self._last: Shown | None = None
+        self._shown_at = 0.0  # the clock when `_last` was shown
         self._fit = FitCache()  # the shown verdict's image, fitted once per show() (m1)
         self._counts: dict[Label, int] = {}
         self._recent: deque[tuple[int | None, Label]] = deque(maxlen=_RECENT)
@@ -157,6 +178,7 @@ class ScreenAnnunciator:
         seq = None if frame is None else frame.event.seq
         self._counts[verdict.label] = self._counts.get(verdict.label, 0) + 1
         self._recent.append((seq, verdict.label))
+        self._shown_at = self._clock()
         try:
             self._last = Shown(
                 seq=seq,
@@ -173,8 +195,16 @@ class ScreenAnnunciator:
         self._screen.present(image)
 
     def refresh(self, status: Status, live: np.ndarray | None) -> None:
-        """Present the station's current state and the live picture between events."""
+        """Present the station's current state and the live picture between events.
+
+        A ГОДЕН older than `display.pass_expiry_s` leaves the band, so it cannot stand for a
+        later cup nobody judged (#104). DEFECT and НЕТ РЕШЕНИЯ stay: they ask the operator
+        to act."""
         self._status = status
+        expiry = self._config.display.pass_expiry_s
+        if (expiry is not None and self._last is not None and self._last.label is Label.PASS
+                and self._clock() - self._shown_at >= expiry):
+            self._last = None
         try:
             image = self._render(live)
         except Exception:
@@ -196,4 +226,5 @@ class ScreenAnnunciator:
             counts=dict(self._counts),
             recent=tuple(self._recent),
         )
-        return render(view, self._config.display.labels, self._font, self._fit)
+        display = self._config.display
+        return render(view, display.labels, self._font, self._fit, ready=display.ready_line)

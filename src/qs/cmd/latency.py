@@ -72,9 +72,9 @@ def count(text: str) -> int:
 
 
 def _real_scorer(device: str, bank: np.ndarray) -> Scorer:
-    from qs.inspector.appearance import _real_scorer
+    from qs.inspector.appearance import real_scorer
 
-    return _real_scorer(device, bank)
+    return real_scorer(device, bank)
 
 
 def _cuda_available() -> bool:

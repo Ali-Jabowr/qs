@@ -32,7 +32,8 @@ import numpy as np
 from qs.config import LoadedConfig
 from qs.contracts import FrameSource, Health, InspectionRecord, Inspector, TriggerSource
 from qs.errors import ConfigError
-from qs.inspector.appearance import AppearanceInspector
+from qs.inspector.appearance import AppearanceInspector, real_cuda_available, real_scorer
+from qs.inspector.line import LineInspector
 from qs.inspector.model import Scorer
 from qs.inspector.stub import StubInspector
 from qs.operator_view import Status
@@ -137,20 +138,6 @@ def run_id_for(started: datetime) -> str:
     return started.astimezone(UTC).strftime("%Y%m%dT%H%M%S%fZ")
 
 
-def real_scorer(device: str, bank: np.ndarray) -> Scorer:
-    """The real PatchCore scorer on `device`; torch and Anomalib are imported here only."""
-    from qs.inspector.patchcore import AnomalibPatchCore
-
-    return AnomalibPatchCore(device).scorer(bank)
-
-
-def real_cuda_available() -> bool:
-    """Whether torch sees a CUDA device; torch is imported here only."""
-    from qs.inspector.patchcore import cuda_available
-
-    return cuda_available()
-
-
 def build_inspector(
     loaded: LoadedConfig,
     *,
@@ -166,6 +153,13 @@ def build_inspector(
             return StubInspector(loaded.config_hash)
         case "appearance":
             return AppearanceInspector(
+                loaded.config_hash,
+                models_root=MODELS_ROOT,
+                make_scorer=make_scorer,
+                cuda_available=cuda_available,
+            )
+        case "line":
+            return LineInspector(
                 loaded.config_hash,
                 models_root=MODELS_ROOT,
                 make_scorer=make_scorer,

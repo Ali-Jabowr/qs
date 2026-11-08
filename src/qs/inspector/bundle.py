@@ -74,7 +74,11 @@ _DEVICES = ("cuda", "cpu")
 
 @dataclass(frozen=True, slots=True)
 class ImageRecord:
-    """One training image: its file name, its unit ID and the SHA-256 of its bytes."""
+    """One training image: its file name, its unit ID and the SHA-256 of its bytes.
+
+    A line frame (`<video>#<index>`) has its video as its unit and the SHA-256 of its decoded
+    pixels, since it has no file of its own.
+    """
 
     file: str
     unit: str

@@ -158,7 +158,28 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     from qs.cmd.build import golden_name
-    from qs.cmd.train import coreset, positive_int, product, seed
+    from qs.cmd.train import coreset, non_negative_float, positive_int, product, seed
+
+    label = commands.add_parser(
+        "label", help="hand labels for visit footage: single frames, or whole cups through a video"
+    )
+    label.add_argument("--config", required=True, metavar="PATH", help="the station config")
+    label.add_argument(
+        "--mode", required=True, choices=("frames", "cups"),
+        help="frames: unit, empty cup, nothing or hand; cups: full or empty, counted in order",
+    )
+    label.add_argument(
+        "--source", required=True, metavar="PATH",
+        help="a folder of images or a video; --mode cups needs a video",
+    )
+    label.add_argument(
+        "--every", type=positive_int, default=None, metavar="N",
+        help="with --mode frames on a video (required there): sample every Nth frame",
+    )
+    label.add_argument(
+        "--labels", default=None, metavar="PATH",
+        help="the labels file (default data/labels/<source name>.json)",
+    )
 
     build = commands.add_parser(
         "build",
@@ -183,11 +204,25 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     train = commands.add_parser(
-        "train", help="PatchCore on a dataset's train/good → a model bundle (FR-53, docs/15 §8)"
+        "train",
+        help="PatchCore on a dataset's train/good, or on a line position's labelled good cups,"
+        " → a model bundle (FR-53, docs/15 §8)",
     )
     train.add_argument("--config", required=True, metavar="PATH", help="the station config")
+    train_source = train.add_mutually_exclusive_group(required=True)
+    train_source.add_argument(
+        "--dataset", metavar="DIR", help="the dataset; only DIR/train/good is read"
+    )
+    train_source.add_argument(
+        "--labels", metavar="PATH",
+        help="a line config: the labels file of one camera position (from qs label)",
+    )
     train.add_argument(
-        "--dataset", required=True, metavar="DIR", help="the dataset; only DIR/train/good is read"
+        "--footage", metavar="DIR", help="a line config: the folder holding the labelled videos"
+    )
+    train.add_argument(
+        "--gap-s", type=non_negative_float, default=None, metavar="S",
+        help="a line config: seconds dropped before each held-out block (3)",
     )
     train.add_argument(
         "--window-px", required=True, type=positive_int, metavar="N",
@@ -315,6 +350,14 @@ def build_parser() -> argparse.ArgumentParser:
     from qs.cmd import station as station_cmd  # P04: qs station --replay
 
     station_cmd.add_parser(commands)
+
+    from qs.cmd import score_line
+
+    score_line.add_parser(commands)
+
+    from qs.cmd import line_alarms
+
+    line_alarms.add_parser(commands)
     return parser
 
 
@@ -341,6 +384,10 @@ def run(argv: Sequence[str] | None = None) -> int:
         from qs.cmd import shoot
 
         return shoot.main(args)
+    if args.command == "label":
+        from qs.cmd import label
+
+        return label.main(args)
     if args.command == "import-phone":
         from qs.cmd import import_phone
 
@@ -377,6 +424,14 @@ def run(argv: Sequence[str] | None = None) -> int:
         from qs.cmd import station
 
         return station.main(args)
+    if args.command == "score-line":
+        from qs.cmd import score_line
+
+        return score_line.main(args)
+    if args.command == "line-alarms":
+        from qs.cmd import line_alarms
+
+        return line_alarms.main(args)
     raise AssertionError(f"unhandled command {args.command!r}")
 
 

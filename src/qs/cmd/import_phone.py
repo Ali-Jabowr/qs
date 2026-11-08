@@ -133,7 +133,12 @@ def _read(paths: Sequence[Path], args: argparse.Namespace) -> list[Photo]:
 
 def _readings(photos: Sequence[Photo], config: StationConfig) -> list[float]:
     """Decode every photo once, check its size, and read the grey card on it (FR-14)."""
-    roi = config.lighting.reference_patch.roi
+    patch = config.lighting.reference_patch
+    if patch is None:
+        raise ConfigError(
+            "lighting.reference_patch: import-phone reads the grey card on every photo"
+        )
+    roi = patch.roi
     size = (config.camera.width, config.camera.height)
     readings = []
     for photo in photos:

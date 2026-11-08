@@ -12,6 +12,7 @@ if TYPE_CHECKING:
 
 CHECK_GEOMETRY = "geometry"
 CHECK_APPEARANCE = "appearance"
+CHECK_EMPTY_CUP = "empty_cup"
 REASONS = frozenset(
     {"capture", "camera", "camera_settings", "lighting", "placement", "inference", "busy"}
 )
@@ -25,10 +26,14 @@ class Label(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class TriggerEvent:
+    """`never_in_zone`: the cup trigger fired for a cup that left the view without ever being
+    wholly in the zone; the unit is NO_VERDICT(`placement`) whatever the captured frame shows."""
+
     seq: int
     t0: float
     wall: datetime
     source_id: str
+    never_in_zone: bool = False
 
 
 @dataclass(frozen=True, slots=True)
