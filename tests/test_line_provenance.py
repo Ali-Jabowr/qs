@@ -91,3 +91,17 @@ def test_a_gap_other_than_the_bundles_is_refused(
         "refused: --gap-s 0.3 is not the 0.2 s the model was split with; use the gap it was "
         "trained with"
     )
+
+
+def test_a_bundle_made_before_the_split_was_recorded_warns_and_still_counts(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    bundle = _train(tmp_path)
+    older = _rehashed(bundle.parent, bundle.name, drop="line")
+    capsys.readouterr()
+
+    assert _alarms(tmp_path, older, gap_s="0.3") == 0
+    assert capsys.readouterr().out.splitlines()[0] == (
+        "WARNING: the bundle records no gap_s (made before #112), so --gap-s is not checked "
+        "against training"
+    )

@@ -6,7 +6,8 @@
 The frames of one camera position labelled `unit` are split by time exactly as `qs train` split
 them (`qs.eval.line_split`, the same frames and `--gap-s`), so the model never saw the two
 held-out blocks. A held-out frame the bundle lists among its training images is refused, and so is
-a `--gap-s` other than the one the bundle records (#112). Each held-out frame is scored as the
+a `--gap-s` other than the one the bundle records (#112); a bundle that records none, made before
+#112, gets a one-line WARNING and is counted. Each held-out frame is scored as the
 line station scores it: the cup wholly in the zone (`find_cup`), the window of the bundle's size
 centred on the rim, the map masked to the cup's inside (`check_appearance`). The threshold is
 chosen on the calibrate block at `--far` (`choose_threshold`), and the test block's frames above
@@ -139,7 +140,10 @@ def _report(args: argparse.Namespace, make_scorer: Callable[[str, np.ndarray], S
     model = load_model(Path(args.models), config, validation=False,
                        make_scorer=make_scorer, cuda_available=cuda_available)
     recorded = model.bundle.line
-    if recorded is not None and recorded.gap_s != args.gap_s:
+    if recorded is None:  # a bundle from before #112: warn rather than refuse, so it stays usable
+        print("WARNING: the bundle records no gap_s (made before #112), so --gap-s is not "
+              "checked against training")
+    elif recorded.gap_s != args.gap_s:
         raise _Refused(f"--gap-s {args.gap_s:g} is not the {recorded.gap_s:g} s the model was "
                        "split with; use the gap it was trained with")
     trained ={image.file for image in model.bundle.images}
