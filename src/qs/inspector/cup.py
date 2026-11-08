@@ -13,10 +13,15 @@ frames.
 
 `find_rims(pixels, LineConfig)` applies the same rim rules without the zone: every cup in the
 frame, each once, saying whether it is wholly in the zone. The cup trigger follows cups with it.
+
+`no_cup_reason(pixels, LineConfig)` says why `find_cup` found nothing. When every traced ellipse
+failed `rim_axis_px`, it names the size and the largest one's axes, so a camera remounted at
+another scale is not logged as a cup out of position. A round glare patch counts here too.
 """
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import cv2
@@ -88,26 +93,39 @@ def _inside(rim: Ellipse, shape: tuple[int, int]) -> np.ndarray:
     return mask
 
 
-def _rim_ellipses(pixels: np.ndarray, config: LineConfig) -> list[Ellipse]:
-    """Every traced edge that passes the rim rules, wherever it is. A full cup gives several: its
-    rim's two edges, and often the outline of the моти inside."""
+def _traced_ellipses(
+    pixels: np.ndarray, sized: Callable[[Ellipse], bool] = lambda _: True
+) -> list[Ellipse]:
+    """Every traced edge that fits an ellipse `sized` accepts, with edges along most of it.
+    `sized` runs before the edge share, which is the costly test, so most edges skip it."""
     grey = cv2.cvtColor(pixels, cv2.COLOR_BGR2GRAY)
     edges = cv2.Canny(cv2.GaussianBlur(grey, _BLUR_KSIZE, 0), *_CANNY)
     near_edge = cv2.dilate(edges, np.ones(_EDGE_TOLERANCE_KSIZE, dtype=np.uint8))
     contours, _ = cv2.findContours(edges, cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)
-    low, high = config.rim_axis_px
     ellipses: list[Ellipse] = []
     for contour in contours:
         if len(contour) < _MIN_EDGE_POINTS:
             continue
         (cx, cy), (first, second), angle = cv2.fitEllipse(contour)
         ellipse: Ellipse = ((cx, cy), (first, second), angle)
-        if not (low <= first <= high and low <= second <= high):
+        if not sized(ellipse):
             continue
         if _edge_share(_outline(ellipse), near_edge) < _RIM_EDGE_SHARE_MIN:
             continue
         ellipses.append(ellipse)
     return ellipses
+
+
+def _rim_sized(ellipse: Ellipse, config: LineConfig) -> bool:
+    low, high = config.rim_axis_px
+    _, (first, second), _ = ellipse
+    return low <= first <= high and low <= second <= high
+
+
+def _rim_ellipses(pixels: np.ndarray, config: LineConfig) -> list[Ellipse]:
+    """Every traced edge that passes the rim rules, wherever it is. A full cup gives several: its
+    rim's two edges, and often the outline of the моти inside."""
+    return _traced_ellipses(pixels, lambda ellipse: _rim_sized(ellipse, config))
 
 
 def _area(ellipse: Ellipse) -> float:
@@ -126,6 +144,25 @@ def find_cup(pixels: np.ndarray, config: LineConfig) -> Cup | None:
         return None
     x, y, w, h = cv2.boundingRect(_outline(best))
     return Cup(rim=best, box=(x, y, w, h), inside=_inside(best, pixels.shape[:2]))
+
+
+def no_cup_reason(pixels: np.ndarray, config: LineConfig) -> str:
+    """Why `find_cup` found no cup in `pixels`, for the log of a frame it returned None for.
+
+    When ellipses were traced but none is the size of `rim_axis_px`, the reason says so with the
+    largest one's axes, as a remounted camera sees cups at another scale. Otherwise the reason is
+    position, or no rim at all, as before.
+    """
+    reason = "no cup wholly in the zone"
+    traced = _traced_ellipses(pixels)
+    if not traced or any(_rim_sized(e, config) for e in traced):
+        return reason
+    low, high = config.rim_axis_px
+    _, (first, second), _ = max(traced, key=_area)
+    return (
+        f"{reason}: no rim the size of rim_axis_px {low}–{high}, "
+        f"the largest seen is {first:.0f}×{second:.0f} px"
+    )
 
 
 def find_rims(pixels: np.ndarray, config: LineConfig) -> tuple[Rim, ...]:

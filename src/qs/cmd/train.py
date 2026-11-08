@@ -52,7 +52,7 @@ from qs.inspector.bundle import (
     pixels_sha256,
     write_bundle,
 )
-from qs.inspector.cup import find_cup
+from qs.inspector.cup import find_cup, no_cup_reason
 from qs.inspector.localize import localize
 from qs.inspector.model import FitSettings, PatchCore, device_for
 from qs.inspector.window import cut_window, to_input
@@ -249,7 +249,7 @@ def _line_inputs(
             pixels = videos[video].read(index)
             cup = find_cup(pixels, line)
             if cup is None:
-                raise _Refused(f"{frame_id}: no cup wholly in the zone")
+                raise _Refused(f"{frame_id}: {no_cup_reason(pixels, line)}")
             window, _ = cut_window(pixels, cup.rim[0], args.window_px)
             inputs.append(to_input(window, args.input_px))
             images.append(ImageRecord(frame_id, video, pixels_sha256(pixels)))
