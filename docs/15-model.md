@@ -208,7 +208,8 @@ models/<model_id>/
     memory_bank.pt         the coreset
     bundle.yml             backbone, layers, input_px, window_px, normalisation, seed,
                            library versions, data_source (own | external:<name>),
-                           the unit IDs trained on, and the hash of every training image
+                           the unit IDs trained on, and the hash of every training image;
+                           a line bundle also records its time split, line {gap_s, labels}
 ```
 
 `model_id = patchcore-<product>-v<n>-<first 12 hex of sha256(memory_bank.pt + bundle.yml)>`.

@@ -22,6 +22,8 @@ labelled `unit` are the good ones; no other label trains. They are split by time
 (`qs.eval.line_split`, `inspector.line.fps` and `--gap-s`) and only the training block is read.
 Each of its frames must show a cup wholly in the zone (`find_cup`); the window is centred on
 the rim. An image's unit is its video, and its SHA-256 is that of the decoded frame's pixels.
+The bundle also records the split as `line: {gap_s, labels}` (the labels file's name), which
+`qs line-alarms` checks (#112).
 
 Exit codes: 0 written · 1 refused (a name, a geometry, a placement) · 2 could not run
 (config, CUDA, weights). Every refusal is one line, never a traceback.
@@ -42,7 +44,14 @@ from qs.config import LineConfig, StationConfig, load_config
 from qs.errors import ConfigError, InferenceError, PlacementFault
 from qs.eval.line_split import LineSplitError, split_units, video_frame
 from qs.inspector.appearance import real_cuda_available
-from qs.inspector.bundle import PRODUCT, BundleInfo, ImageRecord, pixels_sha256, write_bundle
+from qs.inspector.bundle import (
+    PRODUCT,
+    BundleInfo,
+    ImageRecord,
+    LineRecord,
+    pixels_sha256,
+    write_bundle,
+)
 from qs.inspector.cup import find_cup
 from qs.inspector.localize import localize
 from qs.inspector.model import FitSettings, PatchCore, device_for
@@ -208,8 +217,9 @@ def _dataset_inputs(
 
 def _line_inputs(
     args: argparse.Namespace, line: LineConfig
-) -> tuple[list[np.ndarray], list[ImageRecord], str]:
-    """The training block of one position's `unit` frames: inputs, records, what they were."""
+) -> tuple[list[np.ndarray], list[ImageRecord], str, LineRecord]:
+    """The training block of one position's `unit` frames: inputs, records, what they were,
+    and how they were split."""
     if args.labels is None or args.footage is None:
         raise _CannotRun("a line config trains with --labels and --footage")
     if line.fps is None:
@@ -253,7 +263,7 @@ def _line_inputs(
         f"held out {len(split.calibrate)} to calibrate and {len(split.test)} to test, "
         f"{len(split.dropped)} dropped in the gaps"
     )
-    return inputs, images, trained_on
+    return inputs, images, trained_on, LineRecord(gap_s, labels_path.name)
 
 
 def _train(
@@ -281,8 +291,9 @@ def _train(
                     "--footage and --gap-s are for a line config only (inspector.type: line)"
                 )
             inputs, images, trained_on = _dataset_inputs(args, config)
+            split_record = None
         else:
-            inputs, images, trained_on = _line_inputs(args, line)
+            inputs, images, trained_on, split_record = _line_inputs(args, line)
     except _Refused as exc:
         print(f"refused: {exc}")
         return 1
@@ -308,6 +319,7 @@ def _train(
         device=device,
         data_source="own",
         images=tuple(images),
+        line=split_record,
     )
     models = Path(args.models)
     try:
