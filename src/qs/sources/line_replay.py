@@ -100,6 +100,11 @@ class _Paced:
         return int((self._clock() - self._start) * self._fps)
 
     @property
+    def fps(self) -> float:
+        """The rate the recording is played at."""
+        return self._fps
+
+    @property
     def finished(self) -> bool:
         """True once the clock has passed the last frame."""
         index = self._index_now()

@@ -81,9 +81,7 @@ def _judged(loaded: LoadedConfig, video: Path) -> list[Judged]:
         clock=clock,
         wall=utc_now,
     )
-    # video_replay_pair has refused a config without inspector.line.fps
-    assert config.inspector.line is not None and config.inspector.line.fps is not None
-    step = 1 / config.inspector.line.fps
+    step = 1 / source.fps
     pipeline.start()
     while not trigger.exhausted and not pipeline.stopped:
         event = trigger.poll()
