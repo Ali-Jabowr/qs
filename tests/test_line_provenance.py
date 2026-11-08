@@ -13,7 +13,7 @@ import yaml
 
 from conftest import FakePatchCore
 from qs.__main__ import build_parser
-from qs.cmd import train
+from qs.cmd import line_alarms, train
 from qs.errors import ConfigError
 from qs.inspector.bundle import LineRecord, load_bundle
 from test_bundle import _rehashed
@@ -32,6 +32,17 @@ def _train(root: Path) -> Path:
                       cuda_available=lambda: True) == 0
     (bundle,) = models.iterdir()
     return bundle
+
+
+def _alarms(root: Path, model_id: str, gap_s: str = "0.2") -> int:
+    """`qs line-alarms` on the footage and labels `_train` wrote."""
+    args = build_parser().parse_args([
+        "line-alarms", "--config", str(root / "line.yml"), "--labels", str(root / "top.json"),
+        "--footage", str(root / "footage"), "--models", str(root / "models"),
+        "--model", model_id, "--gap-s", gap_s,
+    ])
+    return line_alarms.main(args, make_scorer=lambda device, bank: FakePatchCore().scorer(bank),
+                            cuda_available=lambda: True)
 
 
 def test_a_line_bundle_records_the_gap_and_the_labels_file_it_was_split_with(
@@ -66,3 +77,17 @@ def test_a_malformed_split_record_is_refused(
 
     with pytest.raises(ConfigError, match=match):
         load_bundle(bundle.parent, edited)
+
+
+def test_a_gap_other_than_the_bundles_is_refused(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # A 0.3 s gap holds out frames 31–33 and 37–39: none trained on, yet the blocks move.
+    bundle = _train(tmp_path)
+    capsys.readouterr()
+
+    assert _alarms(tmp_path, bundle.name, gap_s="0.3") == 1
+    assert capsys.readouterr().out.strip() == (
+        "refused: --gap-s 0.3 is not the 0.2 s the model was split with; use the gap it was "
+        "trained with"
+    )

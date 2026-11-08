@@ -5,16 +5,17 @@
 
 The frames of one camera position labelled `unit` are split by time exactly as `qs train` split
 them (`qs.eval.line_split`, the same frames and `--gap-s`), so the model never saw the two
-held-out blocks; a held-out frame the bundle lists among its training images is refused. Each
-held-out frame is scored as the line station scores it: the cup wholly in the zone
-(`find_cup`), the window of the bundle's size centred on the rim, the map masked to the cup's
-inside (`check_appearance`). The threshold is chosen on the calibrate block at `--far`
-(`choose_threshold`), and the test block's frames above it are the false alarms. Only numbers are
-printed: no image, config or record is written, so the threshold reaches a station config by
-hand.
+held-out blocks. A held-out frame the bundle lists among its training images is refused, and so is
+a `--gap-s` other than the one the bundle records (#112). Each held-out frame is scored as the
+line station scores it: the cup wholly in the zone (`find_cup`), the window of the bundle's size
+centred on the rim, the map masked to the cup's inside (`check_appearance`). The threshold is
+chosen on the calibrate block at `--far` (`choose_threshold`), and the test block's frames above
+it are the false alarms. Only numbers are printed: no image, config or record is written, so the
+threshold reaches a station config by hand.
 
-Exit codes: 0 counted · 1 refused (a held-out frame with no cup or trained on, an empty block)
-· 2 could not run (config, labels, footage, bundle, a model scoring not a number).
+Exit codes: 0 counted · 1 refused (a held-out frame with no cup or trained on, an empty block, a
+gap other than the bundle's) · 2 could not run (config, labels, footage, bundle, a model scoring
+not a number).
 """
 
 from __future__ import annotations
@@ -137,7 +138,11 @@ def _report(args: argparse.Namespace, make_scorer: Callable[[str, np.ndarray], S
     config = replace(config, inspector=replace(config.inspector, model=args.model))
     model = load_model(Path(args.models), config, validation=False,
                        make_scorer=make_scorer, cuda_available=cuda_available)
-    trained = {image.file for image in model.bundle.images}
+    recorded = model.bundle.line
+    if recorded is not None and recorded.gap_s != args.gap_s:
+        raise _Refused(f"--gap-s {args.gap_s:g} is not the {recorded.gap_s:g} s the model was "
+                       "split with; use the gap it was trained with")
+    trained ={image.file for image in model.bundle.images}
     seen = [frame_id for frame_id in (*split.calibrate, *split.test) if frame_id in trained]
     if seen:
         raise _Refused(f"{seen[0]}: the model was trained on this held-out frame; use the "
