@@ -555,13 +555,15 @@ def _overlaps(a: tuple[int, int, int, int], b: tuple[int, int, int, int]) -> boo
     return ax < bx + bw and bx < ax + aw and ay < by + bh and by < ay + ah
 
 
-def _validate_line(line: LineConfig, config: StationConfig) -> None:
-    x, y, w, h = line.zone
+def _check_in_frame(path: str, roi: tuple[int, int, int, int], config: StationConfig) -> None:
+    x, y, w, h = roi
     width, height = config.camera.width, config.camera.height
     if x < 0 or y < 0 or w < 1 or h < 1 or x + w > width or y + h > height:
-        raise ConfigError(
-            f"inspector.line.zone: [{x}, {y}, {w}, {h}] is outside the {width}x{height} frame"
-        )
+        raise ConfigError(f"{path}: [{x}, {y}, {w}, {h}] is outside the {width}x{height} frame")
+
+
+def _validate_line(line: LineConfig, config: StationConfig) -> None:
+    _check_in_frame("inspector.line.zone", line.zone, config)
     patch = config.lighting.reference_patch
     if patch is not None and _overlaps(patch.roi, line.zone):
         raise ConfigError(
@@ -616,13 +618,8 @@ def _validate(config: StationConfig) -> None:
                 "would find the grey card as a unit"
             )
         rois.insert(0, ("lighting.reference_patch.roi", reference_patch.roi))
-    width = config.camera.width
-    height = config.camera.height
-    for path, (x, y, w, h) in rois:
-        if x < 0 or y < 0 or w < 1 or h < 1 or x + w > width or y + h > height:
-            raise ConfigError(
-                f"{path}: [{x}, {y}, {w}, {h}] is outside the {width}x{height} frame"
-            )
+    for path, roi in rois:
+        _check_in_frame(path, roi, config)
     if _MODEL_ID.fullmatch(config.inspector.model) is None:
         raise ConfigError(
             f"inspector.model: {config.inspector.model!r} is not a full model_id — expected "
