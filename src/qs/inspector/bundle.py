@@ -7,7 +7,9 @@
                          versions {python, torch, torchvision, anomalib, timm, numpy, opencv},
                          data_source (own | external:<name>), validation_only,
                          units (sorted unit IDs), images [{file, unit, sha256}],
-                         and on a line bundle only: line {gap_s, labels}
+                         and on a line bundle only: line {gap_s, labels} and line_fps
+                         (the inspector.line.fps it was split at); both are missing on line
+                         bundles made before #112
 
 `model_id = patchcore-<product>-v<n>-<first 12 hex of sha256(memory_bank.pt ‖ bundle.yml)>`,
 where `n` is one more than the highest version of that product already under the models
@@ -62,7 +64,7 @@ _KEYS = (
     "coreset_ratio", "num_neighbors", "seed", "device", "versions", "data_source",
     "validation_only", "units", "images",
 )
-_OPTIONAL_KEYS = ("line",)
+_OPTIONAL_KEYS = ("line", "line_fps")
 _VERSIONS = {
     "python": None,
     "torch": "torch",
@@ -115,6 +117,7 @@ class BundleInfo:
     data_source: str
     images: tuple[ImageRecord, ...]
     line: LineRecord | None = None
+    line_fps: float | None = None  # the `inspector.line.fps` a line bundle was split at
 
 
 @dataclass(frozen=True, slots=True)
@@ -137,6 +140,7 @@ class Bundle:
     units: tuple[str, ...]
     images: tuple[ImageRecord, ...]
     line: LineRecord | None  # None on a bench bundle and on a line bundle made before #112
+    line_fps: float | None  # likewise
 
 
 def _versions() -> dict[str, str]:
@@ -207,6 +211,8 @@ def write_bundle(models_root: Path, product: str, bank: np.ndarray, info: Bundle
     }
     if info.line is not None:
         record["line"] = {"gap_s": info.line.gap_s, "labels": info.line.labels}
+    if info.line_fps is not None:
+        record["line_fps"] = info.line_fps
     bank_bytes = _bank_bytes(bank)
     yml_bytes = yaml.safe_dump(record, sort_keys=False, allow_unicode=True).encode("utf-8")
     suffix = hashlib.sha256(bank_bytes + yml_bytes).hexdigest()[:12]
@@ -293,6 +299,13 @@ def _line(value: object, refuse: _Refusal) -> LineRecord:
     return LineRecord(float(gap_s), labels)
 
 
+def _line_fps(value: object, refuse: _Refusal) -> float:
+    if (isinstance(value, bool) or not isinstance(value, int | float) or not math.isfinite(value)
+            or value <= 0):
+        raise refuse(f"line_fps: {value!r} is not a finite number above 0")
+    return float(value)
+
+
 def _parse(data: object, refuse: _Refusal) -> dict[str, Any]:
     """Every rule on `bundle.yml`, in key order; the checked values."""
     _exact_keys(data, _KEYS, BUNDLE_FILE, refuse, _OPTIONAL_KEYS)
@@ -349,6 +362,7 @@ def _parse(data: object, refuse: _Refusal) -> dict[str, Any]:
         "data_source": source, "validation_only": flag, "units": tuple(units),
         "images": _images(data["images"], tuple(units), refuse),
         "line": _line(data["line"], refuse) if "line" in data else None,
+        "line_fps": _line_fps(data["line_fps"], refuse) if "line_fps" in data else None,
     }
 
 

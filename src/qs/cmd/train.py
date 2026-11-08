@@ -22,8 +22,8 @@ labelled `unit` are the good ones; no other label trains. They are split by time
 (`qs.eval.line_split`, `inspector.line.fps` and `--gap-s`) and only the training block is read.
 Each of its frames must show a cup wholly in the zone (`find_cup`); the window is centred on
 the rim. An image's unit is its video, and its SHA-256 is that of the decoded frame's pixels.
-The bundle also records the split as `line: {gap_s, labels}` (the labels file's name), which
-`qs line-alarms` checks (#112).
+The bundle also records the split as `line: {gap_s, labels}` (the labels file's name) and
+`line_fps` (`inspector.line.fps`), which `qs line-alarms` checks (#112).
 
 Exit codes: 0 written · 1 refused (a name, a geometry, a placement) · 2 could not run
 (config, CUDA, weights). Every refusal is one line, never a traceback.
@@ -291,9 +291,10 @@ def _train(
                     "--footage and --gap-s are for a line config only (inspector.type: line)"
                 )
             inputs, images, trained_on = _dataset_inputs(args, config)
-            split_record = None
+            split_record, line_fps = None, None
         else:
             inputs, images, trained_on, split_record = _line_inputs(args, line)
+            line_fps = line.fps
     except _Refused as exc:
         print(f"refused: {exc}")
         return 1
@@ -320,6 +321,7 @@ def _train(
         data_source="own",
         images=tuple(images),
         line=split_record,
+        line_fps=line_fps,
     )
     models = Path(args.models)
     try:

@@ -6,8 +6,9 @@
 The frames of one camera position labelled `unit` are split by time exactly as `qs train` split
 them (`qs.eval.line_split`, the same frames and `--gap-s`), so the model never saw the two
 held-out blocks. A held-out frame the bundle lists among its training images is refused, and so is
-a `--gap-s` other than the one the bundle records (#112); a bundle that records none, made before
-#112, gets a one-line WARNING and is counted. Every frame the bundle was trained on is read again
+a `--gap-s` or an `inspector.line.fps` other than the one the bundle records (#112), since either
+changes the gap in frames; a bundle that records none, made before #112, gets a one-line WARNING
+per missing record and is counted. Every frame the bundle was trained on is read again
 from `--footage` and must hash to the bundle's SHA-256, or the run is refused: another video under
 the same name could hold training cups at held-out ids, and re-encoded footage is refused the same
 way; retrain on the footage used. A video renamed or missing under `--footage` cannot be opened,
@@ -21,9 +22,9 @@ above it are the false alarms. Only numbers are printed: no image, config or rec
 so the threshold reaches a station config by hand.
 
 Exit codes: 0 counted · 1 refused (a held-out frame with no cup or trained on, an empty block, a
-gap other than the bundle's, a trained frame whose pixels differ, another training block) · 2
-could not run (config, labels, footage or a video missing from it, bundle, a model scoring not a
-number).
+gap or fps other than the bundle's, a trained frame whose pixels differ, another training block)
+· 2 could not run (config, labels, footage or a video missing from it, bundle, a model scoring
+not a number).
 """
 
 from __future__ import annotations
@@ -170,6 +171,14 @@ def _report(args: argparse.Namespace, make_scorer: Callable[[str, np.ndarray], S
     elif recorded.gap_s != args.gap_s:
         raise _Refused(f"--gap-s {args.gap_s:g} is not the {recorded.gap_s:g} s the model was "
                        "split with; use the gap it was trained with")
+    trained_fps = model.bundle.line_fps
+    if trained_fps is None:  # likewise: a bundle from before #112 stays usable
+        print("WARNING: the bundle records no line_fps (made before #112), so inspector.line.fps "
+              "is not checked against training")
+    elif trained_fps != fps:
+        raise _Refused(f"inspector.line.fps {fps:g} is not the {trained_fps:g} fps the model was "
+                       "split at, so the gap in frames would differ from training; use the fps "
+                       "it was trained with")
     trained = {image.file for image in model.bundle.images}
     seen = [frame_id for frame_id in (*split.calibrate, *split.test) if frame_id in trained]
     if seen:
