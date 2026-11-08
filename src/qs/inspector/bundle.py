@@ -6,7 +6,10 @@
                          normalisation {mean, std}, coreset_ratio, num_neighbors, seed, device,
                          versions {python, torch, torchvision, anomalib, timm, numpy, opencv},
                          data_source (own | external:<name>), validation_only,
-                         units (sorted unit IDs), images [{file, unit, sha256}]
+                         units (sorted unit IDs), images [{file, unit, sha256}],
+                         and on a line bundle only: line {gap_s, labels} and line_fps
+                         (the inspector.line.fps it was split at); both are missing on line
+                         bundles made before #112
 
 `model_id = patchcore-<product>-v<n>-<first 12 hex of sha256(memory_bank.pt ‖ bundle.yml)>`,
 where `n` is one more than the highest version of that product already under the models
@@ -26,6 +29,7 @@ from __future__ import annotations
 import hashlib
 import importlib.metadata
 import io
+import math
 import os
 import platform
 import re
@@ -60,6 +64,7 @@ _KEYS = (
     "coreset_ratio", "num_neighbors", "seed", "device", "versions", "data_source",
     "validation_only", "units", "images",
 )
+_OPTIONAL_KEYS = ("line", "line_fps")
 _VERSIONS = {
     "python": None,
     "torch": "torch",
@@ -86,6 +91,21 @@ class ImageRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class LineRecord:
+    """How a line bundle's frames were split (#112): the `--gap-s` of the time split, which
+    `qs line-alarms` checks, and the name of the labels file, which is informational only (the
+    held-out read may use a copy under another name; its training block is checked instead)."""
+
+    gap_s: float
+    labels: str
+
+
+def pixels_sha256(pixels: np.ndarray) -> str:
+    """The SHA-256 a line frame's `ImageRecord` holds: that of its decoded pixels."""
+    return hashlib.sha256(pixels.tobytes()).hexdigest()
+
+
+@dataclass(frozen=True, slots=True)
 class BundleInfo:
     """What a caller knows about a fit; the pins and library versions are added on write."""
 
@@ -96,6 +116,8 @@ class BundleInfo:
     device: str
     data_source: str
     images: tuple[ImageRecord, ...]
+    line: LineRecord | None = None
+    line_fps: float | None = None  # the `inspector.line.fps` a line bundle was split at
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,6 +139,8 @@ class Bundle:
     validation_only: bool
     units: tuple[str, ...]
     images: tuple[ImageRecord, ...]
+    line: LineRecord | None  # None on a bench bundle and on a line bundle made before #112
+    line_fps: float | None  # likewise
 
 
 def _versions() -> dict[str, str]:
@@ -185,6 +209,10 @@ def write_bundle(models_root: Path, product: str, bank: np.ndarray, info: Bundle
             for image in info.images
         ],
     }
+    if info.line is not None:
+        record["line"] = {"gap_s": info.line.gap_s, "labels": info.line.labels}
+    if info.line_fps is not None:
+        record["line_fps"] = info.line_fps
     bank_bytes = _bank_bytes(bank)
     yml_bytes = yaml.safe_dump(record, sort_keys=False, allow_unicode=True).encode("utf-8")
     suffix = hashlib.sha256(bank_bytes + yml_bytes).hexdigest()[:12]
@@ -227,13 +255,14 @@ def _positive_int(data: Mapping[str, Any], key: str, refuse: _Refusal) -> int:
     return int(value)
 
 
-def _exact_keys(data: object, keys: tuple[str, ...], where: str, refuse: _Refusal) -> None:
+def _exact_keys(data: object, keys: tuple[str, ...], where: str, refuse: _Refusal,
+                optional: tuple[str, ...] = ()) -> None:
     if not isinstance(data, dict):
         raise refuse(f"{where}: not a mapping")
     missing = [key for key in keys if key not in data]
     if missing:
         raise refuse(f"{where}: missing key {missing[0]!r}")
-    unknown = sorted(str(key) for key in data if key not in keys)
+    unknown = sorted(str(key) for key in data if key not in keys + optional)
     if unknown:
         raise refuse(f"{where}: unknown key {unknown[0]!r}")
 
@@ -258,9 +287,28 @@ def _images(value: object, units: tuple[str, ...], refuse: _Refusal) -> tuple[Im
     return tuple(records)
 
 
+def _line(value: object, refuse: _Refusal) -> LineRecord:
+    _exact_keys(value, ("gap_s", "labels"), "line", refuse)
+    assert isinstance(value, dict)
+    gap_s, labels = value["gap_s"], value["labels"]
+    if (isinstance(gap_s, bool) or not isinstance(gap_s, int | float) or not math.isfinite(gap_s)
+            or gap_s < 0):
+        raise refuse(f"line.gap_s: {gap_s!r} is not a finite number at or above 0")
+    if not isinstance(labels, str) or not labels:
+        raise refuse(f"line.labels: {labels!r} is not a file name")
+    return LineRecord(float(gap_s), labels)
+
+
+def _line_fps(value: object, refuse: _Refusal) -> float:
+    if (isinstance(value, bool) or not isinstance(value, int | float) or not math.isfinite(value)
+            or value <= 0):
+        raise refuse(f"line_fps: {value!r} is not a finite number above 0")
+    return float(value)
+
+
 def _parse(data: object, refuse: _Refusal) -> dict[str, Any]:
     """Every rule on `bundle.yml`, in key order; the checked values."""
-    _exact_keys(data, _KEYS, BUNDLE_FILE, refuse)
+    _exact_keys(data, _KEYS, BUNDLE_FILE, refuse, _OPTIONAL_KEYS)
     assert isinstance(data, dict)
     if data["backbone"] != BACKBONE:
         raise refuse(f"backbone: {data['backbone']!r} is not the pinned {BACKBONE!r} (ADR-0020)")
@@ -313,6 +361,8 @@ def _parse(data: object, refuse: _Refusal) -> dict[str, Any]:
         "seed": int(seed), "device": data["device"], "versions": dict(versions),
         "data_source": source, "validation_only": flag, "units": tuple(units),
         "images": _images(data["images"], tuple(units), refuse),
+        "line": _line(data["line"], refuse) if "line" in data else None,
+        "line_fps": _line_fps(data["line_fps"], refuse) if "line_fps" in data else None,
     }
 
 
