@@ -18,6 +18,7 @@ import yaml
 
 from qs.config import LoadedConfig, load_config
 from qs.contracts import CHECK_APPEARANCE, CHECK_EMPTY_CUP, Frame, Label
+from qs.errors import InferenceError
 from qs.inspector.bundle import BundleInfo, ImageRecord, write_bundle
 from qs.inspector.line import LineInspector
 from station_fixtures import PATCH_GREY, VERIFIED, config_mapping, event
@@ -115,3 +116,14 @@ def test_an_empty_cup_still_runs_the_appearance_check(
     assert [check.name for check in verdict.checks] == [CHECK_EMPTY_CUP, CHECK_APPEARANCE]
     assert verdict.checks[0].passed is False
     assert len(scorer.inputs) == 2  # the warm-up at load, then this cup
+
+
+def test_a_non_finite_map_is_an_inference_error_never_a_verdict(
+    loaded: LoadedConfig, models: Path
+) -> None:
+    # The Pipeline records an InferenceError as НЕТ РЕШЕНИЯ (docs/11 §7), so a broken model on
+    # a full cup can never give ГОДЕН on the empty-cup check alone.
+    inspector = _inspector(loaded, models, ConstantScorer(float("nan")))
+
+    with pytest.raises(InferenceError, match="non-finite"):
+        inspector.inspect(_frame(drawn_frame("pale")))
