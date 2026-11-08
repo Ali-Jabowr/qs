@@ -33,7 +33,7 @@ from qs.eval.line_score import (
 )
 from qs.eval.line_split import LineSplitError, video_frame
 from qs.eval.scoring import MemorySink, utc_now
-from qs.labels import Labels, LabelsError, load_labels
+from qs.labels import FrameKind, Labels, LabelsError, load_labels
 from qs.pipeline import Pipeline
 from qs.sources.line_replay import video_replay_pair
 from qs.sources.replay import ReplayError
@@ -115,7 +115,7 @@ def _score(loaded: LoadedConfig, footage: Path, labels: Labels, window: int) -> 
     cup_videos = {cup.video for cup in labels.cups}
     if not cup_videos:
         raise LabelsError(f"labels file {labels.path} counts no cup")
-    hands = {video_frame(i) for i, frame in labels.frames.items() if frame.label == "hand"}
+    hands = {video_frame(i) for i, frame in labels.frames.items() if frame.label == FrameKind.HAND}
     scores: list[CupScore] = []
     on_hands: list[Label] = []
     # A video with hands but no counted cup is played for its hands only: its records are not
