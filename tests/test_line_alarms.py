@@ -14,16 +14,20 @@ upper bound for 2 of 4 is 90.2%.
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
 
 import cv2
+import numpy as np
 import pytest
 import yaml
 
 from conftest import FakePatchCore
 from qs.__main__ import build_parser
 from qs.cmd import line_alarms, train
+from qs.inspector.model import Scorer
 from station_fixtures import config_mapping
+from test_appearance import ConstantScorer, Factory
 from test_cup import drawn_frame
 
 FPS = 10.0
@@ -67,7 +71,13 @@ def _config(root: Path) -> Path:
     return path
 
 
-def _alarms(root: Path, scored_labels: int = FRAMES) -> int:
+def _alarms(
+    root: Path,
+    scored_labels: int = FRAMES,
+    make_scorer: Callable[[str, np.ndarray], Scorer] = lambda device, bank: FakePatchCore().scorer(
+        bank
+    ),
+) -> int:
     """Train on all frames' labels, then count false alarms with the first `scored_labels`."""
     config, labels, footage = _config(root), _labels(root), _footage(root)
     models = root / "models"
@@ -88,7 +98,7 @@ def _alarms(root: Path, scored_labels: int = FRAMES) -> int:
         build_parser().parse_args(
             ["line-alarms", *common, "--labels", str(scored), "--model", bundle.name]
         ),
-        make_scorer=lambda device, bank: FakePatchCore().scorer(bank),
+        make_scorer=make_scorer,
         cuda_available=lambda: True,
     )
 
@@ -126,4 +136,28 @@ def test_a_held_out_frame_the_model_was_trained_on_is_refused(
     assert capsys.readouterr().out.splitlines()[-1] == (
         "refused: line.avi#16: the model was trained on this held-out frame; "
         "use the labels and --gap-s it was trained with"
+    )
+
+
+@pytest.mark.parametrize("far", ["0", "100", "-5"])
+def test_a_false_alarm_target_outside_1_5_10_is_refused_by_the_parser(far: str) -> None:
+    # The same targets as `qs calibrate`: 100 would index past the scores, -5 would pick the
+    # lowest calibrate score as the threshold.
+    with pytest.raises(SystemExit) as raised:
+        build_parser().parse_args(
+            ["line-alarms", "--config", "c.yml", "--labels", "l.json", "--footage", "f",
+             "--model", "m", "--far", far]
+        )
+
+    assert raised.value.code == 2
+
+
+def test_a_model_scoring_not_a_number_could_not_run(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    code = _alarms(tmp_path, make_scorer=Factory(ConstantScorer(1.0, pred_score=float("nan"))))
+
+    assert code == 2
+    assert capsys.readouterr().out.splitlines()[-1] == (
+        "line-alarms: the model's pred_score nan is not finite"
     )

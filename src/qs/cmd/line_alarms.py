@@ -14,7 +14,7 @@ printed: no image, config or record is written, so the threshold reaches a stati
 hand.
 
 Exit codes: 0 counted · 1 refused (a held-out frame with no cup or trained on, an empty block)
-· 2 could not run (config, labels, footage, bundle).
+· 2 could not run (config, labels, footage, bundle, a model scoring not a number).
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ import numpy as np
 
 from qs.cmd.train import DEFAULT_GAP_S, non_negative_float
 from qs.config import LineConfig, StationConfig, load_config
-from qs.errors import ConfigError
+from qs.errors import ConfigError, InferenceError
 from qs.eval.line_split import LineSplitError, split_units, video_frame
 from qs.eval.stats import upper_bound
 from qs.eval.threshold import UnitScore, choose_threshold
@@ -70,8 +70,8 @@ def add_parser(commands: Any) -> None:
     parser.add_argument("--gap-s", type=non_negative_float, default=DEFAULT_GAP_S, metavar="S",
                         help=f"seconds dropped before each held-out block, as in training "
                         f"({DEFAULT_GAP_S:g})")
-    parser.add_argument("--far", type=int, default=5, metavar="PCT",
-                        help="the false-alarm target the threshold is set at (5)")
+    parser.add_argument("--far", type=int, choices=(1, 5, 10), default=5, metavar="PCT",
+                        help="the false-alarm target the threshold is set at: 1, 5 or 10 (5)")
 
 
 def _line_config(path: Path) -> tuple[StationConfig, LineConfig, float]:
@@ -174,7 +174,7 @@ def main(
     except _Refused as exc:
         print(f"refused: {exc}")
         return 1
-    except (_CannotRun, ConfigError, LabelsError, FrameReadError) as exc:
+    except (_CannotRun, ConfigError, LabelsError, FrameReadError, InferenceError) as exc:
         print(f"line-alarms: {exc}")
         return 2
     print("\n".join(lines))
