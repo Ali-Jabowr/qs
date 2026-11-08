@@ -14,7 +14,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass
 
-from qs.labels import Labels
+from qs.labels import FrameKind, Labels
 
 
 class LineSplitError(ValueError):
@@ -46,7 +46,7 @@ def video_frame(frame_id: str) -> tuple[str, int]:
 def split_units(labels: Labels, *, fps: float, gap_s: float) -> LineSplit:
     """The split of the frames `labels` marks `unit`: the one `qs train` fits on and `qs
     line-alarms` reads back, so both always cut at the same frames."""
-    good = [frame_id for frame_id, frame in labels.frames.items() if frame.label == "unit"]
+    good = [frame_id for frame_id, frame in labels.frames.items() if frame.label == FrameKind.UNIT]
     return split_frames(good, fps=fps, gap_s=gap_s)
 
 

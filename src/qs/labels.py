@@ -26,6 +26,7 @@ import os
 import tempfile
 from collections import Counter
 from dataclasses import asdict, dataclass, field, replace
+from enum import StrEnum
 from pathlib import Path
 
 import cv2
@@ -36,8 +37,28 @@ _IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg"}
 _FILE_KEYS = {"version", "source", "frames", "cups"}
 _FRAME_KEYS = {"label", "flavour"}
 _CUP_KEYS = {"video", "order", "state", "frame"}
-_LABELS = ("unit", "empty_cup", "nothing", "hand")
 _FLAVOURS = ("white", "pink")
+
+
+class FrameKind(StrEnum):
+    """What a labelled frame shows, spelled as the labels file spells it."""
+
+    UNIT = "unit"
+    EMPTY_CUP = "empty_cup"
+    NOTHING = "nothing"
+    HAND = "hand"
+
+
+class CupState(StrEnum):
+    """A counted cup's state, spelled as the labels file spells it."""
+
+    FULL = "full"
+    FULL_WHITE = "full_white"
+    FULL_PINK = "full_pink"
+    EMPTY = "empty"
+
+
+
 _ANSWERS = {
     "u": ("unit", None),
     "w": ("unit", "white"),
@@ -46,7 +67,9 @@ _ANSWERS = {
     "n": ("nothing", None),
     "h": ("hand", None),
 }
-_CUP_STATES = {"f": "full", "w": "full_white", "p": "full_pink", "e": "empty"}
+_CUP_STATES = {
+    "f": CupState.FULL, "w": CupState.FULL_WHITE, "p": CupState.FULL_PINK, "e": CupState.EMPTY
+}
 _CUP_STEPS = {"Left": -1, "Right": 1, "Shift-Left": -25, "Shift-Right": 25}
 
 
@@ -62,7 +85,7 @@ class FrameReadError(ValueError):
 class FrameLabel:
     """One frame's answer; `flavour` is None when not visible, and on anything but a unit."""
 
-    label: str
+    label: FrameKind
     flavour: str | None = None
 
 
@@ -72,19 +95,19 @@ class Cup:
 
     video: str
     order: int
-    state: str
+    state: CupState
     frame: int
 
 
 def _frame_label(frame_id: str, label: object, flavour: object) -> FrameLabel:
     """One frame's label, checked against the contract; a flavour only ever goes on a unit."""
-    if not isinstance(label, str) or label not in _LABELS:
+    if not isinstance(label, str) or label not in FrameKind:
         raise LabelsError(f"{frame_id}: unknown label {label!r}")
     if flavour is not None and (not isinstance(flavour, str) or flavour not in _FLAVOURS):
         raise LabelsError(f"{frame_id}: unknown flavour {flavour!r}")
-    if flavour is not None and label != "unit":
+    if flavour is not None and label != FrameKind.UNIT:
         raise LabelsError(f"{frame_id}: a flavour only goes on a unit, not on {label}")
-    return FrameLabel(label, flavour)
+    return FrameLabel(FrameKind(label), flavour)
 
 
 def _write_atomically(path: Path, text: str) -> None:
@@ -123,7 +146,7 @@ class Labels:
     def cups_of(self, video: str) -> tuple[Cup, ...]:
         return tuple(cup for cup in self.cups if cup.video == video)
 
-    def answer_cup(self, video: str, state: str, frame: int) -> bool:
+    def answer_cup(self, video: str, state: CupState, frame: int) -> bool:
         """Apply one answer at `frame`, in memory only once it is on disk; False if it changed
         nothing. At or after the last cup's frame it records the next cup. Before it, it replaces
         the state of the highest-order cup on that frame, if that frame has one."""
@@ -170,7 +193,7 @@ def _parsed_cups(entries: list[object]) -> tuple[Cup, ...]:
         video, order, state, frame = (entry[key] for key in ("video", "order", "state", "frame"))
         if not isinstance(video, str):
             raise ValueError(f"cup {entry!r}: video must be text")
-        if state not in _CUP_STATES.values():
+        if state not in CupState:
             raise ValueError(f"cup {entry!r}: unknown state")
         if type(frame) is not int or frame < 0:
             raise ValueError(f"cup {entry!r}: frame must be a whole number from 0")
@@ -180,7 +203,7 @@ def _parsed_cups(entries: list[object]) -> tuple[Cup, ...]:
         if frame < last_frame.get(video, 0):
             raise ValueError(f"cup {entry!r}: frames must not decrease within {video}")
         last_frame[video] = frame
-        cups.append(Cup(video, order, state, frame))
+        cups.append(Cup(video, order, CupState(state), frame))
     return tuple(cups)
 
 
@@ -365,10 +388,10 @@ class CupSession(_Session):
 
     def _counts(self) -> str:
         states = [cup.state for cup in self.labels.cups_of(self.video)]
-        white, pink = states.count("full_white"), states.count("full_pink")
-        full = states.count("full") + white + pink
+        white, pink = states.count(CupState.FULL_WHITE), states.count(CupState.FULL_PINK)
+        full = states.count(CupState.FULL) + white + pink
         flavours = f" ({white} white, {pink} pink)" if white or pink else ""
-        return f"{full} full{flavours}, {states.count('empty')} empty"
+        return f"{full} full{flavours}, {states.count(CupState.EMPTY)} empty"
 
     def summary(self) -> str:
         count = len(self.labels.cups_of(self.video))
