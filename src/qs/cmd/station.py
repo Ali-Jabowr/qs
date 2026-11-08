@@ -57,6 +57,7 @@ from qs.annunciator import NullAnnunciator
 from qs.config import DisplayConfig, LoadedConfig, StationConfig, load_config
 from qs.contracts import FrameSource, Inspector, TriggerSource
 from qs.errors import ConfigError
+from qs.inspector.appearance import real_cuda_available, real_scorer
 from qs.keyboard import KeyboardTrigger
 from qs.pipeline import Clock, Pipeline, Shows, StationSink, WallClock, utc_now
 from qs.screen import Screen, ScreenLike
@@ -72,8 +73,6 @@ from qs.station import (
     StartupRefused,
     Station,
     build_inspector,
-    real_cuda_available,
-    real_scorer,
 )
 from qs.station_report import RunFacts, nfr01_line, render_report
 from qs.store import DB_NAME

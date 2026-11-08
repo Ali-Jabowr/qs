@@ -39,12 +39,12 @@ from qs.contracts import (
 )
 from qs.errors import ConfigError, InferenceError, PlacementFault
 from qs.inspector.appearance import (
-    _cuda_available,
-    _real_scorer,
+    LoadedModel,
     check_appearance,
-    load_scorer,
+    load_model,
+    real_cuda_available,
+    real_scorer,
 )
-from qs.inspector.bundle import Bundle
 from qs.inspector.cup import find_cup
 from qs.inspector.model import Scorer
 
@@ -80,8 +80,8 @@ class LineInspector:
         config_hash: str,
         models_root: str | Path = "models",
         *,
-        make_scorer: Callable[[str, np.ndarray], Scorer] = _real_scorer,
-        cuda_available: Callable[[], bool] = _cuda_available,
+        make_scorer: Callable[[str, np.ndarray], Scorer] = real_scorer,
+        cuda_available: Callable[[], bool] = real_cuda_available,
     ) -> None:
         self._config_hash = config_hash
         self._models_root = Path(models_root)
@@ -89,20 +89,21 @@ class LineInspector:
         self._cuda_available = cuda_available
         self._config: StationConfig | None = None
         self._line: LineConfig | None = None
-        self._appearance: tuple[Bundle, Scorer] | None = None
+        self._appearance: LoadedModel | None = None
 
     @property
     def model_id(self) -> str:
         """The loaded bundle's `model_id` when `appearance` is listed, else `"none"`."""
-        return LINE_MODEL_ID if self._appearance is None else self._appearance[0].model_id
+        return LINE_MODEL_ID if self._appearance is None else self._appearance.bundle.model_id
 
     def load(self, config: StationConfig) -> None:
         if config.inspector.line is None:
             raise ConfigError("inspector.line: a line inspector needs this block")
         self._config = None
+        self._line = None
         self._appearance = None
         if CHECK_APPEARANCE in config.inspector.checks:
-            self._appearance = load_scorer(
+            self._appearance = load_model(
                 self._models_root, config, validation=False,
                 make_scorer=self._make_scorer, cuda_available=self._cuda_available,
             )
@@ -132,9 +133,8 @@ class LineInspector:
         heatmap, window_box = None, None
         if self._appearance is not None:
             # Run on an empty cup too: one path, and every record holds both checks.
-            bundle, scorer = self._appearance
             appearance, heatmap, window_box = check_appearance(
-                frame.pixels, cup.rim[0], cup.inside, bundle, scorer, config
+                frame.pixels, cup.rim[0], cup.inside, self._appearance, config
             )
             checks = (check, appearance)
         return Verdict(

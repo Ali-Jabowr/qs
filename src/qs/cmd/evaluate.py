@@ -53,10 +53,9 @@ from qs.eval.units import (
     pairs,
     target_result,
 )
-from qs.inspector.appearance import AppearanceInspector
+from qs.inspector.appearance import AppearanceInspector, real_cuda_available, real_scorer
 from qs.inspector.bundle import Bundle, load_bundle
 from qs.inspector.model import Scorer
-from qs.station import real_cuda_available, real_scorer
 
 _POLICY = re.compile(r"far_(\d+)pct_on_calib")
 TARGETS = (1, 5, 10)

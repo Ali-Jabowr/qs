@@ -33,14 +33,13 @@ from qs.errors import ConfigError, InferenceError, PlacementFault
 from qs.eval import calibrate as cal
 from qs.eval.scoring import FrameResult, score_frames
 from qs.eval.threshold import ThresholdChoice, UnitScore, choose_threshold
-from qs.inspector.appearance import AppearanceInspector
+from qs.inspector.appearance import AppearanceInspector, real_cuda_available, real_scorer
 from qs.inspector.bundle import load_bundle
 from qs.inspector.geometry import GeometryMeasures, measure
 from qs.inspector.localize import localize
 from qs.inspector.model import Scorer
 from qs.inspector.tolerances import Tolerances, derive_tolerances
 from qs.names import FrameNameError, parse_name
-from qs.station import real_cuda_available, real_scorer
 
 
 class _Refused(Exception):

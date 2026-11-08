@@ -44,26 +44,36 @@ from qs.inspector.model import Scorer, device_for
 from qs.inspector.window import cut_window, score_map, to_input
 
 
-def _real_scorer(device: str, bank: np.ndarray) -> Scorer:
+def real_scorer(device: str, bank: np.ndarray) -> Scorer:
+    """The real PatchCore scorer on `device`; torch and Anomalib are imported here only."""
     from qs.inspector.patchcore import AnomalibPatchCore
 
     return AnomalibPatchCore(device).scorer(bank)
 
 
-def _cuda_available() -> bool:
+def real_cuda_available() -> bool:
+    """Whether torch sees a CUDA device; torch is imported here only."""
     from qs.inspector.patchcore import cuda_available
 
     return cuda_available()
 
 
-def load_scorer(
+@dataclass(frozen=True, slots=True)
+class LoadedModel:
+    """A verified bundle and the scorer built on its bank, warmed up."""
+
+    bundle: Bundle
+    scorer: Scorer
+
+
+def load_model(
     models_root: Path,
     config: StationConfig,
     *,
     validation: bool,
     make_scorer: Callable[[str, np.ndarray], Scorer],
     cuda_available: Callable[[], bool],
-) -> tuple[Bundle, Scorer]:
+) -> LoadedModel:
     """The verified bundle `config.inspector.model` names and its scorer, warmed up on a black
     window."""
     bundle = load_bundle(models_root, config.inspector.model, validation=validation)
@@ -71,21 +81,21 @@ def load_scorer(
     scorer = make_scorer(device, bundle.bank)
     black = np.zeros((bundle.window_px, bundle.window_px, 3), dtype=np.uint8)
     scorer.score(to_input(black, bundle.input_px))
-    return bundle, scorer
+    return LoadedModel(bundle, scorer)
 
 
 def check_appearance(
     pixels: np.ndarray,
     centre: tuple[float, float],
     mask: np.ndarray,
-    bundle: Bundle,
-    scorer: Scorer,
+    model: LoadedModel,
     config: StationConfig,
 ) -> tuple[CheckResult, np.ndarray, tuple[int, int, int, int]]:
     """The appearance check on the window centred on `centre`, with the map masked to the
     frame-sized `mask`: the check, the heatmap and the window's box."""
+    bundle = model.bundle
     window, window_box = cut_window(pixels, centre, bundle.window_px)
-    scored = scorer.score(to_input(window, bundle.input_px))
+    scored = model.scorer.score(to_input(window, bundle.input_px))
     heatmap, score = score_map(
         scored.anomaly_map, mask, window_box, bundle.window_px, config.inspector.mask_dilate_px
     )
@@ -107,11 +117,10 @@ def check_appearance(
 
 @dataclass(frozen=True, slots=True)
 class _Loaded:
-    """Everything `load` fixed: the config, the verified bundle and its scorer."""
+    """Everything `load` fixed: the config and the loaded model."""
 
     config: StationConfig
-    bundle: Bundle
-    scorer: Scorer
+    model: LoadedModel
 
 
 class AppearanceInspector:
@@ -129,8 +138,8 @@ class AppearanceInspector:
         models_root: str | Path = "models",
         *,
         validation: bool = False,
-        make_scorer: Callable[[str, np.ndarray], Scorer] = _real_scorer,
-        cuda_available: Callable[[], bool] = _cuda_available,
+        make_scorer: Callable[[str, np.ndarray], Scorer] = real_scorer,
+        cuda_available: Callable[[], bool] = real_cuda_available,
     ) -> None:
         self._config_hash = config_hash
         self._models_root = Path(models_root)
@@ -144,16 +153,16 @@ class AppearanceInspector:
         """The loaded bundle's `model_id`."""
         if self._loaded is None:
             raise InferenceError("the appearance inspector was not loaded")
-        return self._loaded.bundle.model_id
+        return self._loaded.model.bundle.model_id
 
     def load(self, config: StationConfig) -> None:
         """Load, verify and warm up the bundle `config.inspector.model` names."""
         self._loaded = None
-        bundle, scorer = load_scorer(
+        model = load_model(
             self._models_root, config, validation=self._validation,
             make_scorer=self._make_scorer, cuda_available=self._cuda_available,
         )
-        self._loaded = _Loaded(config, bundle, scorer)
+        self._loaded = _Loaded(config, model)
 
     def inspect(self, frame: Frame) -> Verdict:
         """One `Verdict` carrying the geometry and appearance checks (C8)."""
@@ -161,7 +170,7 @@ class AppearanceInspector:
         loaded = self._loaded
         if loaded is None:
             raise InferenceError("the appearance inspector was not loaded")
-        config, bundle = loaded.config, loaded.bundle
+        config, bundle = loaded.config, loaded.model.bundle
         pixels = frame.pixels
         silhouette = localize(pixels, config.inspector.localize)
         listed = config.inspector.checks
@@ -171,7 +180,7 @@ class AppearanceInspector:
             else None
         )
         appearance, heatmap, window_box = check_appearance(
-            pixels, silhouette.centroid, silhouette.mask, bundle, loaded.scorer, config
+            pixels, silhouette.centroid, silhouette.mask, loaded.model, config
         )
         checks = (appearance,) if geometry is None else (geometry, appearance)
         return Verdict(
