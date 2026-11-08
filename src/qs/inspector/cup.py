@@ -21,6 +21,7 @@ another scale is not logged as a cup out of position. A round glare patch counts
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import cv2
@@ -92,8 +93,11 @@ def _inside(rim: Ellipse, shape: tuple[int, int]) -> np.ndarray:
     return mask
 
 
-def _traced_ellipses(pixels: np.ndarray) -> list[Ellipse]:
-    """Every traced edge that fits an ellipse with edges along most of it, of any size."""
+def _traced_ellipses(
+    pixels: np.ndarray, sized: Callable[[Ellipse], bool] = lambda _: True
+) -> list[Ellipse]:
+    """Every traced edge that fits an ellipse `sized` accepts, with edges along most of it.
+    `sized` runs before the edge share, which is the costly test, so most edges skip it."""
     grey = cv2.cvtColor(pixels, cv2.COLOR_BGR2GRAY)
     edges = cv2.Canny(cv2.GaussianBlur(grey, _BLUR_KSIZE, 0), *_CANNY)
     near_edge = cv2.dilate(edges, np.ones(_EDGE_TOLERANCE_KSIZE, dtype=np.uint8))
@@ -104,6 +108,8 @@ def _traced_ellipses(pixels: np.ndarray) -> list[Ellipse]:
             continue
         (cx, cy), (first, second), angle = cv2.fitEllipse(contour)
         ellipse: Ellipse = ((cx, cy), (first, second), angle)
+        if not sized(ellipse):
+            continue
         if _edge_share(_outline(ellipse), near_edge) < _RIM_EDGE_SHARE_MIN:
             continue
         ellipses.append(ellipse)
@@ -119,7 +125,7 @@ def _rim_sized(ellipse: Ellipse, config: LineConfig) -> bool:
 def _rim_ellipses(pixels: np.ndarray, config: LineConfig) -> list[Ellipse]:
     """Every traced edge that passes the rim rules, wherever it is. A full cup gives several: its
     rim's two edges, and often the outline of the моти inside."""
-    return [e for e in _traced_ellipses(pixels) if _rim_sized(e, config)]
+    return _traced_ellipses(pixels, lambda ellipse: _rim_sized(ellipse, config))
 
 
 def _area(ellipse: Ellipse) -> float:
