@@ -20,7 +20,7 @@ from __future__ import annotations
 import csv
 import hashlib
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -36,6 +36,9 @@ from qs.store import PNG_MAGIC
 
 Clock = Callable[[], float]
 WallClock = Callable[[], datetime]
+
+# The event of a frame read by its index, not by a trigger; whoever reads it sets the real one.
+READ_BY_INDEX = TriggerEvent(0, 0.0, datetime(1970, 1, 1, tzinfo=UTC), "line-replay")
 
 _READBACK = ("exposure_us", "gain", "wb_kelvin", "focus")
 _NEEDED = ("file", *_READBACK, "verified", "sha256")
@@ -174,6 +177,7 @@ class ReplaySource:
         for folder in {f.parent for f in self._files}:
             self._recorded[folder] = read_frames_csv(folder)
         self._open = False
+        self.count = len(self._files)
 
     @property
     def files(self) -> tuple[Path, ...]:
@@ -186,11 +190,15 @@ class ReplaySource:
         self._open = True
 
     def capture(self, event: TriggerEvent) -> Frame:
+        return replace(self.read(event.seq - 1), event=event)
+
+    def read(self, index: int) -> Frame:
+        """File `index`, from 0, as `capture` reads it, with `READ_BY_INDEX` as its event."""
         if not self._open:
             raise CaptureError("capture() called before open()")
-        if not 1 <= event.seq <= len(self._files):
-            raise CaptureError(f"replay has no frame for seq {event.seq}")
-        path = self._files[event.seq - 1]
+        if not 0 <= index < len(self._files):
+            raise CaptureError(f"replay has no frame for seq {index + 1}")
+        path = self._files[index]
         start = self._clock()
         try:
             data = path.read_bytes()
@@ -208,7 +216,7 @@ class ReplaySource:
         pixels = self._decode(path.name, data)
         grabbed_at = self._clock()
         return Frame(
-            event=event,
+            event=READ_BY_INDEX,
             pixels=pixels,
             grabbed_at=grabbed_at,
             camera=camera,
