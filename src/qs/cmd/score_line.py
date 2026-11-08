@@ -31,6 +31,7 @@ from qs.eval.line_score import (
     position_lines,
     score_cups,
 )
+from qs.eval.line_split import LineSplitError, video_frame
 from qs.eval.scoring import MemorySink, utc_now
 from qs.labels import Labels, LabelsError, load_labels
 from qs.pipeline import Pipeline
@@ -113,19 +114,20 @@ def _labels(path: Path) -> Labels:
 
 def _score(loaded: LoadedConfig, footage: Path, labels: Labels, window: int) -> list[str]:
     """One position's lines: its cups' counts, then the frames labelled as showing a hand."""
-    videos = sorted({cup.video for cup in labels.cups})
-    if not videos:
+    cup_videos = {cup.video for cup in labels.cups}
+    if not cup_videos:
         raise LabelsError(f"labels file {labels.path} counts no cup")
-    hands = {i for i, frame in labels.frames.items() if frame.label == "hand"}
+    hands = {video_frame(i) for i, frame in labels.frames.items() if frame.label == "hand"}
     scores: list[CupScore] = []
     on_hands: list[Label] = []
-    labelled = 0
-    for video in videos:
+    # A video with hands but no counted cup is played for its hands only: its records are not
+    # scored against cups, or every one would count as a record paired with no cup.
+    for video in sorted(cup_videos | {video for video, _ in hands}):
         judged = _judged(loaded, footage / video)
-        scores.append(score_cups(labels.cups_of(video), judged, window))
-        labelled += sum(i.startswith(f"{video}#") for i in hands)
-        on_hands += [j.label for j in judged if f"{video}#{j.frame}" in hands]
-    return [*position_lines(combined(scores), window), hand_line(labelled, on_hands)]
+        if video in cup_videos:
+            scores.append(score_cups(labels.cups_of(video), judged, window))
+        on_hands += [j.label for j in judged if (video, j.frame) in hands]
+    return [*position_lines(combined(scores), window), hand_line(len(hands), on_hands)]
 
 
 def main(args: argparse.Namespace) -> int:
@@ -136,7 +138,7 @@ def main(args: argparse.Namespace) -> int:
         for name, path in positions:
             lines += ["", f"## position {name}"]
             lines += _score(loaded, Path(args.footage), _labels(path), args.window)
-    except (ConfigError, LabelsError, ReplayError, StartupRefused) as exc:
+    except (ConfigError, LabelsError, LineSplitError, ReplayError, StartupRefused) as exc:
         print(f"score-line: {exc}")
         return 2
     print("\n".join(lines))
