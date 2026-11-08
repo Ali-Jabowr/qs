@@ -146,3 +146,20 @@ def test_a_bundle_trained_on_image_files_not_video_frames_is_refused(
         "refused: the bundle's training image 'u001_good_G2_r0.png' is not a video frame "
         "(<video file name>#<index>)"
     )
+
+
+def test_labels_whose_training_block_is_not_the_bundles_are_refused(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Relabelled with frame 39 gone: the span is 39 frames, so the split trains on 0–26, holds
+    # out 29–32 and 35–38. No held-out frame was trained on, yet frame 29 sits two frames from
+    # trained frame 27 and may show the same cup.
+    bundle = _train(tmp_path)
+    _labels(tmp_path, 39)
+    capsys.readouterr()
+
+    assert _alarms(tmp_path, bundle.name) == 1
+    assert capsys.readouterr().out.strip() == (
+        "refused: top.json: its training block is not the frames the model was trained on, so "
+        "the labels differ from training; retrain, or use the labels it was trained with"
+    )

@@ -9,17 +9,21 @@ held-out blocks. A held-out frame the bundle lists among its training images is 
 a `--gap-s` other than the one the bundle records (#112); a bundle that records none, made before
 #112, gets a one-line WARNING and is counted. Every frame the bundle was trained on is read again
 from `--footage` and must hash to the bundle's SHA-256, or the run is refused: another video under
-the same name could hold training cups at held-out ids. Re-encoded or renamed footage is refused
-the same way; retrain on the footage used. Each held-out frame is scored as the line station
-scores it: the cup wholly in the zone (`find_cup`), the window of the bundle's size centred on the
-rim, the map masked to the cup's inside (`check_appearance`). The threshold is chosen on the
-calibrate block at `--far` (`choose_threshold`), and the test block's frames above it are the
-false alarms. Only numbers are printed: no image, config or record is written, so the threshold
-reaches a station config by hand.
+the same name could hold training cups at held-out ids, and re-encoded footage is refused the same
+way; retrain on the footage used. A video renamed or missing under `--footage` cannot be opened,
+so the run cannot run (exit 2) rather than being refused. The labels' training block must then
+be exactly the bundle's training frames, or the run is refused: relabelled frames move the cuts,
+and a cup beside a trained frame could enter a held-out block. Each held-out frame is scored as
+the line station scores it: the cup wholly in the zone (`find_cup`), the window of the bundle's
+size centred on the rim, the map masked to the cup's inside (`check_appearance`). The threshold
+is chosen on the calibrate block at `--far` (`choose_threshold`), and the test block's frames
+above it are the false alarms. Only numbers are printed: no image, config or record is written,
+so the threshold reaches a station config by hand.
 
 Exit codes: 0 counted · 1 refused (a held-out frame with no cup or trained on, an empty block, a
-gap other than the bundle's, a trained frame whose pixels differ) · 2 could not run (config,
-labels, footage, bundle, a model scoring not a number).
+gap other than the bundle's, a trained frame whose pixels differ, another training block) · 2
+could not run (config, labels, footage or a video missing from it, bundle, a model scoring not a
+number).
 """
 
 from __future__ import annotations
@@ -173,6 +177,12 @@ def _report(args: argparse.Namespace, make_scorer: Callable[[str, np.ndarray], S
                        "labels and --gap-s it was trained with")
     with _footage_frames(Path(args.footage)) as read:
         _check_trained_pixels(model.bundle.images, read)
+        # The train block depends on the labels alone; if it moved, a cup beside a trained frame
+        # may sit in a held-out block although no trained frame id is held out.
+        if set(split.train) != trained:
+            raise _Refused(f"{labels_path.name}: its training block is not the frames the model "
+                           "was trained on, so the labels differ from training; retrain, or use "
+                           "the labels it was trained with")
         calibrate = _scores(split.calibrate, read, config, line, model)
         test = _scores(split.test, read, config, line, model)
     choice = choose_threshold(

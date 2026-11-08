@@ -90,8 +90,9 @@ class ImageRecord:
 
 @dataclass(frozen=True, slots=True)
 class LineRecord:
-    """How a line bundle's frames were split (#112): the `--gap-s` of the time split and the
-    name of the labels file, so a held-out read can be checked against them."""
+    """How a line bundle's frames were split (#112): the `--gap-s` of the time split, which
+    `qs line-alarms` checks, and the name of the labels file, which is informational only (the
+    held-out read may use a copy under another name; its training block is checked instead)."""
 
     gap_s: float
     labels: str
