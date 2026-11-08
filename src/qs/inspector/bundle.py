@@ -287,23 +287,28 @@ def _images(value: object, units: tuple[str, ...], refuse: _Refusal) -> tuple[Im
     return tuple(records)
 
 
+def _finite(value: object, name: str, refuse: _Refusal, *, zero_ok: bool) -> float:
+    """`value` as a float if it is a finite number above 0 (or at 0, with `zero_ok`); a bool is
+    not a number here."""
+    if (isinstance(value, bool) or not isinstance(value, int | float) or not math.isfinite(value)
+            or value < 0 or (value == 0 and not zero_ok)):
+        bound = "at or above 0" if zero_ok else "above 0"
+        raise refuse(f"{name}: {value!r} is not a finite number {bound}")
+    return float(value)
+
+
 def _line(value: object, refuse: _Refusal) -> LineRecord:
     _exact_keys(value, ("gap_s", "labels"), "line", refuse)
     assert isinstance(value, dict)
-    gap_s, labels = value["gap_s"], value["labels"]
-    if (isinstance(gap_s, bool) or not isinstance(gap_s, int | float) or not math.isfinite(gap_s)
-            or gap_s < 0):
-        raise refuse(f"line.gap_s: {gap_s!r} is not a finite number at or above 0")
+    gap_s = _finite(value["gap_s"], "line.gap_s", refuse, zero_ok=True)
+    labels = value["labels"]
     if not isinstance(labels, str) or not labels:
         raise refuse(f"line.labels: {labels!r} is not a file name")
-    return LineRecord(float(gap_s), labels)
+    return LineRecord(gap_s, labels)
 
 
 def _line_fps(value: object, refuse: _Refusal) -> float:
-    if (isinstance(value, bool) or not isinstance(value, int | float) or not math.isfinite(value)
-            or value <= 0):
-        raise refuse(f"line_fps: {value!r} is not a finite number above 0")
-    return float(value)
+    return _finite(value, "line_fps", refuse, zero_ok=False)
 
 
 def _parse(data: object, refuse: _Refusal) -> dict[str, Any]:
