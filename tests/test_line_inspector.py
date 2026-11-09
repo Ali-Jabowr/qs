@@ -251,4 +251,4 @@ def test_the_line_example_is_refused_without_replay(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     assert main(station_args(LINE_EXAMPLE, None)) == 2
-    assert "trigger.type 'replay' has no live trigger" in capsys.readouterr().out
+    assert "trigger.type 'cup' has no live trigger" in capsys.readouterr().out
