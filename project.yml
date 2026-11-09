@@ -543,28 +543,28 @@ stages:
       - id: L1.2
         text_en: Recover the cup-finding code from the spike of 19.10
         text_ru: Восстановить код поиска стаканчика из пробного эксперимента от 19.10
-        status: todo
-        evidence: null
+        status: done
+        evidence: src/qs/inspector/cup.py — rebuilt test-first from the 19.10 spike (#102)
       - id: L1.3
         text_en: "Local labelling tool — line frames marked unit, empty cup, nothing or hand, and whole cups counted through the video; labelled by Ali"
         text_ru: "Локальный инструмент разметки — кадры с линии с отметками «изделие», «пустой стаканчик», «ничего», «рука» и подсчёт целых стаканчиков по видео; размечает Али"
-        status: todo
-        evidence: null
+        status: done
+        evidence: src/qs/cmd/label.py (#101); 159 cups and 301 frames labelled by Ali, 09.11
       - id: L1.4
         text_en: Cup-first localizer in src/qs, test-first on synthetic images
         text_ru: Поиск стаканчика и моти в src/qs, сначала тесты на синтетических изображениях
-        status: todo
-        evidence: null
+        status: done
+        evidence: src/qs/inspector/cup.py, src/qs/cup_trigger.py (#102, #103); fails on the visit footage, see reports/2026-11-09-line-findings.md
       - id: L1.5
         text_en: The empty cup reaches the operator as a defect, through the same verdict rule as every other check
         text_ru: Пустой стаканчик доходит до оператора как брак — по тому же правилу решения, что и остальные проверки
-        status: todo
-        evidence: null
+        status: done
+        evidence: src/qs/inspector/line.py, operator screen (#102, #104)
       - id: L1.6
         text_en: Score the localizer and the empty-cup check on the labelled footage, with the share of empty cups caught per cup as the main number, numbers only, stamped INDICATIVE
         text_ru: "Оценить поиск и проверку пустого стаканчика на размеченной съёмке — главный показатель: доля найденных пустых стаканчиков по стаканчикам; только числа, с пометкой «ОРИЕНТИРОВОЧНО»"
-        status: todo
-        evidence: null
+        status: done
+        evidence: reports/2026-11-09-line-findings.md; #106 comment of 09.11 — rim finder and blob_share do not hold on this footage
       - id: L1.7
         text_en: Train PatchCore on the labelled good line frames and report false alarms only, split by time or series, stamped INDICATIVE; recall on real defects stays unmeasured
         text_ru: Обучить PatchCore на размеченных годных кадрах с линии и сообщить только долю ложных срабатываний — разбиение по времени или сериям, с пометкой «ОРИЕНТИРОВОЧНО»; полнота по реальному браку остаётся неизмеренной
@@ -607,6 +607,26 @@ stages:
       - id: L2.4
         text_en: Advisory trial on the line; real defects labelled on site; line speed timed and defect frequency counted
         text_ru: Пробная работа на линии в режиме подсказки; разметка реального брака на месте; замер скорости линии и подсчёт частоты дефектов
+        status: todo
+        evidence: null
+      - id: L2.5
+        text_en: "Rim-free 'моти present' check in src/qs, test-first: a fixed window on the chain path, measured from colour and lightness, one verdict per passing cup (replaces the rim finder and blob_share on the line)"
+        text_ru: "Проверка «моти есть» без поиска края стаканчика, в src/qs, сначала тесты: неподвижное окно на пути цепи, по цвету и яркости, одно решение на проходящий стаканчик (заменяет поиск края и blob_share на линии)"
+        status: todo
+        evidence: null
+      - id: L2.6
+        text_en: "Cup-presence input from the photo sensor in the station contract, with replay: sensor sees a cup and no моти = empty cup"
+        text_ru: "Сигнал наличия стаканчика от фотодатчика в контракте станции, с воспроизведением: датчик видит стаканчик, а моти нет — пустой стаканчик"
+        status: todo
+        evidence: null
+      - id: L2.7
+        text_en: "3D-printed prototype of the camera, light and diffuser mount, clamp-on, adjustable height and angle; final material after OQ-6"
+        text_ru: "Прототип крепления камеры, света и рассеивателя на 3D-принтере: на струбцинах, с регулировкой высоты и угла; итоговый материал — после ответа на OQ-6"
+        status: todo
+        evidence: null
+      - id: L2.8
+        text_en: "Home rehearsal: C920 on the prototype mount, clear cups and store-bought моти moved past it; trigger, check, screen and recording run together"
+        text_ru: "Домашняя репетиция: C920 на прототипе крепления, прозрачные стаканчики и магазинные моти проходят под камерой; запуск, проверка, экран и запись работают вместе"
         status: todo
         evidence: null
 
