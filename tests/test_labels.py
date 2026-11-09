@@ -596,7 +596,7 @@ def test_a_failed_save_stops_main_with_the_previous_file_whole(
 
     folder = draw_images(tmp_path / "shoot", "a.png", "b.png")
     (tmp_path / "labels.json").write_text(
-        '{"version": 1, "source": "s", "cups": [], '
+        '{"version": 1, "source": "shoot", "cups": [], '
         '"frames": {"a.png": {"label": "hand", "flavour": null}}}',
         encoding="utf-8",
     )
@@ -604,6 +604,39 @@ def test_a_failed_save_stops_main_with_the_previous_file_whole(
     assert run_label(FakeScreen([key("n")]), folder, tmp_path / "labels.json") == 1
     assert on_disk(tmp_path)["frames"] == {"a.png": {"label": "hand", "flavour": None}}
     assert "disk gone" in capsys.readouterr().out
+
+
+def test_frames_of_a_folder_are_refused_when_the_file_belongs_to_another_source(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    folder = draw_images(tmp_path / "day2", "IMG_0001.jpg")
+    text = (
+        '{"version": 1, "source": "day1", "cups": [], '
+        '"frames": {"IMG_0001.jpg": {"label": "hand", "flavour": null}}}'
+    )
+    (tmp_path / "labels.json").write_text(text, encoding="utf-8")
+    screen = FakeScreen([key("n")])
+    assert run_label(screen, folder, tmp_path / "labels.json") == 2
+    assert (tmp_path / "labels.json").read_text(encoding="utf-8") == text
+    out = capsys.readouterr().out
+    assert "day1" in out
+    assert "day2" in out
+    assert "separate labels file" in out
+    assert screen.lines == []
+
+
+def test_cups_of_a_video_are_not_refused_when_the_file_belongs_to_another_source(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    video = draw_video(tmp_path / "v.avi", 30)
+    text = '{"version": 1, "source": "day1", "cups": [], "frames": {}}'
+    (tmp_path / "labels.json").write_text(text, encoding="utf-8")
+    screen = FakeScreen([key("f")])
+    assert run_label(screen, video, tmp_path / "labels.json", mode="cups") == 0
+    assert on_disk(tmp_path)["cups"] == [
+        {"video": "v.avi", "order": 1, "state": "full", "frame": 0},
+    ]
+    assert "separate labels file" not in capsys.readouterr().out
 
 
 @pytest.mark.parametrize(
