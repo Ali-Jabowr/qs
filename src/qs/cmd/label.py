@@ -125,8 +125,9 @@ def main(
         return 2
     if args.mode == "frames" and labels.source != source_name(source):
         print(
-            f"labels: {path} belongs to {labels.source!r}, not {source_name(source)!r}: frames from "
-            "two sources would mix in one file, so use a separate labels file (--labels)"
+            f"labels: {path} belongs to {labels.source!r}, not {source_name(source)!r}: "
+            "frames from two sources would mix in one file, "
+            "so use a separate labels file (--labels)"
         )
         return 2
     try:
