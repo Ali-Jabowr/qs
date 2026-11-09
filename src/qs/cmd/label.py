@@ -123,6 +123,12 @@ def main(
     except LabelsError as exc:
         print(f"labels: {exc}")
         return 2
+    if args.mode == "frames" and labels.source != source_name(source):
+        print(
+            f"labels: {path} belongs to {labels.source!r}, not {source_name(source)!r}: frame ids "
+            "are bare file names and would collide, so use a separate labels file (--labels)"
+        )
+        return 2
     try:
         frames = _open_source(source, args.mode, args.every)
     except FrameReadError as exc:
