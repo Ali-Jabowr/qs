@@ -625,6 +625,20 @@ def test_frames_of_a_folder_are_refused_when_the_file_belongs_to_another_source(
     assert screen.lines == []
 
 
+def test_cups_of_a_video_are_not_refused_when_the_file_belongs_to_another_source(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    video = draw_video(tmp_path / "v.avi", 30)
+    text = '{"version": 1, "source": "day1", "cups": [], "frames": {}}'
+    (tmp_path / "labels.json").write_text(text, encoding="utf-8")
+    screen = FakeScreen([key("f")])
+    assert run_label(screen, video, tmp_path / "labels.json", mode="cups") == 0
+    assert on_disk(tmp_path)["cups"] == [
+        {"video": "v.avi", "order": 1, "state": "full", "frame": 0},
+    ]
+    assert "separate labels file" not in capsys.readouterr().out
+
+
 @pytest.mark.parametrize(
     ("mode", "every", "is_folder", "says"),
     [
