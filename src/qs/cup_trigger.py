@@ -128,7 +128,15 @@ class CupTrigger:
         # cup can only be that same cup, whatever the camera's resolution.
         self._tracker = CupTracker(line.rim_axis_px[0] / 2)
         # With still_ring_px set, a ring that stays still while the chain moves is left out.
-        self._still = None if line.still_ring_px is None else StillRings(line.still_ring_px)
+        self._still = None if line.still_ring_px is None else StillRings(
+            line.still_ring_px,
+            line.rim_axis_px[0] / 2,
+            (
+                line.still_ring_px + line.max_speed_px_s / line.fps
+                if line.max_speed_px_s and line.fps else float("inf")
+            ),
+            LOST_AFTER_S,
+        )
         self._looked_at: np.ndarray | None = None
         self._pending = 0  # events not yet returned, of both kinds
         self._pending_lost = 0  # of those, for cups never wholly in the zone; returned last
@@ -140,7 +148,8 @@ class CupTrigger:
         if self._still is not None:
             follow = self._still.update(
                 [(self._sign * r.ellipse[0][self._axis], r.ellipse[0][1 - self._axis])
-                 for r in rims]
+                 for r in rims],
+                self._clock(),
             )
             rims = tuple(r for r, keep in zip(rims, follow, strict=True) if keep)
         return [SeenCup(self._sign * rim.ellipse[0][self._axis], rim.in_zone) for rim in rims]
