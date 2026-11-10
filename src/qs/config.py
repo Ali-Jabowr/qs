@@ -279,15 +279,17 @@ def _roi(mapping: Mapping[str, Any], key: str, parent: str) -> tuple[int, int, i
     return (value[0], value[1], value[2], value[3])
 
 
-def _pair(mapping: Mapping[str, Any], key: str, parent: str) -> tuple[int, int]:
+def _pair(
+    mapping: Mapping[str, Any], key: str, parent: str, names: str = "[min, max]"
+) -> tuple[int, int]:
     value = mapping[key]
     path = _key(parent, key)
     if not isinstance(value, list) or not all(
         isinstance(x, int) and not isinstance(x, bool) for x in value
     ):
-        raise ConfigError(f"{path}: expected two integers [min, max], got {value!r}")
+        raise ConfigError(f"{path}: expected two integers {names}, got {value!r}")
     if len(value) != 2:
-        raise ConfigError(f"{path}: expected two integers [min, max], got {value!r}")
+        raise ConfigError(f"{path}: expected two integers {names}, got {value!r}")
     return (value[0], value[1])
 
 
@@ -442,7 +444,10 @@ def _parse_line(value: object, path: str) -> LineConfig:
             _enum(mapping, "direction", path, TRAVEL_DIRECTIONS) if "direction" in mapping else None
         ),
         fps=_float(mapping, "fps", path) if "fps" in mapping else None,
-        rim_size_px=_pair(mapping, "rim_size_px", path) if "rim_size_px" in mapping else None,
+        rim_size_px=(
+            _pair(mapping, "rim_size_px", path, "[minor, major]")
+            if "rim_size_px" in mapping else None
+        ),
         lens_mask_px=_circle(mapping, "lens_mask_px", path) if "lens_mask_px" in mapping else None,
     )
 
@@ -659,7 +664,7 @@ def _validate_line(line: LineConfig, config: StationConfig) -> None:
 
 
 def _validate_strict(line: LineConfig, config: StationConfig) -> None:
-    """The strict-finder keys: each a finite number that can work with the rest of the block."""
+    """The measured-rim and lens-mask keys: integers that work with the rest of the block."""
     low, high = line.rim_axis_px
     size = line.rim_size_px
     if size is not None and not low <= size[0] <= size[1] <= high:
@@ -671,8 +676,8 @@ def _validate_strict(line: LineConfig, config: StationConfig) -> None:
         x, y, radius = line.lens_mask_px
         if radius < 1:
             raise ConfigError(f"inspector.line.lens_mask_px: radius {radius} is below 1")
-        _check_in_frame("inspector.line.lens_mask_px", (x - radius, y - radius, 2 * radius,
-                                                         2 * radius), config)
+        _check_in_frame("inspector.line.lens_mask_px", (x - radius, y - radius, 2 * radius + 1,
+                                                         2 * radius + 1), config)
         if line.warmth_min is None:
             raise ConfigError(
                 "inspector.line.lens_mask_px: needs warmth_min: only the warmth measure uses it"

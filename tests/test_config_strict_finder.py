@@ -58,3 +58,21 @@ def test_a_strict_key_that_cannot_work_is_refused(
 
     with pytest.raises(ConfigError, match=message):
         load_config(path)
+
+
+@pytest.mark.parametrize(
+    ("overrides", "message"),
+    [
+        ({"rim_size_px": 100},
+         r"inspector.line.rim_size_px: expected two integers \[minor, major\], got 100"),
+        ({"lens_mask_px": [300, 120, 20]},
+         r"inspector.line.lens_mask_px: \[280, 100, 41, 41\] is outside the 320x240 frame"),
+        ({"lens_mask_px": [319, 120, 1]},
+         r"inspector.line.lens_mask_px: \[318, 119, 3, 3\] is outside the 320x240 frame"),
+    ],
+)
+def test_the_refusal_says_what_was_expected_and_counts_the_circle_s_last_pixel(
+    tmp_path: Path, overrides: dict[str, Any], message: str
+) -> None:
+    with pytest.raises(ConfigError, match=message):
+        load_config(warmth_config(tmp_path, **overrides))

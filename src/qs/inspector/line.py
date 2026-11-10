@@ -189,7 +189,7 @@ class LineInspector:
             if masked:
                 seen += f", the lens mask covered the whole inner half on {masked}"
             raise PlacementFault(f"{seen}, fewer than the {line.burst_min_frames} needed")
-        found = [(i, frame, cup) for i, frame, cup, _ in measured]
+        kept = [(i, frame, cup) for i, frame, cup, _ in measured]
         warmths = np.array([w for *_, w in measured])
         spread = float(warmths.max() - warmths.min())
         if spread > line.warmth_spread_max:
@@ -198,7 +198,7 @@ class LineInspector:
                 f"{line.warmth_spread_max:g}"
             )
         median = float(np.median(warmths))
-        index, frame, cup = found[int(np.argmin(np.abs(warmths - median)))]
+        index, frame, cup = kept[int(np.argmin(np.abs(warmths - median)))]
         passed = median >= line.warmth_min
         check = CheckResult(
             name=CHECK_EMPTY_CUP,

@@ -7,7 +7,7 @@ from __future__ import annotations
 import pytest
 
 from qs.config import LineConfig
-from qs.inspector.cup import find_cup, no_cup_reason
+from qs.inspector.cup import _rim_sized, find_cup, no_cup_reason
 from test_cup import drawn_frame
 
 
@@ -42,3 +42,17 @@ def test_the_reason_names_the_measured_rim_size_when_it_is_set() -> None:
         "no cup wholly in the zone: no rim the size of rim_size_px 75×116 ±5%, "
         "the largest seen is 75×105 px"
     )
+
+
+@pytest.mark.parametrize(
+    ("axes", "sized"),
+    [
+        ((75.0, 105.0), True),   # minor first
+        ((105.0, 75.0), True),   # major first: the axes are sorted before they are compared
+        ((116.0, 75.0), False),  # major first, the major 10% off
+    ],
+)
+def test_a_rim_is_judged_by_its_sorted_axes_whichever_the_fit_gives_first(
+    axes: tuple[float, float], sized: bool
+) -> None:
+    assert _rim_sized(((100.0, 100.0), axes, 0.0), _line((75, 105))) is sized
