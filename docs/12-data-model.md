@@ -123,7 +123,7 @@ erDiagram
         text batch_id "the run on the bench"
         text ts_utc
         text label "pass | defect | no_verdict"
-        text reason "required when no_verdict"
+        text reason "required when no_verdict; capture, camera, camera_settings, lighting, placement, inference, busy, untracked"
         text model_id FK
         text threshold_id FK
         text config_hash FK

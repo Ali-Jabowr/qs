@@ -148,14 +148,14 @@ class CupTrigger:
         # Cups cannot overlap, so a position less than half the smallest rim behind a followed
         # cup can only be that same cup, whatever the camera's resolution.
         self._tracker = CupTracker(line.rim_axis_px[0] / 2)
-        # The self-check (ADR-0029 §7). `warmth` measures the inner half of a rim, so the window's
-        # warmth is that of an ellipse twice the window's size: the same measure as a cup's.
+        # The self-check (ADR-0029 §7). The window is the box a rim would fill: its warmth is
+        # `warmth` of the box's inscribed ellipse, the inner half of it, as for a cup's rim.
         self._box = line.untracked_window
         self._window: Ellipse | None = None
         self._watch: UntrackedWatch | None = None
         if self._box is not None and line.warmth_min is not None:
             x, y, w, h = self._box
-            self._window = ((x + w / 2, y + h / 2), (2.0 * w, 2.0 * h), 0.0)
+            self._window = ((x + w / 2, y + h / 2), (float(w), float(h)), 0.0)
             self._watch = UntrackedWatch(line.warmth_min)
         self._looked_at: np.ndarray | None = None
         self._pending = 0  # events not yet returned, of both kinds

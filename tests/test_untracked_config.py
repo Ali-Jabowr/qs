@@ -21,7 +21,8 @@ NO_WARMTH: dict[str, Any] = {
 
 
 def test_the_window_is_read(tmp_path: Path) -> None:
-    line = load_config(warmth_config(tmp_path, untracked_window=[130, 80, 80, 80])).config.inspector.line
+    path = warmth_config(tmp_path, untracked_window=[130, 80, 80, 80])
+    line = load_config(path).config.inspector.line
 
     assert line is not None
     assert line.untracked_window == (130, 80, 80, 80)

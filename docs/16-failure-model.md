@@ -77,6 +77,7 @@ does, and any number can be active at once:
 | F4 | Settings drift — auto re-enabled, exposure changed | A readable value differs on a capture: `CameraSettingsDrift` | NO_VERDICT(`camera_settings`) | `CAMERA_SETTINGS` | Read-back matches |
 | F5 | Lighting out of band — lamp moved, box open, bulb ageing | Reference patch (FR-14) | NO_VERDICT(`lighting`) | `LIGHTING` | A frame back in band |
 | F6 | Bench: no unit, or unit not wholly in the area. Line: a cup seen but never wholly in the inspection zone (an empty cup is DEFECT, FR-29) | `PlacementFault` (FR-25) | NO_VERDICT(`placement`) | Stays READY — an operator event, not a fault | — |
+| F6b | Line, warmth station: warmth passed the fixed `untracked_window` with no cup tracked there — a cup the finder missed (ADR-0029 §7) | The cup trigger's `untracked` event | NO_VERDICT(`untracked`), the inspector not asked | Stays READY — an operator event, not a fault | — |
 | F7 | Inference fails — CUDA error, non-finite score, any exception inside `inspect()` | `InferenceError` | NO_VERDICT(`inference`); partial results discarded (C8) | FAULT(inference) after 3 in a row. **No automatic exit** — a model failing three times running is not retried blindly | The operator restarts the station |
 | F8 | Inspection over the latency budget | Timing | The verdict stands; the breach is counted | `LATENCY` above 10% of the last 50 | Back under 10% |
 | F9 | A unit trigger (factory photoelectric) while inspecting or starting | Pipeline | NO_VERDICT(`busy`), no image | — | — |
@@ -133,6 +134,7 @@ Russian, from `display` in the station config; the wording is a draft for Ali to
 | NO_VERDICT, lighting | Amber, **НЕТ РЕШЕНИЯ** — *проверьте освещение* |
 | NO_VERDICT, capture or camera settings | Amber, **НЕТ РЕШЕНИЯ** — *нет кадра* / *настройки камеры изменились* |
 | NO_VERDICT, inference | Amber, **НЕТ РЕШЕНИЯ** — *ошибка анализа* |
+| NO_VERDICT, untracked | Amber, **НЕТ РЕШЕНИЯ** — *стаканчик не распознан — проверьте вручную* |
 | NO_VERDICT, busy | Amber, **ИЗДЕЛИЕ НЕ ПРОВЕРЕНО** |
 | FAULT | Full amber screen, **СТАНЦИЯ НЕ ПРОВЕРЯЕТ** — *камера не подключена* / *нет кадров* / *ошибка анализа — перезапустите станцию* |
 | Warnings | A banner: *архив не записывается* · *освещение вне нормы* · *настройки камеры не подтверждены* · *медленная работа* |

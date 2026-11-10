@@ -52,6 +52,8 @@ class TriggerEvent:
     source_id: str        # "keyboard" | "photoelectric" | "replay:<dataset>"
     never_in_zone: bool = False  # cup trigger: the cup left the view never wholly in the zone;
                                  # the unit is NO_VERDICT(placement), the inspector is not asked
+    untracked: bool = False      # cup trigger: warmth passed the fixed window with no tracked cup
+                                 # there; the unit is NO_VERDICT(untracked), the inspector is not asked
 
 
 @dataclass(frozen=True, slots=True)
@@ -278,6 +280,14 @@ cup wholly in the zone. The check assumes one frame period per frame, so a sourc
 frames makes it less conservative. `max_speed_px_s` is the fastest the chain moves, in pixels per second. The
 config loader refuses a shorter zone.
 
+**Untracked passages** (ADR-0029 decision 7). With `inspector.line.untracked_window` (a box
+`[x, y, w, h]`, which needs `warmth_min`) the cup trigger also measures warmth in that fixed window
+on every new preview, with the same measure and threshold as a cup: the box is the size of a rim,
+and the mean of red minus blue is taken over the inner half of its inscribed ellipse. When warmth rises above `warmth_min` and falls again, and the
+cup finder put no rim centre in the window since it was last cold and empty, the trigger emits one
+event with `untracked` set. A cup the finder found there is tracked and gives no such event. Without
+the key nothing is measured and nothing changes.
+
 ## 4. Implementations
 
 One file each. This table is the actual content of the claim that the demo and the factory
@@ -357,6 +367,7 @@ they do not decide.
 | Pipeline | `LightingFault` | `NO_VERDICT(reason="lighting")`, raises the `LIGHTING` warning, keeps running and keeps recording |
 | `Inspector` | `PlacementFault` — no unit, more than one, or not wholly in the inspection area; on the line, a cup seen but never wholly in the inspection zone. An empty cup is not a placement fault (ADR-0028) | `NO_VERDICT(reason="placement")`, stays READY. Not a fault count: a misplaced unit is an operator event, not a station fault |
 | `Inspector` | `InferenceError`, or any other exception inside `inspect()` | `NO_VERDICT(reason="inference")`, partial results discarded (C8), fault counter, stays READY; three in a row is `FAULT(inference)` |
+| Pipeline | A trigger event with `untracked` set (the cup trigger's self-check, §3 "Untracked passages") | `NO_VERDICT(reason="untracked")`, with the captured frame; the inspector is not asked. Stays READY |
 | Pipeline | A unit trigger (photoelectric) while inspecting or starting | `NO_VERDICT(reason="busy")`, no image — the unit is accounted for, not checked. Key presses are handled by `KeyboardTrigger` instead (§3) |
 | `Inspector` | exceeds its latency budget | verdict is still used; a budget breach is counted and reported, not discarded |
 | `Sink` | anything | swallowed, counted, surfaced through `health()`. Never reaches the operator path |
