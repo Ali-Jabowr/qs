@@ -3,6 +3,7 @@ them (#132, ADR-0029 decision 4)."""
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -73,3 +74,18 @@ def test_a_warmth_config_that_cannot_work_is_refused(
 
 def test_a_zone_exactly_a_rim_plus_a_burst_of_travel_long_is_accepted(tmp_path: Path) -> None:
     load_config(warmth_config(tmp_path, zone=[20, 50, 260, 180]))
+
+
+@pytest.mark.parametrize("camera", ["webcam", "phone"])
+def test_a_warmth_station_on_a_live_camera_is_refused(tmp_path: Path, camera: str) -> None:
+    path = warmth_config(tmp_path, camera=camera)
+
+    with pytest.raises(ConfigError, match=re.escape(
+        "inspector.line.warmth_min: needs camera.type replay: multi-frame capture is only "
+        "available from recorded video for now"
+    )):
+        load_config(path)
+
+
+def test_a_warmth_station_on_recorded_video_is_accepted(tmp_path: Path) -> None:
+    load_config(warmth_config(tmp_path, camera="replay"))

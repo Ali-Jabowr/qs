@@ -619,6 +619,11 @@ def _validate_line(line: LineConfig, config: StationConfig) -> None:
     if line.fps is not None and (not math.isfinite(line.fps) or line.fps <= 0):
         raise ConfigError(f"inspector.line.fps: {line.fps} is not a finite number above 0")
     if line.warmth_min is not None:
+        if config.camera.type != "replay":
+            raise ConfigError(
+                "inspector.line.warmth_min: needs camera.type replay: multi-frame capture is "
+                "only available from recorded video for now"
+            )
         _validate_warmth(line)
 
 

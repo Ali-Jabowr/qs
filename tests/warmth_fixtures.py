@@ -28,11 +28,18 @@ WARMTH_LINE: dict[str, Any] = {
 
 
 def warmth_config(
-    root: Path, *, model: str | None = None, checks: tuple[str, ...] = ("empty_cup",), **line: Any
+    root: Path,
+    *,
+    camera: str = "replay",
+    model: str | None = None,
+    checks: tuple[str, ...] = ("empty_cup",),
+    **line: Any,
 ) -> Path:
-    """A cup-triggered line config; `model` names a bundle when `checks` lists `appearance`.
-    `line` overrides keys of the `inspector.line` block, and a value of None removes the key."""
+    """A cup-triggered line config on camera type `camera` (a recording by default). `model`
+    names a bundle when `checks` lists `appearance`. `line` overrides keys of the
+    `inspector.line` block, and a value of None removes the key."""
     data = config_mapping(root, inspector_type="line", model=model)
+    data["camera"]["type"] = camera
     data["trigger"]["type"] = "cup"
     data["inspector"]["checks"] = list(checks)
     block = {**WARMTH_LINE, **line}
