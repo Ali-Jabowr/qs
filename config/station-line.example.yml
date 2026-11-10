@@ -28,6 +28,10 @@ lighting:
   # No grey card is in view on the line yet, so its lighting check is off. Only a line station
   # may do this; it means a drift in lighting goes unnoticed. The card returns with the mount.
   reference_patch: null
+  # Optional, line only. true: the station brings its own constant-current DC light with no PWM,
+  # so mains flicker cannot band the picture and exposure_us may be any value at 50 Hz
+  # (ADR-0030). Left out, exposure_us must be a multiple of 10000 at 50 Hz.
+  # own_dc_light: true
 
 inspector:
   type: line
