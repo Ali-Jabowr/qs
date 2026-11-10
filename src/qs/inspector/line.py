@@ -76,17 +76,27 @@ def blob_share(pixels: np.ndarray, inside: np.ndarray) -> float:
     return largest / int(np.count_nonzero(middle))
 
 
-def warmth(pixels: np.ndarray, rim: Ellipse) -> float:
-    """The mean of red minus blue over the inner half of the rim (its ellipse at half the axes).
-    Measured on the rim's bounding box alone, so the mask and the conversion cost a cup, not a
-    frame."""
+def warmth(
+    pixels: np.ndarray, rim: Ellipse, lens: tuple[int, int, int] | None = None
+) -> float:
+    """The mean of red minus blue over the inner half of the rim (its ellipse at half the axes),
+    leaving out the `lens` circle (x, y, radius) in frame coordinates. Measured on the rim's
+    bounding box alone, so the masks and the conversion cost a cup, not a frame. A `lens` that
+    covers the whole inner half is a `PlacementFault`."""
     (cx, cy), axes, angle = rim
     reach = math.ceil(max(axes) / 2) + 2
     height, width = pixels.shape[:2]
     x0, y0 = max(0, round(cx) - reach), max(0, round(cy) - reach)
     crop = pixels[y0 : min(height, round(cy) + reach + 1), x0 : min(width, round(cx) + reach + 1)]
     local = ((round(cx) - x0, round(cy) - y0), axes, angle)
-    region = crop[inside_of(local, crop.shape[:2], _WARMTH_SCALE)].astype(np.int16)
+    inside = inside_of(local, crop.shape[:2], _WARMTH_SCALE)
+    if lens is not None:
+        hole = np.zeros(crop.shape[:2], dtype=np.uint8)
+        cv2.circle(hole, (lens[0] - x0, lens[1] - y0), lens[2], 255, cv2.FILLED)
+        inside = inside & ~hole.astype(bool)
+    if not inside.any():
+        raise PlacementFault("the lens mask covers the whole inner half of the cup's rim")
+    region = crop[inside].astype(np.int16)
     return float((region[:, 2] - region[:, 0]).mean())
 
 
@@ -176,7 +186,9 @@ class LineInspector:
                 f"the cup was found on {len(found)} of {len(frames)} frames, fewer than the "
                 f"{line.burst_min_frames} needed"
             )
-        warmths = np.array([warmth(frame.pixels, cup.rim) for _, frame, cup in found])
+        warmths = np.array(
+            [warmth(frame.pixels, cup.rim, line.lens_mask_px) for _, frame, cup in found]
+        )
         spread = float(warmths.max() - warmths.min())
         if spread > line.warmth_spread_max:
             raise PlacementFault(
