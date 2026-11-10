@@ -1,7 +1,8 @@
 # ADR-0028: On the line the unit is the cup, and v1 triggers on seeing it
 
 **Status:** Accepted · 2026-11-04 · Ali. Amends FR-25 and contract rule C5; builds on
-[ADR-0027](ADR-0027-line-first-gates-after-visit.md). The bench keeps its behaviour.
+[ADR-0027](ADR-0027-line-first-gates-after-visit.md). The bench keeps its behaviour. §3 and §5 amended
+by [ADR-0029](ADR-0029-cup-rim-under-own-backlight-warmth-verdict.md) (2026-11-10).
 
 ## Context
 

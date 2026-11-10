@@ -2,7 +2,7 @@
 # QS — status
 
 **Automated visual quality inspection for a food production line**  
-Owner: Ali, Volgograd · Rendered 2026-11-09
+Owner: Ali, Volgograd · Rendered 2026-11-10
 
 Overall: **26/75 tasks** `████████················` 35%
 
@@ -11,10 +11,10 @@ Overall: **26/75 tasks** `████████···············
 
 ## ⚠ Attention
 
-- E0 passed its planned end 2026-09-26 (44 days ago) and is 'in_progress'.
-- S0 passed its planned end 2026-09-25 (45 days ago) and is 'in_progress'.
-- S1 passed its planned end 2026-09-24 (46 days ago) and is 'in_progress'.
-- S4 passed its planned end 2026-09-27 (43 days ago) and is 'in_progress'.
+- E0 passed its planned end 2026-09-26 (45 days ago) and is 'in_progress'.
+- S0 passed its planned end 2026-09-25 (46 days ago) and is 'in_progress'.
+- S1 passed its planned end 2026-09-24 (47 days ago) and is 'in_progress'.
+- S4 passed its planned end 2026-09-27 (44 days ago) and is 'in_progress'.
 - 7 client question(s) are open but have never been sent: OQ-1, OQ-2, OQ-3, OQ-4, OQ-5, OQ-6, OQ-9. Every one of them blocks a decision.
 
 ## Gates
@@ -158,10 +158,10 @@ Overall: **26/75 tasks** `████████···············
 - [ ] `L2.2` Capture triggered per cup, from a read-only tap of the existing photo sensor or in software from the video
 - [ ] `L2.3` Several hundred good units from the fixed camera; PatchCore trained on them
 - [ ] `L2.4` Advisory trial on the line; real defects labelled on site; line speed timed and defect frequency counted
-- [ ] `L2.5` Rim-free 'моти present' check in src/qs, test-first: a fixed window on the chain path, measured from colour and lightness, one verdict per passing cup (replaces the rim finder and blob_share on the line)
-- [ ] `L2.6` Cup-presence input from the photo sensor in the station contract, with replay: sensor sees a cup and no моти = empty cup
-- [ ] `L2.7` 3D-printed prototype of the camera, light and diffuser mount, clamp-on, adjustable height and angle; final material after OQ-6
-- [ ] `L2.8` Home rehearsal: C920 on the prototype mount, clear cups and store-bought моти moved past it; trigger, check, screen and recording run together
+- [ ] `L2.5` Empty-cup check in src/qs, test-first (ADR-0029): median warmth (R−B) over the inner half of the found rim, across at least 3 in-zone frames, threshold per mount; too few frames or too much spread is НЕТ РЕШЕНИЯ; blob_share deleted
+- [ ] `L2.6` Stricter cup finder, test-first (ADR-0029, ADR-0030): rim size within ±5% of the mount's, rings that stay still while the chain moves rejected, lens-hole spot masked, warmth self-check window (моти with no cup = НЕТ РЕШЕНИЯ), short exposure allowed under own DC light; ring matcher only if T2 misses cups
+- [ ] `L2.7` 3D-printed prototype mount (ADR-0029): 2020 frame on clamps, white shroud, opal diffuser with a lens hole, warm 24 V DC COB LED, C920 cradle, height 150–400 mm; holds still when knocked; final material after OQ-6
+- [ ] `L2.8` Home tests on a mirror-steel sheet (ADR-0029): T1 static (room light ≤10%, empty-cup lip edge ≥5× noise on ≥60% of the rim, white моти vs empty warmth margin ≥10); T2 moving at ≥20 cm/s (0 missed in ≥300 empty passes, ≥99% of full cups found, 0 false cups in ≥100 gaps, 0 empty → ГОДЕН); trigger, check, screen and recording run together
 
 **M0 · Marking station discovery** — 0/4
 
