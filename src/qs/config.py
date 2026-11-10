@@ -109,10 +109,11 @@ class LineConfig:
     burst_min_frames: int = 3
     warmth_spread_max: float | None = None
     max_speed_px_s: float | None = None
-    # The strict finder (ADR-0029 §2-3). `rim_size_px`: the rim's axis measured on the mount, both
-    # axes accepted within ±5%. `still_ring_px`: a ring moving less than this per frame while the
-    # chain moves is a reflection. `lens_mask_px`: (x, y, radius) left out of every warmth measure.
-    rim_size_px: float | None = None
+    # The strict finder (ADR-0029 §2-3). `rim_size_px`: the rim's (minor, major) axes measured on
+    # the mount, each accepted within ±5% of its own value. `still_ring_px`: a ring moving less
+    # than this per frame while the chain moves is a reflection. `lens_mask_px`: (x, y, radius)
+    # left out of every warmth measure.
+    rim_size_px: tuple[int, int] | None = None
     still_ring_px: float | None = None
     lens_mask_px: tuple[int, int, int] | None = None
 
@@ -443,7 +444,7 @@ def _parse_line(value: object, path: str) -> LineConfig:
             _enum(mapping, "direction", path, TRAVEL_DIRECTIONS) if "direction" in mapping else None
         ),
         fps=_float(mapping, "fps", path) if "fps" in mapping else None,
-        rim_size_px=_float(mapping, "rim_size_px", path) if "rim_size_px" in mapping else None,
+        rim_size_px=_pair(mapping, "rim_size_px", path) if "rim_size_px" in mapping else None,
         still_ring_px=(
             _float(mapping, "still_ring_px", path) if "still_ring_px" in mapping else None
         ),
@@ -666,9 +667,10 @@ def _validate_strict(line: LineConfig, config: StationConfig) -> None:
     """The strict-finder keys: each a finite number that can work with the rest of the block."""
     low, high = line.rim_axis_px
     size = line.rim_size_px
-    if size is not None and (not math.isfinite(size) or not low <= size <= high):
+    if size is not None and not low <= size[0] <= size[1] <= high:
         raise ConfigError(
-            f"inspector.line.rim_size_px: {size} is not within rim_axis_px {low}-{high}"
+            f"inspector.line.rim_size_px: [{size[0]}, {size[1]}] is not [minor, major] within "
+            f"rim_axis_px {low}-{high}"
         )
     still = line.still_ring_px
     if still is not None:
