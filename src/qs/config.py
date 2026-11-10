@@ -4,7 +4,8 @@ Nothing here has a default — a missing key is a `ConfigError`, never a silent 
 except `inspector.checks`, which may be left out, `inspector.line`, which only a line inspector
 has, its `direction` and `fps`, which only a cup trigger needs, and `display.pass_expiry_s`,
 `display.ready_line` and `display.placement_line`, which only a line screen sets (#104; left
-out on a line station, the line's own wording fills them) — and every rule of CONTRACTS §3.3
+out on a line station, the line's own wording fills them), and `lighting.own_dc_light`, which
+defaults to false (true only on a line station, ADR-0030) — and every rule of CONTRACTS §3.3
 refuses the config naming the offending key, so a bad config fails at start-up instead of
 quietly ruining a shoot.
 """
@@ -83,6 +84,7 @@ class ReferencePatchConfig:
 class LightingConfig:
     geometry: str
     reference_patch: ReferencePatchConfig | None  # None: no lighting check; a line station only
+    own_dc_light: bool = False  # own PWM-free DC light, line only (ADR-0030)
 
 
 @dataclass(frozen=True, slots=True)
@@ -230,6 +232,13 @@ def _int(mapping: Mapping[str, Any], key: str, parent: str) -> int:
     return value
 
 
+def _bool(mapping: Mapping[str, Any], key: str, parent: str) -> bool:
+    value = mapping[key]
+    if not isinstance(value, bool):
+        raise ConfigError(f"{_key(parent, key)}: expected a boolean, got {_kind(value)}")
+    return value
+
+
 def _float(mapping: Mapping[str, Any], key: str, parent: str) -> float:
     value = mapping[key]
     if isinstance(value, bool) or not isinstance(value, (int, float)):
@@ -325,7 +334,7 @@ def _parse_reference_patch(value: object, path: str) -> ReferencePatchConfig:
 
 def _parse_lighting(value: object, path: str) -> LightingConfig:
     mapping = _mapping(value, path)
-    _check_keys(mapping, ("geometry", "reference_patch"), path)
+    _check_keys(mapping, ("geometry", "reference_patch"), path, optional=("own_dc_light",))
     return LightingConfig(
         geometry=_enum(mapping, "geometry", path, _LIGHTING_GEOMETRIES),
         reference_patch=(
@@ -333,6 +342,7 @@ def _parse_lighting(value: object, path: str) -> LightingConfig:
             if mapping["reference_patch"] is None
             else _parse_reference_patch(mapping["reference_patch"], _key(path, "reference_patch"))
         ),
+        own_dc_light=_bool(mapping, "own_dc_light", path) if "own_dc_light" in mapping else False,
     )
 
 
@@ -601,7 +611,16 @@ def _validate(config: StationConfig) -> None:
         _validate_cup_trigger(config)
     if config.camera.exposure_us <= 0:
         raise ConfigError(f"camera.exposure_us: {config.camera.exposure_us} is not above 0")
-    if config.camera.power_line_hz == 50 and config.camera.exposure_us % 10000 != 0:
+    if config.lighting.own_dc_light and config.inspector.line is None:
+        raise ConfigError(
+            "lighting.own_dc_light: only a line station may declare its own DC light — "
+            "the bench keeps the flicker rule"
+        )
+    if (
+        config.camera.power_line_hz == 50
+        and config.camera.exposure_us % 10000 != 0
+        and not config.lighting.own_dc_light
+    ):
         raise ConfigError(
             f"camera.exposure_us: {config.camera.exposure_us} is not a multiple of 10000 "
             "(10 ms), required with 50 Hz mains to avoid flicker banding"

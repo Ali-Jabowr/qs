@@ -331,6 +331,8 @@ lighting:
     roi:    [1780, 40, 100, 100]
     expect: 0.62
     band:   0.05               # outside this: NO_VERDICT(lighting)
+  # own_dc_light: true         # optional, line station only (ADR-0030): its own constant-current DC
+  #                            # light, no PWM, so exposure_us need not be a multiple of 10 ms at 50 Hz
 
 inspector:
   type: appearance             # ADR-0008, ADR-0009
