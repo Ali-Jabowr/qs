@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import math
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
 import cv2
@@ -36,6 +36,7 @@ from qs.contracts import (
     Frame,
     Verdict,
     derive_label,
+    only_frame,
 )
 from qs.errors import ConfigError, InferenceError, PlacementFault
 from qs.inspector.appearance import (
@@ -109,6 +110,10 @@ class LineInspector:
             )
         self._config = config
         self._line = config.inspector.line
+
+    def inspect_burst(self, frames: Sequence[Frame]) -> Verdict:
+        """A burst of 1 is `inspect`; the line inspector judges no burst longer than 1."""
+        return self.inspect(only_frame(frames))
 
     def inspect(self, frame: Frame) -> Verdict:
         """One `Verdict` carrying the empty-cup check (C8)."""

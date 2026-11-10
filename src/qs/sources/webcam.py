@@ -19,7 +19,7 @@ import cv2
 import numpy as np
 
 from qs.config import StationConfig
-from qs.contracts import Frame, Health, TriggerEvent
+from qs.contracts import Frame, Health, TriggerEvent, one_frame_burst
 from qs.errors import CameraLost, CameraSettingsDrift, CaptureError, LightingFault
 from qs.sources.v4l2 import (
     ControlReading,
@@ -196,6 +196,10 @@ class WebcamSource:
             failures += 1
             if failures >= _FAILURES_LOST:
                 return
+
+    def capture_burst(self, event: TriggerEvent, count: int) -> tuple[Frame, ...]:
+        one_frame_burst(count)
+        return (self.capture(event),)
 
     def capture(self, event: TriggerEvent) -> Frame:
         """The earliest frame stamped after the trigger plus one exposure, checked and read back."""
