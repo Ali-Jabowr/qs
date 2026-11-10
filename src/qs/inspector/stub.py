@@ -19,7 +19,7 @@ can be mistaken for a model's; `qs station` refuses it without `--replay`.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 
 import numpy as np
 
@@ -32,6 +32,7 @@ from qs.contracts import (
     Label,
     Verdict,
     derive_label,
+    only_frame,
 )
 from qs.errors import ConfigError, InferenceError, PlacementFault
 
@@ -77,6 +78,9 @@ class StubInspector:
                     "which this station does not list"
                 )
         self._config = config
+
+    def inspect_burst(self, frames: Sequence[Frame]) -> Verdict:
+        return self.inspect(only_frame(frames))
 
     def inspect(self, frame: Frame) -> Verdict:
         config = self._config

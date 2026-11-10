@@ -103,11 +103,20 @@ class _Paced:
         return self._start
 
     def capture(self, event: TriggerEvent) -> Frame:
-        index = self.frame_index(event)
-        if index >= self._count:
+        return self.capture_burst(event, 1)[0]
+
+    def capture_burst(self, event: TriggerEvent, count: int) -> tuple[Frame, ...]:
+        """`count` consecutive frames from the first after one exposure."""
+        if count < 1:
+            raise ValueError(f"a burst is at least one frame, not {count}")
+        first = self.frame_index(event)
+        if first + count > self._count:
             raise CaptureError(f"the recording ended before a frame after seq {event.seq}")
-        frame = self._frames.read(index)
-        return replace(frame, event=event, grabbed_at=self._started() + index / self._fps)
+        start = self._started()
+        return tuple(
+            replace(self._frames.read(index), event=event, grabbed_at=start + index / self._fps)
+            for index in range(first, first + count)
+        )
 
     def preview(self) -> np.ndarray | None:
         """The frame showing now, the same array until the next one is due. None before `open()`,

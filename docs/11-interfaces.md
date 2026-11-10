@@ -157,11 +157,14 @@ class FrameSource(Protocol):
     than event.t0 plus one exposure time — never a buffered frame from before the trigger. It
     raises CaptureError on timeout or on a corrupt frame (wrong shape or dtype, or flat: every
     pixel within 1 grey level), and CameraSettingsDrift when a readable setting no longer
-    matches the config. preview() feeds the live view only; a preview frame is never
-    inspected."""
+    matches the config. capture_burst(event, n) returns the n consecutive frames from that
+    first one on, each later than event.t0 plus one exposure time, and raises like capture();
+    capture_burst(event, 1) is capture(event). A source that cannot burst raises ValueError
+    for n > 1. preview() feeds the live view only; a preview frame is never inspected."""
 
     def open(self) -> None: ...
     def capture(self, event: TriggerEvent) -> Frame: ...
+    def capture_burst(self, event: TriggerEvent, count: int) -> tuple[Frame, ...]: ...
     def preview(self) -> np.ndarray | None: ...
     def health(self) -> Health: ...
     def close(self) -> None: ...
@@ -172,10 +175,15 @@ class Inspector(Protocol):
     inspected twice returns the same score, or the evaluation harness is measuring noise.
 
     Must not do I/O. Must not mutate the frame. Must not read the clock for anything
-    other than its own timing. Owns no state that changes between frames."""
+    other than its own timing. Owns no state that changes between frames.
+
+    inspect_burst(frames) judges one unit from the burst the source returned for its event;
+    a burst of 1 is inspect(frame). An inspector that cannot judge a burst raises ValueError
+    for more than one frame."""
 
     def load(self, config: StationConfig) -> None: ...
     def inspect(self, frame: Frame) -> Verdict: ...
+    def inspect_burst(self, frames: Sequence[Frame]) -> Verdict: ...
     @property
     def model_id(self) -> str: ...
 
@@ -236,6 +244,20 @@ for a unit — the factory's photoelectric sensor.
 | C7 | `Label.NO_VERDICT` is never rendered or recorded as a pass | Invariant I6. This is the one that matters over open food |
 | C8 | For a completed inspection, `Verdict.label` is derived from `checks` alone: DEFECT if any check failed; PASS only if **every configured check** ran and passed. An exception anywhere inside `inspect()` is NO_VERDICT, and any partial results are discarded | A PASS with a check missing behind it is a silent pass |
 | C9 | A `preview()` frame is never inspected or recorded | Its moment is unknown; inspecting it breaks C4 |
+
+### Bursts
+
+After one trigger event a source can return a **burst** of N frames, and the inspector judges the
+unit from the burst. Every frame of the burst is later than `event.t0` plus one exposure (C4), and
+the frames are consecutive: frame k is the k-th frame after the first one C4 allows. All N frames
+carry the same `event`. A burst of 1 is today's single capture, so the bench and today's line
+inspector, which run with a burst of 1, write the same records as before. The pipeline still
+captures and inspects one frame; it moves to bursts with the burst-length config key (#132).
+
+**Zone rule.** On a line station the inspection zone must be at least one rim plus N frames of
+travel long: the cup keeps moving while the burst is taken, and its last frame must still show the
+cup wholly in the zone. The check of this rule comes with the burst-length key (#132); until then
+nothing checks it, and the burst length is 1.
 
 ## 4. Implementations
 

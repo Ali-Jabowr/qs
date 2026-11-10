@@ -28,7 +28,7 @@ import cv2
 import numpy as np
 
 from qs.config import StationConfig
-from qs.contracts import CameraReadback, Frame, Health, TriggerEvent
+from qs.contracts import CameraReadback, Frame, Health, TriggerEvent, one_frame_burst
 from qs.errors import CaptureError
 from qs.session import FRAMES_FILE
 from qs.sources.webcam import read_reference
@@ -188,6 +188,10 @@ class ReplaySource:
         if missing:
             raise ReplayError(f"replay: frame(s) missing: {', '.join(missing[:3])}")
         self._open = True
+
+    def capture_burst(self, event: TriggerEvent, count: int) -> tuple[Frame, ...]:
+        one_frame_burst(count)
+        return (self.capture(event),)
 
     def capture(self, event: TriggerEvent) -> Frame:
         return replace(self.read(event.seq - 1), event=event)
