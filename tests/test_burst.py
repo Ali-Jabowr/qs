@@ -15,7 +15,7 @@ from qs.sources.replay import ReplaySource
 from station_fixtures import FakeClock, event, loaded_config, write_frames
 from test_cup import drawn_frame
 from test_line_inspector import HASH, _frame, _inspector
-from test_line_replay import PERIOD, START, _source
+from test_line_replay import START, _source
 
 
 @pytest.mark.parametrize(

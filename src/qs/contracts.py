@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
@@ -125,12 +126,16 @@ class FrameSource(Protocol):
     than event.t0 plus one exposure time — never a buffered frame from before the trigger. It
     raises CaptureError on timeout or on a corrupt frame (wrong shape or dtype, or flat: every
     pixel within 1 grey level), and CameraSettingsDrift when a readable setting no longer
-    matches the config. preview() feeds the live view only; a preview frame is never
-    inspected."""
+    matches the config. capture_burst(event, n) returns the n consecutive frames from that
+    first one on, each later than event.t0 plus one exposure time, and raises like capture();
+    capture_burst(event, 1) is capture(event). A source that cannot burst raises ValueError
+    for n > 1. preview() feeds the live view only; a preview frame is never inspected."""
 
     def open(self) -> None: ...
 
     def capture(self, event: TriggerEvent) -> Frame: ...
+
+    def capture_burst(self, event: TriggerEvent, count: int) -> tuple[Frame, ...]: ...
 
     def preview(self) -> np.ndarray | None: ...
 
@@ -144,11 +149,17 @@ class Inspector(Protocol):
     inspected twice returns the same score, or the evaluation harness is measuring noise.
 
     Must not do I/O. Must not mutate the frame. Must not read the clock for anything
-    other than its own timing. Owns no state that changes between frames."""
+    other than its own timing. Owns no state that changes between frames.
+
+    inspect_burst(frames) judges one unit from the burst the source returned for its event;
+    a burst of 1 is inspect(frame). An inspector that cannot judge a burst raises ValueError
+    for more than one frame."""
 
     def load(self, config: StationConfig) -> None: ...
 
     def inspect(self, frame: Frame) -> Verdict: ...
+
+    def inspect_burst(self, frames: Sequence[Frame]) -> Verdict: ...
 
     @property
     def model_id(self) -> str: ...
@@ -174,6 +185,20 @@ class Sink(Protocol):
     def pending(self) -> int: ...
 
     def close(self) -> None: ...
+
+
+def one_frame_burst(count: int) -> None:
+    """The guard of a source that captures one frame per event: `ValueError` unless `count` is 1."""
+    if count != 1:
+        raise ValueError(f"this source captures one frame per event, not a burst of {count}")
+
+
+def only_frame(frames: Sequence[Frame]) -> Frame:
+    """The one frame of a burst of 1; `ValueError` for any other length, for an inspector that
+    judges a single frame."""
+    if len(frames) != 1:
+        raise ValueError(f"this inspector judges one frame, not a burst of {len(frames)}")
+    return frames[0]
 
 
 def derive_label(checks: tuple[CheckResult, ...], configured: frozenset[str]) -> Label:
