@@ -418,7 +418,8 @@ class Pipeline:
 
     def _inspect_event(self, event: TriggerEvent) -> _Outcome:
         """Steps 2–7 for one event in READY."""
-        burst = self._burst_length()
+        # An untracked event is recorded without the inspector, so one frame is all it needs.
+        burst = None if event.untracked else self._burst_length()
         captured = self._capture(event, burst)
         if not isinstance(captured, tuple):
             return captured
