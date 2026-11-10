@@ -27,12 +27,14 @@ WARMTH_LINE: dict[str, Any] = {
 }
 
 
-def warmth_config(root: Path, **line: Any) -> Path:
-    """A cup-triggered line config checking `empty_cup` only; `line` overrides keys of the
-    `inspector.line` block, and a value of None removes the key."""
-    data = config_mapping(root, inspector_type="line")
+def warmth_config(
+    root: Path, *, model: str | None = None, checks: tuple[str, ...] = ("empty_cup",), **line: Any
+) -> Path:
+    """A cup-triggered line config; `model` names a bundle when `checks` lists `appearance`.
+    `line` overrides keys of the `inspector.line` block, and a value of None removes the key."""
+    data = config_mapping(root, inspector_type="line", model=model)
     data["trigger"]["type"] = "cup"
-    data["inspector"]["checks"] = ["empty_cup"]
+    data["inspector"]["checks"] = list(checks)
     block = {**WARMTH_LINE, **line}
     data["inspector"]["line"] = {key: value for key, value in block.items() if value is not None}
     path = root / "line.yml"

@@ -83,9 +83,12 @@ def _edge_share(outline: np.ndarray, near_edge: np.ndarray) -> float:
     return float(np.count_nonzero(near_edge[ys, xs])) / len(outline)
 
 
-def _inside(rim: Ellipse, shape: tuple[int, int]) -> np.ndarray:
+def inside_of(
+    rim: Ellipse, shape: tuple[int, int], scale: float = _INSIDE_SCALE
+) -> np.ndarray:
+    """The frame-sized read-only mask of the rim's ellipse shrunk to `scale` of its axes."""
     (cx, cy), (first, second), angle = rim
-    half_axes = (round(first / 2 * _INSIDE_SCALE), round(second / 2 * _INSIDE_SCALE))
+    half_axes = (round(first / 2 * scale), round(second / 2 * scale))
     filled = np.zeros(shape, dtype=np.uint8)
     cv2.ellipse(filled, (round(cx), round(cy)), half_axes, angle, 0, 360, 255, cv2.FILLED)
     mask = filled.astype(bool)
@@ -143,7 +146,7 @@ def find_cup(pixels: np.ndarray, config: LineConfig) -> Cup | None:
     if best is None:
         return None
     x, y, w, h = cv2.boundingRect(_outline(best))
-    return Cup(rim=best, box=(x, y, w, h), inside=_inside(best, pixels.shape[:2]))
+    return Cup(rim=best, box=(x, y, w, h), inside=inside_of(best, pixels.shape[:2]))
 
 
 def no_cup_reason(pixels: np.ndarray, config: LineConfig) -> str:

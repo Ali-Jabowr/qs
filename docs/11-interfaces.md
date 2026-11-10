@@ -251,13 +251,31 @@ After one trigger event a source can return a **burst** of N frames, and the ins
 unit from the burst. Every frame of the burst is later than `event.t0` plus one exposure (C4), and
 the frames are consecutive: frame k is the k-th frame after the first one C4 allows. All N frames
 carry the same `event`. A burst of 1 is today's single capture, so the bench and today's line
-inspector, which run with a burst of 1, write the same records as before. The pipeline still
-captures and inspects one frame; it moves to bursts with the burst-length config key (#132).
+inspector, which run with a burst of 1, write the same records as before. A burst promises
+"N frames, each later than the last", not even spacing.
 
-**Zone rule.** On a line station the inspection zone must be at least one rim plus N frames of
-travel long: the cup keeps moving while the burst is taken, and its last frame must still show the
-cup wholly in the zone. The check of this rule comes with the burst-length key (#132); until then
-nothing checks it, and the burst length is 1.
+**Who bursts.** The pipeline calls `capture_burst` and `inspect_burst` only for a line station
+whose config sets `inspector.line.warmth_min`, with `inspector.line.burst` frames. Every other
+station calls `capture` and `inspect`. A verdict names its evidence frame in `evidence_index`
+(0 for a single frame); the record's image, camera read-back, reference patch and capture time are
+that frame's own.
+
+**Median warmth** (ADR-0029 decision 4). The line inspector measures each burst frame's cup as
+the mean of red minus blue over the inner half of the found rim (its ellipse at half the axes).
+The check's value is the median over the frames that show the cup, its limit is `warmth_min`, and
+its measures are `frames` (how many showed it) and `spread` (largest minus smallest warmth).
+Fewer than `burst_min_frames` (default 3) frames, or a spread above `warmth_spread_max`, is a
+`PlacementFault`. The evidence frame is the one whose warmth is closest to the median.
+
+**Zone rule.** On a line station with `warmth_min` the inspection zone must be at least
+
+    rim + burst * max_speed_px_s / fps
+
+long along the direction of travel, where `rim` is the larger of `rim_axis_px`. The cup keeps
+moving while the burst is taken: this is the conservative travel of one frame period to the first
+frame plus `burst - 1` frame intervals, and one rim size, since the last frame must still show the
+cup wholly in the zone. `max_speed_px_s` is the fastest the chain moves, in pixels per second. The
+config loader refuses a shorter zone.
 
 ## 4. Implementations
 
