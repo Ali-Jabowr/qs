@@ -109,6 +109,9 @@ class LineConfig:
     burst_min_frames: int = 3
     warmth_spread_max: float | None = None
     max_speed_px_s: float | None = None
+    # The self-check of ADR-0029 §7: a fixed box [x, y, w, h] where warmth is also measured, so a
+    # warm passage with no tracked cup is reported. Needs `warmth_min`, whose threshold it uses.
+    untracked_window: tuple[int, int, int, int] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -412,11 +415,14 @@ def _parse_line(value: object, path: str) -> LineConfig:
         mapping,
         ("zone", "rim_axis_px", "blob_share_min"),
         path,
-        optional=("direction", "fps", *_WARMTH_KEYS),
+        optional=("direction", "fps", "untracked_window", *_WARMTH_KEYS),
     )
     warmth = _parse_warmth(mapping, path)
     return LineConfig(
         **warmth,
+        untracked_window=(
+            _roi(mapping, "untracked_window", path) if "untracked_window" in mapping else None
+        ),
         zone=_roi(mapping, "zone", path),
         rim_axis_px=_pair(mapping, "rim_axis_px", path),
         blob_share_min=_float(mapping, "blob_share_min", path),
@@ -635,6 +641,12 @@ def _validate_line(line: LineConfig, config: StationConfig) -> None:
                 "only available from recorded video for now"
             )
         _validate_warmth(line)
+    if line.untracked_window is not None:
+        if line.warmth_min is None:
+            raise ConfigError(
+                "inspector.line.untracked_window: needs inspector.line.warmth_min to be set"
+            )
+        _check_in_frame("inspector.line.untracked_window", line.untracked_window, config)
 
 
 def _validate_warmth(line: LineConfig) -> None:
