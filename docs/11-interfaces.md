@@ -280,13 +280,16 @@ cup wholly in the zone. The check assumes one frame period per frame, so a sourc
 frames makes it less conservative. `max_speed_px_s` is the fastest the chain moves, in pixels per second. The
 config loader refuses a shorter zone.
 
-**Untracked passages** (ADR-0029 decision 7). With `inspector.line.untracked_window` (a box
-`[x, y, w, h]`, which needs `warmth_min`) the cup trigger also measures warmth in that fixed window
-on every new preview, with the same measure and threshold as a cup: the box is the size of a rim,
-and the mean of red minus blue is taken over the inner half of its inscribed ellipse. When warmth rises above `warmth_min` and falls again, and the
-cup finder put no rim centre in the window since it was last cold and empty, the trigger emits one
-event with `untracked` set. A cup the finder found there is tracked and gives no such event. Without
-the key nothing is measured and nothing changes.
+**Untracked passages** (ADR-0029 decision 7). With `inspector.line.untracked_window` (a slit
+`[x, y, w, h]` across the direction of travel, at most half the smallest `rim_axis_px` long along
+it, which needs `warmth_min`) the cup trigger also measures warmth in that slit on every new
+preview: the mean of red minus blue over the whole slit, against the same `warmth_min`. A warm
+stretch starts when warmth is `warmth_min` or more and ends after two frames in a row below it.
+It is credited when a tracked rim centre crosses the slit's centre line during it; a crossing while
+the slit is cold credits nothing. A stretch that ends uncredited emits one event with `untracked`
+set. The slit is thin so that it goes cold in any gap between cups, and a missed cup next to a
+tracked one is still a stretch of its own. A stretch still warm at the last frame of a video
+is not ended, so it gives no event. Without the key nothing is measured and nothing changes.
 
 ## 4. Implementations
 
