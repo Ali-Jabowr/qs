@@ -438,6 +438,10 @@ class Pipeline:
             self._lighting = True
             return self._no_verdict_with_frame("lighting", frame, 0.0)
         self._lighting = False
+        if event.untracked:
+            # Warmth passed the fixed window with no tracked cup: a cup was missed (ADR-0029 §7).
+            _log.warning("seq %d: untracked: warmth passed the window with no tracked cup", event.seq)
+            return self._no_verdict_with_frame("untracked", frame, 0.0)
         if event.never_in_zone:
             # The frame shows where the cup was, not the cup: it may be the next cup's frame.
             _log.info("seq %d: placement: the cup was never wholly in the zone", event.seq)

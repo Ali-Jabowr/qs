@@ -30,7 +30,8 @@ import numpy as np
 from qs.config import LineConfig
 from qs.contracts import FrameSource, TriggerEvent
 from qs.errors import ConfigError
-from qs.inspector.cup import find_rims
+from qs.inspector.cup import Ellipse, Rim, find_rims
+from qs.inspector.line import warmth
 
 LOST_AFTER_S = 0.25  # unmeasured on real footage; cups pass about every 1–1.5 s, by estimate
 # Per direction: the rim centre's coordinate that travel changes, and the sign that makes "further
@@ -147,17 +148,34 @@ class CupTrigger:
         # Cups cannot overlap, so a position less than half the smallest rim behind a followed
         # cup can only be that same cup, whatever the camera's resolution.
         self._tracker = CupTracker(line.rim_axis_px[0] / 2)
+        # The self-check (ADR-0029 §7). `warmth` measures the inner half of a rim, so the window's
+        # warmth is that of an ellipse twice the window's size: the same measure as a cup's.
+        self._box = line.untracked_window
+        self._window: Ellipse | None = None
+        self._watch: UntrackedWatch | None = None
+        if self._box is not None and line.warmth_min is not None:
+            x, y, w, h = self._box
+            self._window = ((x + w / 2, y + h / 2), (2.0 * w, 2.0 * h), 0.0)
+            self._watch = UntrackedWatch(line.warmth_min)
         self._looked_at: np.ndarray | None = None
         self._pending = 0  # events not yet returned, of both kinds
-        self._pending_lost = 0  # of those, for cups never wholly in the zone; returned last
+        self._pending_lost = 0  # of those, for cups never wholly in the zone
+        self._pending_untracked = 0  # of those, for untracked passages; returned last of all
         self._seq = 0
         self._finished = False
 
-    def _seen(self, pixels: np.ndarray) -> list[SeenCup]:
-        return [
-            SeenCup(self._sign * rim.ellipse[0][self._axis], rim.in_zone)
-            for rim in find_rims(pixels, self._line)
-        ]
+    def _seen(self, rims: Sequence[Rim]) -> list[SeenCup]:
+        return [SeenCup(self._sign * rim.ellipse[0][self._axis], rim.in_zone) for rim in rims]
+
+    def _untracked(self, pixels: np.ndarray, rims: Sequence[Rim]) -> bool:
+        """The window's warmth in this frame, and whether a rim's centre is in the window."""
+        if self._box is None or self._window is None or self._watch is None:
+            return False
+        x, y, w, h = self._box
+        in_window = any(
+            x <= rim.ellipse[0][0] <= x + w and y <= rim.ellipse[0][1] <= y + h for rim in rims
+        )
+        return self._watch.update(warmth(pixels, self._window), in_window)
 
     def poll(self) -> TriggerEvent | None:
         """Never blocks. A frame that makes two cups fire gives one event on each of two polls."""
@@ -168,15 +186,28 @@ class CupTrigger:
                 self._finished = True
             elif pixels is not None and pixels is not self._looked_at:
                 self._looked_at = pixels
-                self._add(*self._tracker.fires(self._seen(pixels), self._clock()))
+                rims = find_rims(pixels, self._line)
+                self._add(*self._tracker.fires(self._seen(rims), self._clock()))
+                if self._untracked(pixels, rims):
+                    self._pending += 1
+                    self._pending_untracked += 1
         if self._pending == 0:
             return None
-        never_in_zone = self._pending == self._pending_lost
+        untracked = self._pending == self._pending_untracked
+        never_in_zone = (
+            not untracked and self._pending - self._pending_untracked == self._pending_lost
+        )
         self._pending -= 1
         self._pending_lost -= never_in_zone
+        self._pending_untracked -= untracked
         self._seq += 1
         return TriggerEvent(
-            self._seq, self._clock(), self._wall(), self._source_id, never_in_zone=never_in_zone
+            self._seq,
+            self._clock(),
+            self._wall(),
+            self._source_id,
+            never_in_zone=never_in_zone,
+            untracked=untracked,
         )
 
     def _add(self, in_zone: int, lost: int) -> None:
@@ -192,3 +223,4 @@ class CupTrigger:
         self._finished = True
         self._pending = 0
         self._pending_lost = 0
+        self._pending_untracked = 0
