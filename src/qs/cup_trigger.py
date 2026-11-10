@@ -31,6 +31,7 @@ from qs.config import LineConfig
 from qs.contracts import FrameSource, TriggerEvent
 from qs.errors import ConfigError
 from qs.inspector.cup import find_rims
+from qs.still_rings import StillRings
 
 LOST_AFTER_S = 0.25  # unmeasured on real footage; cups pass about every 1–1.5 s, by estimate
 # Per direction: the rim centre's coordinate that travel changes, and the sign that makes "further
@@ -126,6 +127,8 @@ class CupTrigger:
         # Cups cannot overlap, so a position less than half the smallest rim behind a followed
         # cup can only be that same cup, whatever the camera's resolution.
         self._tracker = CupTracker(line.rim_axis_px[0] / 2)
+        # With still_ring_px set, a ring that stays still while the chain moves is left out.
+        self._still = None if line.still_ring_px is None else StillRings(line.still_ring_px)
         self._looked_at: np.ndarray | None = None
         self._pending = 0  # events not yet returned, of both kinds
         self._pending_lost = 0  # of those, for cups never wholly in the zone; returned last
@@ -133,10 +136,14 @@ class CupTrigger:
         self._finished = False
 
     def _seen(self, pixels: np.ndarray) -> list[SeenCup]:
-        return [
-            SeenCup(self._sign * rim.ellipse[0][self._axis], rim.in_zone)
-            for rim in find_rims(pixels, self._line)
-        ]
+        rims = find_rims(pixels, self._line)
+        if self._still is not None:
+            follow = self._still.update(
+                [(self._sign * r.ellipse[0][self._axis], r.ellipse[0][1 - self._axis])
+                 for r in rims]
+            )
+            rims = tuple(r for r, keep in zip(rims, follow, strict=True) if keep)
+        return [SeenCup(self._sign * rim.ellipse[0][self._axis], rim.in_zone) for rim in rims]
 
     def poll(self) -> TriggerEvent | None:
         """Never blocks. A frame that makes two cups fire gives one event on each of two polls."""

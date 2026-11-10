@@ -41,8 +41,10 @@ def standing(count: int, *, contents: str = "pink", x: int = 130, half_axis: int
     ]
 
 
-def with_ring(frames: list[np.ndarray], centre: tuple[int, int], half_axis: int) -> list[np.ndarray]:
-    """The same frames with a still ring drawn over each, so it is in the picture whatever moves."""
+def with_ring(
+    frames: list[np.ndarray], centre: tuple[int, int], half_axis: int
+) -> list[np.ndarray]:
+    """The same frames with a still ring drawn over each: it stays whatever else moves."""
     out = []
     for pixels in frames:
         drawn = pixels.copy()
