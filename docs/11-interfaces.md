@@ -278,6 +278,30 @@ cup wholly in the zone. The check assumes one frame period per frame, so a sourc
 frames makes it less conservative. `max_speed_px_s` is the fastest the chain moves, in pixels per second. The
 config loader refuses a shorter zone.
 
+**Strict finder** (ADR-0029 decisions 2-3). Three optional keys of `inspector.line`; a config
+without them behaves as before.
+
+- `rim_size_px: [minor, major]`: the rim's axes in pixels, as measured on the mount. The finder
+  accepts a rim only when each of its axes, smaller first, is within ±5% of its own value, beside
+  `rim_axis_px`. A camera not straight overhead sees an ellipse, hence a pair. The pair must be in
+  order and lie inside `rim_axis_px`.
+- `still_ring_px`: a ring that moves less than this many pixels from one frame to the next while
+  another rim moves is a reflection: it gets no record, also during a later stop of the chain. A
+  cup standing during a stop still gets one. Needs `trigger.type: cup`.
+- `lens_mask_px: [x, y, radius]`: a circle in frame pixels, left out of every warmth measurement.
+  Needs `warmth_min`, must lie in the frame, and a circle covering the whole inner half of a rim is
+  a `PlacementFault`.
+
+Known limits, all unmeasured on real footage:
+
+- A ring and a cup that are both still from the first frame cannot be told apart: both get a record.
+- With `still_ring_px` set, a rim is held for 3 frames before it is taken for a cup unless it
+  moves, and a moving cup is followed one frame after it is first seen. The 3 frames and the
+  threshold are first guesses, not measured.
+- The inspector re-finds the largest rim in the zone on the captured frame. `rim_size_px` is what
+  keeps a bigger reflection from being judged in place of the cup; without it, one can be.
+- A cup that stops exactly where a reflection was found is taken for the reflection.
+
 ## 4. Implementations
 
 One file each. This table is the actual content of the claim that the demo and the factory
