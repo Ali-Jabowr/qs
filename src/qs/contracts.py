@@ -78,6 +78,7 @@ class Verdict:
     config_hash: str
     inspect_ms: float
     reason: str | None = None
+    evidence_index: int = 0  # which frame of a burst is the evidence; 0 for a single frame
 
     def __post_init__(self) -> None:
         if self.label is Label.NO_VERDICT and self.reason is None:

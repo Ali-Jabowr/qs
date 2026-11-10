@@ -102,6 +102,13 @@ class LineConfig:
     blob_share_min: float
     direction: str | None = None
     fps: float | None = None
+    # The median-warmth verdict over a burst (ADR-0029 §4); a station without `warmth_min` keeps
+    # `blob_share`. `max_speed_px_s` is the fastest the chain moves, for the zone-length rule.
+    warmth_min: float | None = None
+    burst: int | None = None
+    burst_min_frames: int = 3
+    warmth_spread_max: float | None = None
+    max_speed_px_s: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -375,12 +382,41 @@ def _refuse_malformed_checks(mapping: Mapping[str, Any], parent: str) -> None:
             raise ConfigError(f"{path}: {name!r} is repeated")
 
 
+_WARMTH_KEYS = ("warmth_min", "burst", "burst_min_frames", "warmth_spread_max", "max_speed_px_s")
+
+
+def _parse_warmth(mapping: Mapping[str, Any], path: str) -> dict[str, Any]:
+    """The warmth keys present, parsed: all or none of them, with `burst_min_frames` optional."""
+    if "warmth_min" not in mapping:
+        extra = [key for key in _WARMTH_KEYS if key in mapping]
+        if extra:
+            raise ConfigError(f"{_key(path, extra[0])}: needs {_key(path, 'warmth_min')} to be set")
+        return {}
+    for key in ("burst", "warmth_spread_max", "max_speed_px_s", "direction", "fps"):
+        if key not in mapping:
+            raise ConfigError(f"{_key(path, key)}: a station with warmth_min needs this key")
+    parsed: dict[str, Any] = {
+        "warmth_min": _float(mapping, "warmth_min", path),
+        "burst": _int(mapping, "burst", path),
+        "warmth_spread_max": _float(mapping, "warmth_spread_max", path),
+        "max_speed_px_s": _float(mapping, "max_speed_px_s", path),
+    }
+    if "burst_min_frames" in mapping:
+        parsed["burst_min_frames"] = _int(mapping, "burst_min_frames", path)
+    return parsed
+
+
 def _parse_line(value: object, path: str) -> LineConfig:
     mapping = _mapping(value, path)
     _check_keys(
-        mapping, ("zone", "rim_axis_px", "blob_share_min"), path, optional=("direction", "fps")
+        mapping,
+        ("zone", "rim_axis_px", "blob_share_min"),
+        path,
+        optional=("direction", "fps", *_WARMTH_KEYS),
     )
+    warmth = _parse_warmth(mapping, path)
     return LineConfig(
+        **warmth,
         zone=_roi(mapping, "zone", path),
         rim_axis_px=_pair(mapping, "rim_axis_px", path),
         blob_share_min=_float(mapping, "blob_share_min", path),
@@ -592,6 +628,40 @@ def _validate_line(line: LineConfig, config: StationConfig) -> None:
         raise ConfigError(f"inspector.line.blob_share_min: {line.blob_share_min} is outside (0, 1)")
     if line.fps is not None and (not math.isfinite(line.fps) or line.fps <= 0):
         raise ConfigError(f"inspector.line.fps: {line.fps} is not a finite number above 0")
+    if line.warmth_min is not None:
+        if config.camera.type != "replay":
+            raise ConfigError(
+                "inspector.line.warmth_min: needs camera.type replay: multi-frame capture is "
+                "only available from recorded video for now"
+            )
+        _validate_warmth(line)
+
+
+def _validate_warmth(line: LineConfig) -> None:
+    """A warmth station's numbers, and the zone rule of docs/11 "Bursts": the zone is at least one
+    rim plus `burst` frame periods of travel long (one to the first frame, burst - 1 between)."""
+    burst, spread, speed, fps = line.burst, line.warmth_spread_max, line.max_speed_px_s, line.fps
+    if burst is None or spread is None or speed is None or fps is None or line.direction is None:
+        raise ConfigError("inspector.line: the warmth keys are incomplete")  # the parser ensures
+    if burst < 1:
+        raise ConfigError(f"inspector.line.burst: {burst} is below 1")
+    if not 1 <= line.burst_min_frames <= burst:
+        raise ConfigError(
+            f"inspector.line.burst_min_frames: {line.burst_min_frames} is not within 1 and "
+            f"burst ({burst})"
+        )
+    if not math.isfinite(spread) or spread <= 0:
+        raise ConfigError(f"inspector.line.warmth_spread_max: {spread} is not above 0")
+    if not math.isfinite(speed) or speed <= 0:
+        raise ConfigError(f"inspector.line.max_speed_px_s: {speed} is not above 0")
+    needed = line.rim_axis_px[1] + burst * speed / fps
+    zone_w, zone_h = line.zone[2], line.zone[3]
+    available = zone_w if line.direction in ("left", "right") else zone_h
+    if available < needed:
+        raise ConfigError(
+            f"inspector.line.zone: {available} px along the travel is shorter than a rim "
+            f"({line.rim_axis_px[1]} px) plus {burst} frames of travel ({needed:.0f} px in all)"
+        )
 
 
 def _validate_cup_trigger(config: StationConfig) -> None:

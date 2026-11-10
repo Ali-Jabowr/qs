@@ -418,11 +418,14 @@ class Pipeline:
 
     def _inspect_event(self, event: TriggerEvent) -> _Outcome:
         """Steps 2–7 for one event in READY."""
-        frame = self._capture(event)
-        if not isinstance(frame, Frame):
-            return frame
+        burst = self._burst_length()
+        captured = self._capture(event, burst)
+        if not isinstance(captured, tuple):
+            return captured
+        frames = captured
+        frame = frames[0]
         # Step 3: the frame is accepted — once its read-back can be read at all.
-        verified = frame.camera.verified is True
+        verified = all(f.camera.verified is True for f in frames)
         self._capture_streak = 0
         self._frames_accepted += 1
         self._accepted = True
@@ -431,7 +434,7 @@ class Pipeline:
         else:
             self._unverifiable = True
         # Step 4: the reference patch (A1, #62).
-        if not self._in_band(frame.reference_patch):
+        if not all(self._in_band(f.reference_patch) for f in frames):
             self._lighting = True
             return self._no_verdict_with_frame("lighting", frame, 0.0)
         self._lighting = False
@@ -443,9 +446,12 @@ class Pipeline:
         self._reached_inspect = True
         inspect_start = self._clock()
         try:
-            verdict = self._inspector.inspect(frame)
+            if burst is None:
+                verdict = self._inspector.inspect(frame)
+            else:
+                verdict = self._inspector.inspect_burst(frames)
             inspect_ms = (self._clock() - inspect_start) * 1000.0
-            self._guard(verdict)
+            self._guard(verdict, len(frames))
         except PlacementFault as exc:
             inspect_ms = (self._clock() - inspect_start) * 1000.0
             _log.info("seq %d: placement: %s", event.seq, exc)
@@ -454,7 +460,15 @@ class Pipeline:
             inspect_ms = (self._clock() - inspect_start) * 1000.0
             _log.warning("seq %d: inference failed: %s", event.seq, exc)
             return self._inference_failed(frame, inspect_ms)
-        return self._encode(verdict, frame, inspect_ms)
+        return self._encode(verdict, frames[verdict.evidence_index], inspect_ms)
+
+    def _burst_length(self) -> int | None:
+        """The burst a station captures and inspects: only a line station with `warmth_min` set
+        (ADR-0029 §4) uses bursts; every other station captures and inspects one frame."""
+        line = self._config.inspector.line
+        if line is None or line.warmth_min is None:
+            return None
+        return line.burst
 
     def _inference_failed(self, frame: Frame, inspect_ms: float) -> _Outcome:
         """NO_VERDICT(`inference`) with the image; the third in a row is FAULT(inference)."""
@@ -480,10 +494,15 @@ class Pipeline:
             self._enter_fault("capture")
         return _Outcome(self._no_verdict("capture"), None)
 
-    def _capture(self, event: TriggerEvent) -> Frame | _Outcome:
-        """Step 2: a frame, or the NO_VERDICT its failure means. None of these has an image."""
+    def _capture(self, event: TriggerEvent, burst: int | None) -> tuple[Frame, ...] | _Outcome:
+        """Step 2: the frame (the `burst` frames of a warmth station), or the NO_VERDICT its
+        failure means. None of these has an image."""
         try:
-            frame = self._source.capture(event)
+            frames: tuple[Frame, ...]
+            if burst is None:
+                frames = (self._source.capture(event),)
+            else:
+                frames = tuple(self._source.capture_burst(event, burst))
         except CameraLost as exc:
             _log.warning("seq %d: camera lost: %s", event.seq, exc)
             self._enter_fault("camera")
@@ -502,10 +521,14 @@ class Pipeline:
         except Exception as exc:  # a source that breaks its contract: no frame to trust
             _log.exception("seq %d: the source raised %s", event.seq, type(exc).__name__)
             return self._capture_failed()
-        if not isinstance(frame, Frame) or frame.event != event:
+        if (
+            not frames
+            or (burst is not None and len(frames) != burst)
+            or not all(isinstance(f, Frame) and f.event == event for f in frames)
+        ):
             _log.warning("seq %d: the source returned a frame for another event", event.seq)
             return self._capture_failed()
-        return frame
+        return frames
 
     def _in_band(self, patch: float | None) -> bool:
         """`|patch − expect| ≤ band × expect`, the boundary included; None is out of band.
@@ -519,12 +542,16 @@ class Pipeline:
         high = reference.expect * (1 + reference.band)
         return low <= float(patch) <= high
 
-    def _guard(self, verdict: object) -> None:
+    def _guard(self, verdict: object, frame_count: int = 1) -> None:
         """Step 6: accept a returned verdict only if nothing about it can hide a failed check."""
         if not isinstance(verdict, Verdict):
             raise _Refused(f"inspect() returned {type(verdict).__name__}, not a Verdict")
         if verdict.label is Label.NO_VERDICT:
             raise _Refused("an inspector returned NO_VERDICT instead of raising")
+        if not 0 <= verdict.evidence_index < frame_count:
+            raise _Refused(
+                f"the evidence frame {verdict.evidence_index} is not one of the {frame_count}"
+            )
         if verdict.reason is not None:
             raise _Refused(f"a {verdict.label} verdict carries a reason ({verdict.reason!r})")
         # Read `checks` only as a tuple of CheckResult: a one-shot iterable would be used up
