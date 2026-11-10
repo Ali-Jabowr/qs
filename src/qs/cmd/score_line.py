@@ -15,12 +15,13 @@ Exit codes: 0 scored · 2 refused (config, labels or footage).
 from __future__ import annotations
 
 import argparse
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 from qs.annunciator import NullAnnunciator
 from qs.config import LoadedConfig, load_config
-from qs.contracts import Label
+from qs.contracts import InspectionRecord, Label, TriggerEvent
 from qs.errors import ConfigError
 from qs.eval.line_score import (
     CupScore,
@@ -62,8 +63,13 @@ def add_parser(commands: Any) -> None:
                         help="how far, in frames, a record may be from its cup (default 15)")
 
 
-def _judged(loaded: LoadedConfig, video: Path) -> list[Judged]:
-    """Every record the line station makes on `video`, as the frame it judged and its verdict."""
+FrameIndex = Callable[[TriggerEvent], int]
+
+
+def play_video(loaded: LoadedConfig, video: Path) -> tuple[list[InspectionRecord], FrameIndex]:
+    """Every record the line station makes on `video`, in order, and the function that gives the
+    index of the video frame a record's event was judged on. `ReplayError` if the station stops
+    before the video ends."""
     config = loaded.config
     clock = _FrameClock()
     trigger, source = video_replay_pair(config, video, clock=clock)
@@ -94,7 +100,13 @@ def _judged(loaded: LoadedConfig, video: Path) -> list[Judged]:
         # The cups after this point would count as never seen: refuse rather than score them.
         raise ReplayError(f"{video.name}: the station stopped before the video ended "
                           f"({pipeline.refusal})")
-    return [Judged(source.frame_index(r.event), r.verdict.label) for r in sink.records]
+    return sink.records, source.frame_index
+
+
+def _judged(loaded: LoadedConfig, video: Path) -> list[Judged]:
+    """Every record the line station makes on `video`, as the frame it judged and its verdict."""
+    records, frame_index = play_video(loaded, video)
+    return [Judged(frame_index(r.event), r.verdict.label) for r in records]
 
 
 def _position(item: str) -> tuple[str, Path]:
