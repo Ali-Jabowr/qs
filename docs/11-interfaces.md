@@ -285,22 +285,24 @@ without them behaves as before.
   accepts a rim only when each of its axes, smaller first, is within ±5% of its own value, beside
   `rim_axis_px`. A camera not straight overhead sees an ellipse, hence a pair. The pair must be in
   order and lie inside `rim_axis_px`.
-- `still_ring_px`: a ring that moves less than this many pixels from one frame to the next while
-  another rim moves is a reflection: it gets no record, also during a later stop of the chain. A
-  cup standing during a stop still gets one. Needs `trigger.type: cup`.
+- `still_ring_px`: a ring seen at the same place (this many pixels along the travel, half the
+  smallest rim across it) on 3 frames while the chain moves is a reflection and is left out until
+  it has not been seen for a short while (`LOST_AFTER_S` of the cup trigger). The chain moves when
+  the median step of the other rims between two frames is over this many pixels. Every other rim is
+  followed: a cup is never held back or dropped for being found on some frames only, and a cup
+  standing during a stop still gets one record. Needs `trigger.type: cup`.
 - `lens_mask_px: [x, y, radius]`: a circle in frame pixels, left out of every warmth measurement.
-  Needs `warmth_min`, must lie in the frame, and a circle covering the whole inner half of a rim is
-  a `PlacementFault`.
+  Needs `warmth_min` and must lie in the frame. A burst frame whose inner half it covers wholly is
+  skipped as not measured, and `burst_min_frames` decides whether the burst still counts.
 
 Known limits, all unmeasured on real footage:
 
-- A ring and a cup that are both still from the first frame cannot be told apart: both get a record.
-- With `still_ring_px` set, a rim is held for 3 frames before it is taken for a cup unless it
-  moves, and a moving cup is followed one frame after it is first seen. The 3 frames and the
-  threshold are first guesses, not measured.
+- A ring and a cup that are both still from the first frame cannot be told apart, and a ring is
+  followed until it has been confirmed: it makes one record at the start of a run.
+- The 3 frames and the `still_ring_px` threshold are first guesses, not measured.
 - The inspector re-finds the largest rim in the zone on the captured frame. `rim_size_px` is what
   keeps a bigger reflection from being judged in place of the cup; without it, one can be.
-- A cup that stops exactly where a reflection was found is taken for the reflection.
+- A cup that stops exactly where a reflection was confirmed is taken for the reflection.
 
 ## 4. Implementations
 
