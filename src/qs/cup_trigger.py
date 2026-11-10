@@ -30,12 +30,12 @@ import numpy as np
 from qs.config import LineConfig
 from qs.contracts import FrameSource, TriggerEvent
 from qs.errors import ConfigError
-from qs.inspector.cup import Ellipse, Rim, find_rims
-from qs.inspector.line import warmth
+from qs.inspector.cup import Rim, find_rims
 
 LOST_AFTER_S = 0.25  # unmeasured on real footage; cups pass about every 1–1.5 s, by estimate
 # Per direction: the rim centre's coordinate that travel changes, and the sign that makes "further
 # along" the larger number.
+_COLD_FRAMES_TO_END = 2  # frames in a row below the threshold that end a warm stretch
 _TRAVEL = {"right": (0, 1), "left": (0, -1), "down": (1, 1), "up": (1, -1)}
 
 
@@ -60,6 +60,7 @@ class CupTracker:
     def __init__(self, tolerance_px: float) -> None:
         self._tolerance_px = tolerance_px
         self._tracks: list[_Track] = []
+        self.crossed = 0  # cups that crossed `line` in the last `fires`
 
     def _nearest(self, along: float, free: list[_Track]) -> _Track | None:
         behind = [t for t in free if t.along <= along + self._tolerance_px]
@@ -69,10 +70,15 @@ class CupTracker:
         """One frame's cups: how many events, of either kind, to fire."""
         return sum(self.fires(seen, now))
 
-    def fires(self, seen: Sequence[SeenCup], now: float) -> tuple[int, int]:
+    def fires(
+        self, seen: Sequence[SeenCup], now: float, line: float | None = None
+    ) -> tuple[int, int]:
         """One frame's cups: events for cups first wholly in the zone, and for cups gone from
-        view that never were. The furthest along are matched first, so each takes its own track."""
+        view that never were. The furthest along are matched first, so each takes its own track.
+        With `line`, a position along the travel, `crossed` then holds how many followed cups went
+        from below it to at or above it in this frame; a cup first seen is not one of them."""
         in_zone = lost = 0
+        self.crossed = 0
         free = list(self._tracks)
         for cup in sorted(seen, key=lambda c: c.along, reverse=True):
             track = self._nearest(cup.along, free)
@@ -81,6 +87,7 @@ class CupTracker:
                 self._tracks.append(track)
             else:
                 free.remove(track)
+                self.crossed += line is not None and track.along < line <= cup.along
                 track.along = cup.along
                 track.last_seen = now
             if cup.in_zone and not track.fired:
@@ -100,25 +107,42 @@ class CupTracker:
         return fires
 
 
+def _slit_warmth(pixels: np.ndarray, slit: tuple[int, int, int, int]) -> float:
+    """The mean of red minus blue (BGR frames) over the whole slit, as `inspector.line.warmth` takes
+    it over a cup's inner half; the slit's crop is all that is converted."""
+    x, y, w, h = slit
+    crop = pixels[y : y + h, x : x + w].astype(np.int16)
+    return float((crop[..., 2] - crop[..., 0]).mean())
+
+
 class UntrackedWatch:
-    """The self-check of ADR-0029 §7: warmth in a fixed window beside the finder. `update` takes
-    one frame's warmth in the window and whether the finder put a cup's rim centre there, and says
-    if warmth has just fallen after a rise with no cup found in the window since it was last empty
-    (cold and no cup). A cup found only after the fall is not remembered for that passage."""
+    """The self-check of ADR-0029 §7: warmth in a thin slit across the chain, beside the finder.
+    A stretch starts when the slit's warmth is `warmth_min` or more and ends after two frames in a
+    row below it, so a reading that flickers around the threshold is one stretch. `update` takes a
+    frame's warmth and whether a tracked rim centre crossed the slit's centre line in it, and says
+    if an untracked stretch has just ended: one that no crossing during it credited. A crossing
+    while the slit is cold credits nothing. A stretch still warm at the last frame is not ended."""
 
     def __init__(self, warmth_min: float) -> None:
         self._warmth_min = warmth_min
-        self._warm = False
-        self._cup_here = False
+        self._active = False
+        self._credited = False
+        self._cold_run = 0
 
-    def update(self, warmth: float, cup_in_window: bool) -> bool:
-        self._cup_here |= cup_in_window
-        is_warm = warmth > self._warmth_min
-        ended = self._warm and not is_warm and not self._cup_here
-        if not is_warm and not cup_in_window:
-            self._cup_here = False
-        self._warm = is_warm
-        return ended
+    def update(self, warmth: float, crossed: bool) -> bool:
+        warm = warmth >= self._warmth_min
+        if not self._active:
+            if warm:
+                self._active = True
+                self._credited = crossed
+                self._cold_run = 0
+            return False
+        self._credited |= crossed
+        self._cold_run = 0 if warm else self._cold_run + 1
+        if self._cold_run < _COLD_FRAMES_TO_END:
+            return False
+        self._active = False
+        return not self._credited
 
 
 class CupTrigger:
@@ -148,14 +172,14 @@ class CupTrigger:
         # Cups cannot overlap, so a position less than half the smallest rim behind a followed
         # cup can only be that same cup, whatever the camera's resolution.
         self._tracker = CupTracker(line.rim_axis_px[0] / 2)
-        # The self-check (ADR-0029 §7). The window is the box a rim would fill: its warmth is
-        # `warmth` of the box's inscribed ellipse, the inner half of it, as for a cup's rim.
-        self._box = line.untracked_window
-        self._window: Ellipse | None = None
+        # The self-check (ADR-0029 §7): a slit across the travel, and the position along the travel
+        # of its centre line, which a tracked cup's rim centre must cross to credit a warm stretch.
+        self._slit = line.untracked_window
         self._watch: UntrackedWatch | None = None
-        if self._box is not None and line.warmth_min is not None:
-            x, y, w, h = self._box
-            self._window = ((x + w / 2, y + h / 2), (float(w), float(h)), 0.0)
+        self._centre_line: float | None = None
+        if self._slit is not None and line.warmth_min is not None:
+            x, y, w, h = self._slit
+            self._centre_line = self._sign * ((x + w / 2) if self._axis == 0 else (y + h / 2))
             self._watch = UntrackedWatch(line.warmth_min)
         self._looked_at: np.ndarray | None = None
         self._pending = 0  # events not yet returned, of both kinds
@@ -167,15 +191,12 @@ class CupTrigger:
     def _seen(self, rims: Sequence[Rim]) -> list[SeenCup]:
         return [SeenCup(self._sign * rim.ellipse[0][self._axis], rim.in_zone) for rim in rims]
 
-    def _untracked(self, pixels: np.ndarray, rims: Sequence[Rim]) -> bool:
-        """The window's warmth in this frame, and whether a rim's centre is in the window."""
-        if self._box is None or self._window is None or self._watch is None:
+    def _untracked(self, pixels: np.ndarray) -> bool:
+        """The slit's warmth in this frame and the cups that crossed its centre line, said to the
+        watch; whether an untracked stretch has just ended."""
+        if self._slit is None or self._watch is None:
             return False
-        x, y, w, h = self._box
-        in_window = any(
-            x <= rim.ellipse[0][0] <= x + w and y <= rim.ellipse[0][1] <= y + h for rim in rims
-        )
-        return self._watch.update(warmth(pixels, self._window), in_window)
+        return self._watch.update(_slit_warmth(pixels, self._slit), self._tracker.crossed > 0)
 
     def poll(self) -> TriggerEvent | None:
         """Never blocks. A frame that makes two cups fire gives one event on each of two polls."""
@@ -187,8 +208,8 @@ class CupTrigger:
             elif pixels is not None and pixels is not self._looked_at:
                 self._looked_at = pixels
                 rims = find_rims(pixels, self._line)
-                self._add(*self._tracker.fires(self._seen(rims), self._clock()))
-                if self._untracked(pixels, rims):
+                self._add(*self._tracker.fires(self._seen(rims), self._clock(), self._centre_line))
+                if self._untracked(pixels):
                     self._pending += 1
                     self._pending_untracked += 1
         if self._pending == 0:

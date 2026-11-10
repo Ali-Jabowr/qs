@@ -1,7 +1,9 @@
-"""`UntrackedWatch`: warmth in a fixed window that rises and falls with no tracked cup (#134).
+"""`UntrackedWatch`: warmth in a thin slit that rises and falls with no tracked cup crossing (#134).
 
-Each case is a run of frames, `(warmth, cup_in_window)`, and the frames on which the watch says an
-untracked passage has just ended. The threshold is 5.0: warmth must be above it to count as warm.
+Each case is a run of frames, `(warmth, crossed)`: the slit's warmth, and whether a tracked rim
+centre crossed the slit's centre line in that frame. The expected value is the frames on which an
+untracked stretch has just ended. A stretch starts at warmth of 10.0 or more and ends after two
+frames in a row below it.
 """
 
 from __future__ import annotations
@@ -10,56 +12,72 @@ import pytest
 
 from qs.cup_trigger import UntrackedWatch
 
-THRESHOLD = 5.0
+THRESHOLD = 10.0
 
 CASES = [
     pytest.param(
-        [(0.0, False), (30.0, False), (30.0, False), (0.0, False)],
+        [(0.0, False), (30.0, False), (30.0, False), (0.0, False), (0.0, False)],
+        [False, False, False, False, True],
+        id="a warm stretch with no crossing ends once, after two cold frames",
+    ),
+    pytest.param(
+        [(0.0, False), (30.0, False), (30.0, True), (0.0, False), (0.0, False)],
+        [False, False, False, False, False],
+        id="a tracked rim crossing during the stretch credits it",
+    ),
+    pytest.param(
+        [(0.0, True), (30.0, False), (0.0, False), (0.0, False)],
         [False, False, False, True],
-        id="a warm passage with no cup ends once",
+        id="a crossing while the slit is cold credits nothing (a tracked empty cup)",
     ),
     pytest.param(
-        [(0.0, False), (30.0, True), (30.0, True), (0.0, False)],
-        [False, False, False, False],
-        id="a cup found in the window while it is warm is tracked",
+        [(10.0, False), (10.0, False), (0.0, False), (0.0, False)],
+        [False, False, False, True],
+        id="warmth equal to the threshold is warm",
     ),
     pytest.param(
-        [(0.0, True), (30.0, False), (0.0, False)],
+        [(30.0, False), (30.0, False), (0.0, False)],
         [False, False, False],
-        id="a cup found in the window just before it warms is tracked",
-    ),
-    pytest.param(
-        [(5.0, False), (5.0, False), (0.0, False)],
-        [False, False, False],
-        id="warmth equal to the threshold is not warm",
+        id="one cold frame does not end the stretch",
     ),
     pytest.param(
         [(30.0, False), (30.0, False)],
         [False, False],
-        id="warmth that has not fallen again is not yet a passage",
+        id="a stretch still warm at the last frame is silent",
     ),
     pytest.param(
-        [(30.0, False), (0.0, False), (30.0, False), (0.0, False)],
-        [False, True, False, True],
-        id="two warm passages are two events",
+        [(0.0, False), (11.0, False), (9.0, False), (11.0, False), (9.0, False), (0.0, False),
+         (0.0, False)],
+        [False, False, False, False, False, True, False],
+        id="warmth flickering around the threshold is one event, not two",
     ),
     pytest.param(
-        [(30.0, True), (0.0, False), (0.0, False), (30.0, False), (0.0, False)],
-        [False, False, False, False, True],
-        id="a tracked passage does not excuse the next one",
+        [(30.0, False), (0.0, False), (0.0, False), (30.0, False), (0.0, False), (0.0, False)],
+        [False, False, True, False, False, True],
+        id="two stretches are two events",
+    ),
+    pytest.param(
+        [(30.0, True), (0.0, False), (0.0, False), (30.0, False), (0.0, False), (0.0, False)],
+        [False, False, False, False, False, True],
+        id="a credit is used by its own stretch and not the next",
     ),
     pytest.param(
         [(0.0, False), (0.0, False)],
         [False, False],
-        id="a window that stays cold gives nothing",
+        id="a slit that stays cold gives nothing",
+    ),
+    pytest.param(
+        [(40.0, False), (40.0, False), (40.0, True), (0.0, False), (0.0, False)],
+        [False, False, False, False, False],
+        id="a missed mochi and a tracked one in one unbroken stretch: one stretch, credited",
     ),
 ]
 
 
 @pytest.mark.parametrize(("frames", "ended"), CASES)
-def test_an_untracked_passage_is_reported_when_warmth_falls(
+def test_an_untracked_stretch_is_reported_when_warmth_has_stayed_down(
     frames: list[tuple[float, bool]], ended: list[bool]
 ) -> None:
     watch = UntrackedWatch(THRESHOLD)
 
-    assert [watch.update(warmth, cup) for warmth, cup in frames] == ended
+    assert [watch.update(warmth, crossed) for warmth, crossed in frames] == ended

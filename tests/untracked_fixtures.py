@@ -2,8 +2,9 @@
 full cup that is tracked, on the 320x240, 8 fps line of `warmth_fixtures`.
 
 A crossing is the nine steps of `PATH_X`, 40 px apart, and four frames of steel. The window is the
-box [130, 80, 80, 80], centred on x 170, so a thing is over it at x 130, 170 and 210. A pink моти
-has warmth 50 over the inner half of its rim, and the disc is drawn with the same 50 at its
+slit [165, 60, 10, 120], 10 px along the travel and centred on x 170: a thing centred at x 170 is
+over it, and a cup's centre crosses its centre line between the frames at x 130 and x 170. A pink
+моти warms the slit by well over the threshold of 5, and the disc is drawn with 50 more red at its
 centre, fading to nothing over a radius of 40, so that no edge is traced: the finder sees nothing.
 """
 
@@ -18,7 +19,7 @@ from test_cup import drawn_frame
 from warmth_fixtures import FPS, warmth_config
 
 PATH_X = (10, 50, 90, 130, 170, 210, 250, 290, 330)
-WINDOW = [130, 80, 80, 80]
+WINDOW = [165, 60, 10, 120]
 VIDEO = "line.avi"
 
 

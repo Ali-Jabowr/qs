@@ -40,7 +40,13 @@ def test_a_tracked_full_cup_gives_no_untracked_record(tmp_path: Path) -> None:
 def test_a_disc_and_a_cup_each_get_their_own_record_in_order(tmp_path: Path) -> None:
     records = _play(tmp_path, steel(3) + disc_crossing() + cup_crossing("pink") + steel(3))
 
-    assert sorted(_outcome(r) for r in records) == [("no_verdict", "untracked"), ("pass", None)]
+    assert [_outcome(r) for r in records] == [("no_verdict", "untracked"), ("pass", None)]
+
+
+def test_a_tracked_empty_cup_does_not_excuse_the_disc_that_follows(tmp_path: Path) -> None:
+    records = _play(tmp_path, steel(3) + cup_crossing("empty") + disc_crossing() + steel(3))
+
+    assert [_outcome(r) for r in records] == [("defect", None), ("no_verdict", "untracked")]
 
 
 def test_without_the_window_the_disc_is_not_seen(tmp_path: Path) -> None:

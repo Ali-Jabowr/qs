@@ -109,8 +109,9 @@ class LineConfig:
     burst_min_frames: int = 3
     warmth_spread_max: float | None = None
     max_speed_px_s: float | None = None
-    # The self-check of ADR-0029 §7: a fixed box [x, y, w, h] where warmth is also measured, so a
-    # warm passage with no tracked cup is reported. Needs `warmth_min`, whose threshold it uses.
+    # The self-check of ADR-0029 §7: a thin slit [x, y, w, h] across the travel where warmth is
+    # also measured, so a warm passage with no tracked cup crossing it is reported. Needs
+    # `warmth_min`, whose threshold it uses.
     untracked_window: tuple[int, int, int, int] | None = None
 
 
@@ -647,6 +648,14 @@ def _validate_line(line: LineConfig, config: StationConfig) -> None:
                 "inspector.line.untracked_window: needs inspector.line.warmth_min to be set"
             )
         _check_in_frame("inspector.line.untracked_window", line.untracked_window, config)
+        window_w, window_h = line.untracked_window[2:]
+        along = window_w if line.direction in ("left", "right") else window_h
+        limit = line.rim_axis_px[0] // 2
+        if along > limit:
+            raise ConfigError(
+                f"inspector.line.untracked_window: {along} px along the travel; a slit is at most "
+                f"{limit} px (half the smallest rim), so that it goes cold between cups"
+            )
 
 
 def _validate_warmth(line: LineConfig) -> None:
