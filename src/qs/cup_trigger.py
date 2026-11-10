@@ -99,6 +99,27 @@ class CupTracker:
         return fires
 
 
+class UntrackedWatch:
+    """The self-check of ADR-0029 §7: warmth in a fixed window beside the finder. `update` takes
+    one frame's warmth in the window and whether the finder put a cup's rim centre there, and says
+    if warmth has just fallen after a rise with no cup found in the window since it was last empty
+    (cold and no cup). A cup found only after the fall is not remembered for that passage."""
+
+    def __init__(self, warmth_min: float) -> None:
+        self._warmth_min = warmth_min
+        self._warm = False
+        self._cup_here = False
+
+    def update(self, warmth: float, cup_in_window: bool) -> bool:
+        self._cup_here |= cup_in_window
+        is_warm = warmth > self._warmth_min
+        ended = self._warm and not is_warm and not self._cup_here
+        if not is_warm and not cup_in_window:
+            self._cup_here = False
+        self._warm = is_warm
+        return ended
+
+
 class CupTrigger:
     """`TriggerSource` over a `FrameSource`'s previews. `seq` from 1, gapless; `t0` the clock at
     the `poll()` that returns the event. It looks at each preview array once, so the source must
