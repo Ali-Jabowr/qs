@@ -77,8 +77,16 @@ def blob_share(pixels: np.ndarray, inside: np.ndarray) -> float:
 
 
 def warmth(pixels: np.ndarray, rim: Ellipse) -> float:
-    """The mean of red minus blue over the inner half of the rim (its ellipse at half the axes)."""
-    region = pixels[inside_of(rim, pixels.shape[:2], _WARMTH_SCALE)].astype(np.int16)
+    """The mean of red minus blue over the inner half of the rim (its ellipse at half the axes).
+    Measured on the rim's bounding box alone, so the mask and the conversion cost a cup, not a
+    frame."""
+    (cx, cy), axes, angle = rim
+    reach = math.ceil(max(axes) / 2) + 2
+    height, width = pixels.shape[:2]
+    x0, y0 = max(0, round(cx) - reach), max(0, round(cy) - reach)
+    crop = pixels[y0 : min(height, round(cy) + reach + 1), x0 : min(width, round(cx) + reach + 1)]
+    local = ((round(cx) - x0, round(cy) - y0), axes, angle)
+    region = crop[inside_of(local, crop.shape[:2], _WARMTH_SCALE)].astype(np.int16)
     return float((region[:, 2] - region[:, 0]).mean())
 
 
