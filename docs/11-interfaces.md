@@ -249,10 +249,10 @@ for a unit — the factory's photoelectric sensor.
 
 After one trigger event a source can return a **burst** of N frames, and the inspector judges the
 unit from the burst. Every frame of the burst is later than `event.t0` plus one exposure (C4), and
-the frames are consecutive: frame k is the k-th frame after the first one C4 allows. All N frames
+frame k is the k-th frame after the first one C4 allows. All N frames
 carry the same `event`. A burst of 1 is today's single capture, so the bench and today's line
 inspector, which run with a burst of 1, write the same records as before. A burst promises
-"N frames, each later than the last", not even spacing.
+"N frames, each later than the last; even spacing is not promised".
 
 **Who bursts.** The pipeline calls `capture_burst` and `inspect_burst` only for a line station
 whose config sets `inspector.line.warmth_min`, with `inspector.line.burst` frames. Every other
@@ -274,7 +274,8 @@ Fewer than `burst_min_frames` (default 3) frames, or a spread above `warmth_spre
 long along the direction of travel, where `rim` is the larger of `rim_axis_px`. The cup keeps
 moving while the burst is taken: this is the conservative travel of one frame period to the first
 frame plus `burst - 1` frame intervals, and one rim size, since the last frame must still show the
-cup wholly in the zone. `max_speed_px_s` is the fastest the chain moves, in pixels per second. The
+cup wholly in the zone. The check assumes one frame period per frame, so a source that drops
+frames makes it less conservative. `max_speed_px_s` is the fastest the chain moves, in pixels per second. The
 config loader refuses a shorter zone.
 
 ## 4. Implementations
