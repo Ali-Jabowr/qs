@@ -15,7 +15,6 @@ import yaml
 from qs.config import load_config
 from qs.errors import ConfigError
 from station_fixtures import config_mapping
-from test_line_station import _config_file
 
 FLICKER = (
     "camera.exposure_us: 1000 is not a multiple of 10000 "
@@ -33,6 +32,22 @@ def _edited(path: Path, *, exposure_us: int, own_dc_light: object) -> Path:
     data["camera"]["exposure_us"] = exposure_us
     if own_dc_light is not None:
         data["lighting"]["own_dc_light"] = own_dc_light
+    path.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
+    return path
+
+
+def _config_file(root: Path) -> Path:
+    data = config_mapping(root, inspector_type="line")
+    data["trigger"]["type"] = "cup"
+    data["inspector"]["checks"] = ["empty_cup"]
+    data["inspector"]["line"] = {
+        "zone": [20, 30, 240, 180],
+        "rim_axis_px": [50, 140],
+        "blob_share_min": 0.3,
+        "direction": "right",
+        "fps": 8.0,
+    }
+    path = root / "line.yml"
     path.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
     return path
 
