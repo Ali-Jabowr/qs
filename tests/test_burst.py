@@ -5,7 +5,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import numpy as np
 import pytest
 
 from qs.errors import CaptureError
@@ -15,7 +14,7 @@ from qs.sources.replay import ReplaySource
 from station_fixtures import FakeClock, event, loaded_config, write_frames
 from test_cup import drawn_frame
 from test_line_inspector import HASH, _frame, _inspector
-from test_line_replay import START, _source
+from test_line_replay import SECOND_X, START, _cup_x, _source
 
 
 @pytest.mark.parametrize(
@@ -35,13 +34,14 @@ def test_a_burst_is_consecutive_frames_after_the_event_and_one_exposure(
     assert {frame.event for frame in burst} == {event(1, START)}
 
 
-def test_a_burst_of_one_is_the_single_capture(tmp_path: Path) -> None:
+def test_a_burst_of_one_is_the_frame_a_single_capture_returned_before_bursts(
+    tmp_path: Path,
+) -> None:
     source = _source(tmp_path, FakeClock(START))
     source.open()
-    (burst,) = source.capture_burst(event(1, START), 1)
-    single = source.capture(event(1, START))
-    assert burst.grabbed_at == single.grabbed_at
-    assert np.array_equal(burst.pixels, single.pixels)
+    (frame,) = source.capture_burst(event(1, START), 1)
+    assert frame.grabbed_at == 1000.125  # the pre-burst value of capture(event(1, START))
+    assert abs(_cup_x(frame.pixels) - SECOND_X) <= 3
 
 
 @pytest.mark.parametrize("count", [0, -1])

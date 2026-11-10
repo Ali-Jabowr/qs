@@ -173,7 +173,7 @@ class AppearanceInspector:
         self._loaded = _Loaded(config, model)
 
     def inspect_burst(self, frames: Sequence[Frame]) -> Verdict:
-        """A burst of 1 is `inspect`; the bench inspector judges no longer burst."""
+        """A burst of 1 is `inspect`; the bench inspector judges no burst longer than 1."""
         return self.inspect(only_frame(frames))
 
     def inspect(self, frame: Frame) -> Verdict:
