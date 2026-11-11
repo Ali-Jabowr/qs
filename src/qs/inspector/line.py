@@ -76,17 +76,27 @@ def blob_share(pixels: np.ndarray, inside: np.ndarray) -> float:
     return largest / int(np.count_nonzero(middle))
 
 
-def warmth(pixels: np.ndarray, rim: Ellipse) -> float:
-    """The mean of red minus blue over the inner half of the rim (its ellipse at half the axes).
-    Measured on the rim's bounding box alone, so the mask and the conversion cost a cup, not a
-    frame."""
+def warmth(
+    pixels: np.ndarray, rim: Ellipse, lens: tuple[int, int, int] | None = None
+) -> float | None:
+    """The mean of red minus blue over the inner half of the rim (its ellipse at half the axes),
+    leaving out the `lens` circle (x, y, radius) in frame coordinates. Measured on the rim's
+    bounding box alone, so the masks and the conversion cost a cup, not a frame. None when `lens`
+    covers the whole inner half: there is nothing to measure."""
     (cx, cy), axes, angle = rim
     reach = math.ceil(max(axes) / 2) + 2
     height, width = pixels.shape[:2]
     x0, y0 = max(0, round(cx) - reach), max(0, round(cy) - reach)
     crop = pixels[y0 : min(height, round(cy) + reach + 1), x0 : min(width, round(cx) + reach + 1)]
     local = ((round(cx) - x0, round(cy) - y0), axes, angle)
-    region = crop[inside_of(local, crop.shape[:2], _WARMTH_SCALE)].astype(np.int16)
+    inside = inside_of(local, crop.shape[:2], _WARMTH_SCALE)
+    if lens is not None:
+        hole = np.zeros(crop.shape[:2], dtype=np.uint8)
+        cv2.circle(hole, (lens[0] - x0, lens[1] - y0), lens[2], 255, cv2.FILLED)
+        inside = inside & ~hole.astype(bool)
+    if not inside.any():
+        return None
+    region = crop[inside].astype(np.int16)
     return float((region[:, 2] - region[:, 0]).mean())
 
 
@@ -171,12 +181,16 @@ class LineInspector:
             raise InferenceError("the line inspector has no warmth keys")
         found = [(i, frame, cup) for i, frame in enumerate(frames)
                  if (cup := find_cup(frame.pixels, line)) is not None]
-        if len(found) < line.burst_min_frames:
-            raise PlacementFault(
-                f"the cup was found on {len(found)} of {len(frames)} frames, fewer than the "
-                f"{line.burst_min_frames} needed"
-            )
-        warmths = np.array([warmth(frame.pixels, cup.rim) for _, frame, cup in found])
+        measured = [(i, frame, cup, w) for i, frame, cup in found
+                    if (w := warmth(frame.pixels, cup.rim, line.lens_mask_px)) is not None]
+        masked = len(found) - len(measured)
+        if len(measured) < line.burst_min_frames:
+            seen = f"the cup was found on {len(found)} of {len(frames)} frames"
+            if masked:
+                seen += f", the lens mask covered the whole inner half on {masked}"
+            raise PlacementFault(f"{seen}, fewer than the {line.burst_min_frames} needed")
+        kept = [(i, frame, cup) for i, frame, cup, _ in measured]
+        warmths = np.array([w for *_, w in measured])
         spread = float(warmths.max() - warmths.min())
         if spread > line.warmth_spread_max:
             raise PlacementFault(
@@ -184,7 +198,7 @@ class LineInspector:
                 f"{line.warmth_spread_max:g}"
             )
         median = float(np.median(warmths))
-        index, frame, cup = found[int(np.argmin(np.abs(warmths - median)))]
+        index, frame, cup = kept[int(np.argmin(np.abs(warmths - median)))]
         passed = median >= line.warmth_min
         check = CheckResult(
             name=CHECK_EMPTY_CUP,

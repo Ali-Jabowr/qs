@@ -278,6 +278,21 @@ cup wholly in the zone. The check assumes one frame period per frame, so a sourc
 frames makes it less conservative. `max_speed_px_s` is the fastest the chain moves, in pixels per second. The
 config loader refuses a shorter zone.
 
+**Measured rim and lens mask** (ADR-0029 decisions 2-3). Two optional keys of `inspector.line`; a
+config without them behaves as before.
+
+- `rim_size_px: [minor, major]`: the rim's axes in pixels, as measured on the mount. The finder
+  accepts a rim only when each of its axes, smaller first, is within ±5% of its own value, beside
+  `rim_axis_px`. A camera not straight overhead sees an ellipse, hence a pair. The pair must be in
+  order and lie inside `rim_axis_px`.
+- `lens_mask_px: [x, y, radius]`: a circle in frame pixels, left out of every warmth measurement.
+  Needs `warmth_min` and must lie in the frame. A burst frame whose inner half it covers wholly is
+  skipped as not measured, and `burst_min_frames` decides whether the burst still counts.
+
+Limit, unmeasured on real footage: the inspector re-finds the largest rim in the zone on the
+captured frame, so `rim_size_px` is what keeps a bigger reflection from being judged in place of
+the cup; without it, one can be.
+
 ## 4. Implementations
 
 One file each. This table is the actual content of the claim that the demo and the factory
