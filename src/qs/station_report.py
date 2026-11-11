@@ -7,7 +7,8 @@ none.
 
 **Inspections.** An inspection is an event that reached P04's step 5: its record is PASS or
 DEFECT, or NO_VERDICT for `placement` or `inference`. The other NO_VERDICT reasons
-(`capture`, `lighting`, `camera`, `camera_settings`, `busy`) never reached the model.
+(`capture`, `lighting`, `camera`, `camera_settings`, `busy`, `untracked`) never reached the
+model.
 
 **NFR-01** (≤ 1.0 s trigger to verdict on screen at p95, over ≥ 200 events, on the laptop's
 GPU) is judged only for a live run with the `appearance` inspector on `torch-cuda`, with at

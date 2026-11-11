@@ -103,10 +103,13 @@ def play_video(loaded: LoadedConfig, video: Path) -> tuple[list[InspectionRecord
     return sink.records, source.frame_index
 
 
-def _judged(loaded: LoadedConfig, video: Path) -> list[Judged]:
-    """Every record the line station makes on `video`, as the frame it judged and its verdict."""
+def _judged(loaded: LoadedConfig, video: Path) -> tuple[list[Judged], list[int]]:
+    """Every record the line station makes on `video` for a cup, as the frame it judged and its
+    verdict, and the frames of the untracked records: those belong to no cup and are not scored."""
     records, frame_index = play_video(loaded, video)
-    return [Judged(frame_index(r.event), r.verdict.label) for r in records]
+    cups = [r for r in records if r.verdict.reason != "untracked"]
+    untracked = [frame_index(r.event) for r in records if r.verdict.reason == "untracked"]
+    return [Judged(frame_index(r.event), r.verdict.label) for r in cups], untracked
 
 
 def _position(item: str) -> tuple[str, Path]:
@@ -130,14 +133,22 @@ def _score(loaded: LoadedConfig, footage: Path, labels: Labels, window: int) -> 
     hands = {video_frame(i) for i, frame in labels.frames.items() if frame.label == FrameKind.HAND}
     scores: list[CupScore] = []
     on_hands: list[Label] = []
+    untracked = untracked_on_hands = 0
     # A video with hands but no counted cup is played for its hands only: its records are not
     # scored against cups, or every one would count as a record paired with no cup.
     for video in sorted(cup_videos | {video for video, _ in hands}):
-        judged = _judged(loaded, footage / video)
+        judged, skipped = _judged(loaded, footage / video)
+        untracked += len(skipped)
+        untracked_on_hands += sum((video, frame) in hands for frame in skipped)
         if video in cup_videos:
             scores.append(score_cups(labels.cups_of(video), judged, window))
         on_hands += [j.label for j in judged if (video, j.frame) in hands]
-    return [*position_lines(combined(scores), window), hand_line(len(hands), on_hands)]
+    lines = [*position_lines(combined(scores), window), hand_line(len(hands), on_hands)]
+    line = loaded.config.inspector.line
+    if line is not None and line.untracked_window is not None:
+        lines.append(f"- untracked passages (НЕТ РЕШЕНИЯ, no cup tracked): {untracked}")
+        lines.append(f"- untracked passages on hand frames: {untracked_on_hands}")
+    return lines
 
 
 def main(args: argparse.Namespace) -> int:

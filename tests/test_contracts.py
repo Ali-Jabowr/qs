@@ -204,7 +204,7 @@ def test_every_exception_reason_is_a_reason() -> None:
 
 
 def test_exception_reasons_are_reasons_minus_busy() -> None:
-    assert {error.reason for error in _error_classes()} == set(REASONS) - {"busy"}
+    assert {error.reason for error in _error_classes()} == set(REASONS) - {"busy", "untracked"}
 
 
 def test_error_hierarchy() -> None:

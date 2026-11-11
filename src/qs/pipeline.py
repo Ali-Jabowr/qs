@@ -418,7 +418,8 @@ class Pipeline:
 
     def _inspect_event(self, event: TriggerEvent) -> _Outcome:
         """Steps 2–7 for one event in READY."""
-        burst = self._burst_length()
+        # An untracked event is recorded without the inspector, so one frame is all it needs.
+        burst = None if event.untracked else self._burst_length()
         captured = self._capture(event, burst)
         if not isinstance(captured, tuple):
             return captured
@@ -438,6 +439,10 @@ class Pipeline:
             self._lighting = True
             return self._no_verdict_with_frame("lighting", frame, 0.0)
         self._lighting = False
+        if event.untracked:
+            # Warmth passed the fixed window with no tracked cup: a cup was missed (ADR-0029 §7).
+            _log.warning("seq %d: untracked: warmth passed the window, no cup tracked", event.seq)
+            return self._no_verdict_with_frame("untracked", frame, 0.0)
         if event.never_in_zone:
             # The frame shows where the cup was, not the cup: it may be the next cup's frame.
             _log.info("seq %d: placement: the cup was never wholly in the zone", event.seq)

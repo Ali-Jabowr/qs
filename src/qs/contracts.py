@@ -15,7 +15,10 @@ CHECK_GEOMETRY = "geometry"
 CHECK_APPEARANCE = "appearance"
 CHECK_EMPTY_CUP = "empty_cup"
 REASONS = frozenset(
-    {"capture", "camera", "camera_settings", "lighting", "placement", "inference", "busy"}
+    {
+        "capture", "camera", "camera_settings", "lighting", "placement", "inference", "busy",
+        "untracked",
+    }
 )
 
 
@@ -28,13 +31,16 @@ class Label(StrEnum):
 @dataclass(frozen=True, slots=True)
 class TriggerEvent:
     """`never_in_zone`: the cup trigger fired for a cup that left the view without ever being
-    wholly in the zone; the unit is NO_VERDICT(`placement`) whatever the captured frame shows."""
+    wholly in the zone; the unit is NO_VERDICT(`placement`) whatever the captured frame shows.
+    `untracked`: the cup trigger saw warmth pass through its fixed window with no tracked cup
+    there (ADR-0029 §7); the unit is NO_VERDICT(`untracked`) and the inspector is not asked."""
 
     seq: int
     t0: float
     wall: datetime
     source_id: str
     never_in_zone: bool = False
+    untracked: bool = False
 
 
 @dataclass(frozen=True, slots=True)
