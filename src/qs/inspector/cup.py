@@ -3,9 +3,10 @@
 `find_cup(pixels, LineConfig)` looks only at edges and shape, so an empty cup and a full one are
 found the same way, whatever colour the моти is: grey, a 5 × 5 Gaussian, Canny, one ellipse
 fitted to each traced edge. An ellipse is the rim when both its axes are in `rim_axis_px`, all
-of it is inside `zone`, and edges lie along most of it, so a rim may be broken by glare. Shape
-is all it knows: a round glare patch of a rim's size passes for a rim. Of those the largest
-wins: the outline of a моти lies inside its cup's rim. Pure: the input is only ever read.
+of it is inside `zone`, and edges lie along most of it, so a rim may be broken by glare. With
+`rim_size_px` set each axis must also be within 5% of its own measured value. Shape is all it
+knows: a round glare patch of a rim's size passes for a rim. Of those the largest wins: the
+outline of a моти lies inside its cup's rim. Pure: the input is only ever read.
 
 A cup partly outside the zone is not returned at all, so a neighbouring cup cut by the zone's
 edge can never hide the cup wholly inside it. These numbers have only been tried on drawn
@@ -119,10 +120,20 @@ def _traced_ellipses(
     return ellipses
 
 
+_RIM_SIZE_TOLERANCE = 0.05  # ADR-0029 §3: a rim within ±5% of the size measured on the mount
+
+
 def _rim_sized(ellipse: Ellipse, config: LineConfig) -> bool:
     low, high = config.rim_axis_px
-    _, (first, second), _ = ellipse
-    return low <= first <= high and low <= second <= high
+    _, axes, _ = ellipse
+    if not all(low <= axis <= high for axis in axes):
+        return False
+    if config.rim_size_px is None:
+        return True
+    return all(
+        size * (1 - _RIM_SIZE_TOLERANCE) <= axis <= size * (1 + _RIM_SIZE_TOLERANCE)
+        for axis, size in zip(sorted(axes), config.rim_size_px, strict=True)
+    )
 
 
 def _rim_ellipses(pixels: np.ndarray, config: LineConfig) -> list[Ellipse]:
@@ -162,8 +173,12 @@ def no_cup_reason(pixels: np.ndarray, config: LineConfig) -> str:
         return reason
     low, high = config.rim_axis_px
     _, (first, second), _ = max(traced, key=_area)
+    sized = (
+        f"rim_axis_px {low}–{high}" if config.rim_size_px is None
+        else f"rim_size_px {config.rim_size_px[0]}×{config.rim_size_px[1]} ±5%"
+    )
     return (
-        f"{reason}: no rim the size of rim_axis_px {low}–{high}, "
+        f"{reason}: no rim the size of {sized}, "
         f"the largest seen is {first:.0f}×{second:.0f} px"
     )
 

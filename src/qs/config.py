@@ -113,6 +113,11 @@ class LineConfig:
     # also measured, so a warm passage with no tracked cup crossing it is reported. Needs
     # `warmth_min`, whose threshold it uses.
     untracked_window: tuple[int, int, int, int] | None = None
+    # The strict finder (ADR-0029 §2-3). `rim_size_px`: the rim's (minor, major) axes measured on
+    # the mount, each accepted within ±5% of its own value. `lens_mask_px`: (x, y, radius) left
+    # out of every warmth measure.
+    rim_size_px: tuple[int, int] | None = None
+    lens_mask_px: tuple[int, int, int] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -278,16 +283,30 @@ def _roi(mapping: Mapping[str, Any], key: str, parent: str) -> tuple[int, int, i
     return (value[0], value[1], value[2], value[3])
 
 
-def _pair(mapping: Mapping[str, Any], key: str, parent: str) -> tuple[int, int]:
+def _pair(
+    mapping: Mapping[str, Any], key: str, parent: str, names: str = "[min, max]"
+) -> tuple[int, int]:
     value = mapping[key]
     path = _key(parent, key)
     if not isinstance(value, list) or not all(
         isinstance(x, int) and not isinstance(x, bool) for x in value
     ):
-        raise ConfigError(f"{path}: expected two integers [min, max], got {value!r}")
+        raise ConfigError(f"{path}: expected two integers {names}, got {value!r}")
     if len(value) != 2:
-        raise ConfigError(f"{path}: expected two integers [min, max], got {value!r}")
+        raise ConfigError(f"{path}: expected two integers {names}, got {value!r}")
     return (value[0], value[1])
+
+
+def _circle(mapping: Mapping[str, Any], key: str, parent: str) -> tuple[int, int, int]:
+    value = mapping[key]
+    path = _key(parent, key)
+    if (
+        not isinstance(value, list)
+        or len(value) != 3
+        or not all(isinstance(x, int) and not isinstance(x, bool) for x in value)
+    ):
+        raise ConfigError(f"{path}: expected three integers [x, y, radius], got {value!r}")
+    return (value[0], value[1], value[2])
 
 
 def _parse_trigger(value: object, path: str) -> TriggerConfig:
@@ -386,6 +405,7 @@ def _refuse_malformed_checks(mapping: Mapping[str, Any], parent: str) -> None:
             raise ConfigError(f"{path}: {name!r} is repeated")
 
 
+_STRICT_KEYS = ("rim_size_px", "lens_mask_px")
 _WARMTH_KEYS = ("warmth_min", "burst", "burst_min_frames", "warmth_spread_max", "max_speed_px_s")
 
 
@@ -416,7 +436,7 @@ def _parse_line(value: object, path: str) -> LineConfig:
         mapping,
         ("zone", "rim_axis_px", "blob_share_min"),
         path,
-        optional=("direction", "fps", "untracked_window", *_WARMTH_KEYS),
+        optional=("direction", "fps", "untracked_window", *_WARMTH_KEYS, *_STRICT_KEYS),
     )
     warmth = _parse_warmth(mapping, path)
     return LineConfig(
@@ -431,6 +451,11 @@ def _parse_line(value: object, path: str) -> LineConfig:
             _enum(mapping, "direction", path, TRAVEL_DIRECTIONS) if "direction" in mapping else None
         ),
         fps=_float(mapping, "fps", path) if "fps" in mapping else None,
+        rim_size_px=(
+            _pair(mapping, "rim_size_px", path, "[minor, major]")
+            if "rim_size_px" in mapping else None
+        ),
+        lens_mask_px=_circle(mapping, "lens_mask_px", path) if "lens_mask_px" in mapping else None,
     )
 
 
@@ -635,6 +660,7 @@ def _validate_line(line: LineConfig, config: StationConfig) -> None:
         raise ConfigError(f"inspector.line.blob_share_min: {line.blob_share_min} is outside (0, 1)")
     if line.fps is not None and (not math.isfinite(line.fps) or line.fps <= 0):
         raise ConfigError(f"inspector.line.fps: {line.fps} is not a finite number above 0")
+    _validate_strict(line, config)
     if line.warmth_min is not None:
         if config.camera.type != "replay":
             raise ConfigError(
@@ -655,6 +681,27 @@ def _validate_line(line: LineConfig, config: StationConfig) -> None:
             raise ConfigError(
                 f"inspector.line.untracked_window: {along} px along the travel; a slit is at most "
                 f"{limit} px (half the smallest rim), so that it goes cold between cups"
+            )
+
+
+def _validate_strict(line: LineConfig, config: StationConfig) -> None:
+    """The measured-rim and lens-mask keys: integers that work with the rest of the block."""
+    low, high = line.rim_axis_px
+    size = line.rim_size_px
+    if size is not None and not low <= size[0] <= size[1] <= high:
+        raise ConfigError(
+            f"inspector.line.rim_size_px: [{size[0]}, {size[1]}] is not [minor, major] within "
+            f"rim_axis_px {low}-{high}"
+        )
+    if line.lens_mask_px is not None:
+        x, y, radius = line.lens_mask_px
+        if radius < 1:
+            raise ConfigError(f"inspector.line.lens_mask_px: radius {radius} is below 1")
+        _check_in_frame("inspector.line.lens_mask_px", (x - radius, y - radius, 2 * radius + 1,
+                                                         2 * radius + 1), config)
+        if line.warmth_min is None:
+            raise ConfigError(
+                "inspector.line.lens_mask_px: needs warmth_min: only the warmth measure uses it"
             )
 
 
