@@ -5,17 +5,17 @@ to load, so `model_id` is `"none"` and no record of this inspector can be mistak
 model's. With it, the bundle `inspector.model` names is loaded, verified and warmed up as on
 `AppearanceInspector`, and `model_id` is the bundle's.
 
-`inspect_burst(frames)` judges the empty cup by median warmth over the burst (ADR-0029 §4,
-docs/11 "Bursts"), measured and never learned: on each frame the cup wholly in the inspection
-zone is found (`find_cup`) and warmth, the mean of red minus blue, is measured over the inner
-half of its rim. The check passes when the median is at least `inspector.line.warmth_min`. Too
-few frames showing the cup, or too much spread between them, is a `PlacementFault`. `inspect`
-judges one frame as a burst of one, so it needs `burst_min_frames` of 1 to give a verdict. The
+`inspect_burst(frames)` judges the empty cup by median warmth over the burst (ADR-0029 §4, docs/11
+"Bursts"), measured and never learned: on each frame the cup wholly in the inspection zone is found
+(`find_cup`) and warmth, the mean of red minus blue, is measured over the inner half of its rim.
+The check passes when the median is at least `inspector.line.warmth_min`. Too few frames showing
+the cup, or too much spread between them, is a `PlacementFault`. `inspect` judges one frame as a
+burst of one, which is always a `PlacementFault` (`burst_min_frames` is at least 3, ADR-0031). The
 limits have only been tried on drawn frames. With `appearance` listed, the window is then centred
-on the rim's centre of the burst frame whose warmth is closest to the median, as `qs train` cut
-the training windows, scored, and its map masked to the cup's inside (ADR-0009); it runs on an
-empty cup too, so every record holds both checks. Pure: no I/O, the frame is only ever read, and
-nothing changes between frames (C1, C2).
+on the rim's centre of the burst frame whose warmth is closest to the median, as `qs train` cut the
+training windows, scored, and its map masked to the cup's inside (ADR-0009); it runs on an empty
+cup too, so every record holds both checks. Pure: no I/O, the frame is only ever read, and nothing
+changes between frames (C1, C2).
 """
 
 from __future__ import annotations
@@ -124,7 +124,7 @@ class LineInspector:
         return self._judge_by_warmth(frames, line)
 
     def inspect(self, frame: Frame) -> Verdict:
-        """`frame` judged as a burst of one: fewer than `burst_min_frames` is a `PlacementFault`."""
+        """`frame` judged as a burst of one: always a `PlacementFault` (at least 3 are needed)."""
         return self.inspect_burst((frame,))
 
     def _judge_by_warmth(self, frames: Sequence[Frame], line: LineConfig) -> Verdict:

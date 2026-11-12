@@ -27,12 +27,12 @@ def test_the_warmth_keys_are_read(tmp_path: Path) -> None:
 
 
 def test_the_minimum_frames_can_be_set(tmp_path: Path) -> None:
-    path = warmth_config(tmp_path, burst=4, burst_min_frames=2, zone=[20, 50, 300, 180])
+    path = warmth_config(tmp_path, burst=4, burst_min_frames=3, zone=[20, 50, 300, 180])
 
     line = load_config(path).config.inspector.line
 
     assert line is not None
-    assert (line.burst, line.burst_min_frames) == (4, 2)
+    assert (line.burst, line.burst_min_frames) == (4, 3)
 
 
 @pytest.mark.parametrize(

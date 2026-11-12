@@ -3,9 +3,11 @@ trigger, the line replay and a real `Pipeline`, asserting on records. The clock 
 one frame per main-loop turn. Every value here proves the station on these drawings only, never
 on real footage.
 
-In these frames a rim of about 105 px is wholly in the zone (x 20–260, y 30–210) for a centre of
-x 73–207, when it rides at y 120. A cup one step before the zone is at x 50, and one step past it
-at x 210, with steps of 40 px.
+In these frames a rim of about 105 px is wholly in the zone (x 20–275, y 30–210) for a centre of
+x 73–222, when it rides at y 120. A cup one step before the zone is at x 50, and one step past it
+at x 250, with steps of 40 px. A cup is judged on a burst of three frames, which follow the one
+the trigger fires on, so the zone is made long enough for the cup to be wholly in it on all
+three: the cup at x 90 fires and x 130, 170 and 210 are judged.
 """
 
 from __future__ import annotations
@@ -41,6 +43,8 @@ from test_cup import drawn_frame
 FPS = 8.0
 PATH_X = (10, 50, 90, 130, 170, 210, 250, 290, 330)
 BLANK_AFTER = 4  # enough frames of steel for a cup gone from view to fire and be captured
+ZONE = (20, 30, 255, 180)
+TALL_ZONE = (20, 5, 255, 230)  # along y a burst of three needs this much travel
 OFF_THE_ZONE_Y = 65  # a rim riding here sticks out of the top of the zone all the way across
 
 
@@ -49,21 +53,26 @@ def _fast(monkeypatch: pytest.MonkeyPatch) -> None:
     fast_sqlite(monkeypatch)
 
 
-def _config_file(root: Path, *, line: bool = True, direction: str = "right") -> Path:
+def _config_file(
+    root: Path,
+    *,
+    line: bool = True,
+    direction: str = "right",
+    zone: Sequence[int] = ZONE,
+) -> Path:
     data = config_mapping(root, inspector_type="line" if line else "stub")
     data["trigger"]["type"] = "cup"
     if line:
         data["inspector"]["checks"] = ["empty_cup"]
         data["camera"]["type"] = "replay"
-        # A burst of one: each cup is judged on the one frame captured after its event.
+        # A burst of three: each cup is judged on the three frames captured after its event.
         data["inspector"]["line"] = {
-            "zone": [20, 30, 240, 180],
+            "zone": list(zone),
             "rim_size_px": [105, 105],
             "direction": direction,
             "fps": FPS,
             "warmth_min": 5.0,
-            "burst": 1,
-            "burst_min_frames": 1,
+            "burst": 3,
             "warmth_spread_max": 40.0,
             "max_speed_px_s": 320.0,
         }
@@ -126,11 +135,16 @@ class _Station:
     """A `Pipeline` over the frames, driven as the main loop drives it, a frame per turn."""
 
     def __init__(
-        self, root: Path, frames: Sequence[np.ndarray], *, direction: str = "right"
+        self,
+        root: Path,
+        frames: Sequence[np.ndarray],
+        *,
+        direction: str = "right",
+        zone: Sequence[int] = ZONE,
     ) -> None:
         shoot = _write_shoot(root, frames)
         self.count = len(frames)
-        self.loaded: LoadedConfig = load_config(_config_file(root, direction=direction))
+        self.loaded: LoadedConfig = load_config(_config_file(root, direction=direction, zone=zone))
         self.clock = FakeClock()
         self.trigger, self.source = line_replay_pair(
             self.loaded.config, replay_files(shoot), "shoot", clock=self.clock, wall=StepWall()
@@ -183,25 +197,26 @@ def test_moving_cups_give_one_record_each_in_order(tmp_path: Path) -> None:
 
 def test_two_cups_in_view_at_once_give_one_record_each(tmp_path: Path) -> None:
     """Cups 120 px apart: the one ahead has a full cup, the one behind is empty."""
-    frames = _pair_crossing((130, 170, 210, 250, 290, 330, 370, 410))
+    frames = _pair_crossing((90, 130, 170, 210, 250, 290, 330, 370, 410))
     records = _Station(tmp_path, frames + _steel(BLANK_AFTER)).run()
     assert _labels(records) == [Label.PASS, Label.DEFECT]
 
 
 @pytest.mark.parametrize(
-    ("direction", "centres"),
+    ("direction", "zone", "centres"),
     [
-        ("left", [(x, 120) for x in (330, 290, 250, 210, 170, 130, 90, 50, 10)]),
-        ("down", [(130, y) for y in (-30, 10, 50, 90, 130, 170, 210, 250, 290)]),
-        ("up", [(130, y) for y in (290, 250, 210, 170, 130, 90, 50, 10, -30)]),
+        ("left", ZONE, [(x, 120) for x in (330, 290, 250, 210, 170, 130, 90, 50, 10)]),
+        ("down", TALL_ZONE, [(130, y) for y in (-20, 20, 60, 100, 140, 180, 220, 260, 300)]),
+        ("up", TALL_ZONE, [(130, y) for y in (300, 260, 220, 180, 140, 100, 60, 20, -20)]),
     ],
     ids=["left", "down", "up"],
 )
 def test_a_cup_travelling_any_configured_way_gives_one_record(
-    tmp_path: Path, direction: str, centres: list[tuple[int, int]]
+    tmp_path: Path, direction: str, zone: tuple[int, int, int, int], centres: list[tuple[int, int]]
 ) -> None:
     frames = [drawn_frame("pale", centre=c, seed=i) for i, c in enumerate(centres)]
-    records = _Station(tmp_path, frames + _steel(BLANK_AFTER), direction=direction).run()
+    station = _Station(tmp_path, frames + _steel(BLANK_AFTER), direction=direction, zone=zone)
+    records = station.run()
     assert _labels(records) == [Label.PASS]
 
 
@@ -247,9 +262,9 @@ def test_a_cup_on_the_last_frame_has_a_record_saying_there_was_no_frame_to_judge
 
 
 def test_the_verdict_comes_from_the_captured_frame_not_the_preview(tmp_path: Path) -> None:
-    """The cup is empty on the frame the trigger fires on and full on the next one."""
+    """The cup is empty on the frame the trigger fires on and full on the three after it."""
     frames = (
-        _at("empty", (50, 90)) + _at("pale", (130,)) + _at("empty", (170, 210, 250, 290, 330))
+        _at("empty", (50, 90)) + _at("pale", (130, 170, 210)) + _at("empty", (250, 290, 330))
         + _steel(BLANK_AFTER)
     )
     assert _labels(_Station(tmp_path, frames).run()) == [Label.PASS]
@@ -262,15 +277,15 @@ def test_the_stored_image_is_the_captured_frame_not_the_preview(tmp_path: Path) 
     stored = cv2.imdecode(np.frombuffer(record.image_jpeg, dtype=np.uint8), cv2.IMREAD_COLOR)
     assert record.verdict.unit_box is not None
     x, _, width, _ = record.verdict.unit_box
-    assert x + width // 2 == pytest.approx(130, abs=3)
-    assert float(np.abs(stored.astype(np.int16) - frames[3].astype(np.int16)).mean()) < 3.0
+    assert x + width // 2 == pytest.approx(170, abs=3)
+    assert float(np.abs(stored.astype(np.int16) - frames[4].astype(np.int16)).mean()) < 3.0
 
 
 def test_only_captured_frames_are_inspected(tmp_path: Path) -> None:
     station = _Station(tmp_path, _crossing("pale") + _crossing("empty"))
     records = station.run()
     assert len(records) == 2
-    assert [frame.event.seq for frame in station.inspector.seen] == [1, 2]
+    assert [frame.event.seq for frame in station.inspector.seen] == [1, 1, 1, 2, 2, 2]
     assert station.inspector.seen[0].event == records[0].event
     assert station.inspector.seen[0].grabbed_at == 1000.375
 

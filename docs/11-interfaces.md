@@ -268,8 +268,8 @@ message naming `warmth_min`, `burst`, `warmth_spread_max` and `max_speed_px_s`. 
 the mean of red minus blue over the inner half of the found rim (its ellipse at half the axes).
 The check's value is the median over the frames that show the cup, its limit is `warmth_min`, and
 its measures are `frames` (how many showed it) and `spread` (largest minus smallest warmth).
-Fewer than `burst_min_frames` (default 3) frames, or a spread above `warmth_spread_max`, is a
-`PlacementFault`. The evidence frame is the one whose warmth is closest to the median.
+Fewer than `burst_min_frames` (default 3, never below 3, #145) frames, or a spread above
+`warmth_spread_max`, is a `PlacementFault`. The evidence frame is the one whose warmth is closest to the median.
 
 **Zone rule.** On a line station the inspection zone must be at least
 

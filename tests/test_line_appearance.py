@@ -46,15 +46,14 @@ def loaded(tmp_path: Path, models: Path) -> LoadedConfig:
     data = config_mapping(tmp_path, inspector_type="line", model=model_id)
     data["camera"]["type"] = "replay"
     data["inspector"]["checks"] = ["empty_cup", "appearance"]
-    # A burst of one, so `inspect` judges the one frame it is given.
+    # A burst of three, so the zone is long enough for the cup to be wholly in it on all three.
     data["inspector"]["line"] = {
         "zone": [20, 0, 240, 240],
         "rim_size_px": [105, 105],
         "direction": "right",
         "fps": 8.0,
         "warmth_min": 5.0,
-        "burst": 1,
-        "burst_min_frames": 1,
+        "burst": 3,
         "warmth_spread_max": 40.0,
         "max_speed_px_s": 320.0,
     }
@@ -75,12 +74,17 @@ def _frame(pixels: np.ndarray) -> Frame:
     return Frame(event(1), pixels, 0.0, VERIFIED, PATCH_GREY / 255, 5.0)
 
 
+def _burst(pixels: np.ndarray) -> tuple[Frame, Frame, Frame]:
+    """The same cup on three frames: a burst in which nothing moves."""
+    return (_frame(pixels), _frame(pixels), _frame(pixels))
+
+
 def test_a_full_cup_with_a_low_score_passes_with_both_checks(
     loaded: LoadedConfig, models: Path
 ) -> None:
     inspector = _inspector(loaded, models, ConstantScorer(1.0, pred_score=0.75))
 
-    verdict = inspector.inspect(_frame(drawn_frame("pale")))
+    verdict = inspector.inspect_burst(_burst(drawn_frame("pale")))
 
     assert verdict.label is Label.PASS
     empty_cup, appearance = verdict.checks
@@ -102,7 +106,7 @@ def test_a_full_cup_with_a_high_score_is_a_defect_on_appearance(
 ) -> None:
     inspector = _inspector(loaded, models, ConstantScorer(5.0))
 
-    verdict = inspector.inspect(_frame(drawn_frame("pale")))
+    verdict = inspector.inspect_burst(_burst(drawn_frame("pale")))
 
     assert verdict.label is Label.DEFECT
     empty_cup, appearance = verdict.checks
@@ -118,7 +122,7 @@ def test_an_empty_cup_still_runs_the_appearance_check(
     scorer = ConstantScorer(1.0)
     inspector = _inspector(loaded, models, scorer)
 
-    verdict = inspector.inspect(_frame(drawn_frame("empty")))
+    verdict = inspector.inspect_burst(_burst(drawn_frame("empty")))
 
     assert verdict.label is Label.DEFECT
     assert [check.name for check in verdict.checks] == [CHECK_EMPTY_CUP, CHECK_APPEARANCE]
@@ -134,4 +138,4 @@ def test_a_non_finite_map_is_an_inference_error_never_a_verdict(
     inspector = _inspector(loaded, models, ConstantScorer(float("nan")))
 
     with pytest.raises(InferenceError, match="non-finite"):
-        inspector.inspect(_frame(drawn_frame("pale")))
+        inspector.inspect_burst(_burst(drawn_frame("pale")))

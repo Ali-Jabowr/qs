@@ -30,6 +30,7 @@ from qs.errors import ConfigError
 
 _TRIGGER_TYPES = ("keyboard", "replay", "cup")
 TRAVEL_DIRECTIONS = ("right", "left", "down", "up")  # the way the chain moves in the picture
+MIN_BURST_FRAMES = 3  # the fewest frames a line cup is judged on: their median decides (ADR-0031)
 _CAMERA_TYPES = ("webcam", "phone", "replay")
 _CAMERA_FORMATS = ("YUYV", "MJPG")
 _LIGHTING_GEOMETRIES = ("G1", "G2", "G3")
@@ -110,7 +111,8 @@ class LineConfig:
     burst: int
     warmth_spread_max: float
     max_speed_px_s: float
-    burst_min_frames: int = 3
+    # At least `MIN_BURST_FRAMES` (ADR-0031: the median over at least three frames decides).
+    burst_min_frames: int = MIN_BURST_FRAMES
     # The self-check of ADR-0029 §7: a thin slit [x, y, w, h] across the travel where warmth is
     # also measured, so a warm passage with no tracked cup crossing it is reported. It uses
     # `warmth_min` as its threshold.
@@ -683,12 +685,20 @@ def _validate_warmth(line: LineConfig) -> None:
     """The warmth numbers, and the zone rule of docs/11 "Bursts": the zone is at least one rim
     plus `burst` frame periods of travel long (one to the first frame, burst - 1 between)."""
     burst, spread, speed, fps = line.burst, line.warmth_spread_max, line.max_speed_px_s, line.fps
-    if burst < 1:
-        raise ConfigError(f"inspector.line.burst: {burst} is below 1")
-    if not 1 <= line.burst_min_frames <= burst:
+    if burst < MIN_BURST_FRAMES:
         raise ConfigError(
-            f"inspector.line.burst_min_frames: {line.burst_min_frames} is not within 1 and "
-            f"burst ({burst})"
+            f"inspector.line.burst: {burst} is below {MIN_BURST_FRAMES}, the least "
+            "inspector.line.burst_min_frames allows (ADR-0031)"
+        )
+    if line.burst_min_frames < MIN_BURST_FRAMES:
+        raise ConfigError(
+            f"inspector.line.burst_min_frames: {line.burst_min_frames} is below "
+            f"{MIN_BURST_FRAMES}; a cup is judged on the median of at least {MIN_BURST_FRAMES} "
+            "frames (ADR-0031)"
+        )
+    if line.burst_min_frames > burst:
+        raise ConfigError(
+            f"inspector.line.burst_min_frames: {line.burst_min_frames} is above burst ({burst})"
         )
     if not math.isfinite(spread) or spread <= 0:
         raise ConfigError(f"inspector.line.warmth_spread_max: {spread} is not above 0")
