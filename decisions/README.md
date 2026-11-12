@@ -33,7 +33,8 @@ Numbers are never reused. A superseded ADR stays, with its status changed and a 
 | [0026](ADR-0026-side-light-for-dents.md) | The bench is lit from one side (G1), because top light hides dents | Accepted | 2026-10-09 |
 | [0027](ADR-0027-line-first-gates-after-visit.md) | Line work goes first; Gate A loses its date and no longer blocks the visit stages | Accepted | 2026-11-04 |
 | [0028](ADR-0028-line-unit-cup-software-trigger.md) | On the line the unit is the cup, and v1 triggers on seeing it | Accepted; §3 and §5 amended by 0029 | 2026-11-04 |
-| [0029](ADR-0029-cup-rim-under-own-backlight-warmth-verdict.md) | The line finds the cup by its rim under our own backlight and judges it by warmth | Accepted | 2026-11-10 |
+| [0029](ADR-0029-cup-rim-under-own-backlight-warmth-verdict.md) | The line finds the cup by its rim under our own backlight and judges it by warmth | Accepted; §3, §4, §5 and §9 amended by 0031 | 2026-11-10 |
 | [0030](ADR-0030-own-dc-light-exempts-flicker-rule.md) | A line station lit by our own DC light may use an exposure shorter than 10 ms | Accepted | 2026-11-10 |
+| [0031](ADR-0031-model-first-line-verdict.md) | On the line, trained models find the cup and judge it; warmth only guards | Accepted | 2026-11-12 |
 
 New decisions take the next free number.

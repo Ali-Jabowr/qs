@@ -1,7 +1,8 @@
 # ADR-0029: The line finds the cup by its rim under our own backlight and judges it by warmth
 
 **Status:** Accepted · 2026-11-10 · Ali. Amends [ADR-0028](ADR-0028-line-unit-cup-software-trigger.md)
-§3 and §5; keeps §1, §2, §4, §6 and §7. Light rule in [ADR-0030](ADR-0030-own-dc-light-exempts-flicker-rule.md).
+§3 and §5; keeps §1, §2, §4, §6 and §7. §3, §4, §5 and §9 amended by
+[ADR-0031](ADR-0031-model-first-line-verdict.md). Light rule in [ADR-0030](ADR-0030-own-dc-light-exempts-flicker-rule.md).
 Evidence: `reports/2026-11-09-line-findings.md`, `reports/Camera only cup presence detection.md`,
 `reports/2026-11-10-cup-finding-debate.md`.
 
