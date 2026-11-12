@@ -543,28 +543,28 @@ stages:
       - id: L1.2
         text_en: Recover the cup-finding code from the spike of 19.10
         text_ru: Восстановить код поиска стаканчика из пробного эксперимента от 19.10
-        status: todo
-        evidence: null
+        status: done
+        evidence: src/qs/inspector/cup.py — rebuilt test-first from the 19.10 spike (#102)
       - id: L1.3
         text_en: "Local labelling tool — line frames marked unit, empty cup, nothing or hand, and whole cups counted through the video; labelled by Ali"
         text_ru: "Локальный инструмент разметки — кадры с линии с отметками «изделие», «пустой стаканчик», «ничего», «рука» и подсчёт целых стаканчиков по видео; размечает Али"
-        status: todo
-        evidence: null
+        status: done
+        evidence: src/qs/cmd/label.py (#101); 159 cups and 301 frames labelled by Ali, 09.11
       - id: L1.4
         text_en: Cup-first localizer in src/qs, test-first on synthetic images
         text_ru: Поиск стаканчика и моти в src/qs, сначала тесты на синтетических изображениях
-        status: todo
-        evidence: null
+        status: done
+        evidence: src/qs/inspector/cup.py, src/qs/cup_trigger.py (#102, #103); fails on the visit footage, see reports/2026-11-09-line-findings.md
       - id: L1.5
         text_en: The empty cup reaches the operator as a defect, through the same verdict rule as every other check
         text_ru: Пустой стаканчик доходит до оператора как брак — по тому же правилу решения, что и остальные проверки
-        status: todo
-        evidence: null
+        status: done
+        evidence: src/qs/inspector/line.py, operator screen (#102, #104)
       - id: L1.6
         text_en: Score the localizer and the empty-cup check on the labelled footage, with the share of empty cups caught per cup as the main number, numbers only, stamped INDICATIVE
         text_ru: "Оценить поиск и проверку пустого стаканчика на размеченной съёмке — главный показатель: доля найденных пустых стаканчиков по стаканчикам; только числа, с пометкой «ОРИЕНТИРОВОЧНО»"
-        status: todo
-        evidence: null
+        status: done
+        evidence: reports/2026-11-09-line-findings.md; #106 comment of 09.11 — rim finder and blob_share do not hold on this footage
       - id: L1.7
         text_en: Train PatchCore on the labelled good line frames and report false alarms only, split by time or series, stamped INDICATIVE; recall on real defects stays unmeasured
         text_ru: Обучить PatchCore на размеченных годных кадрах с линии и сообщить только долю ложных срабатываний — разбиение по времени или сериям, с пометкой «ОРИЕНТИРОВОЧНО»; полнота по реальному браку остаётся неизмеренной
@@ -607,6 +607,26 @@ stages:
       - id: L2.4
         text_en: Advisory trial on the line; real defects labelled on site; line speed timed and defect frequency counted
         text_ru: Пробная работа на линии в режиме подсказки; разметка реального брака на месте; замер скорости линии и подсчёт частоты дефектов
+        status: todo
+        evidence: null
+      - id: L2.5
+        text_en: "Empty-cup check in src/qs, test-first (ADR-0029): median warmth (R−B) over the inner half of the found rim, across at least 3 in-zone frames, threshold per mount; too few frames or too much spread is НЕТ РЕШЕНИЯ; blob_share deleted"
+        text_ru: "Проверка пустого стаканчика в src/qs, сначала тесты (ADR-0029): медиана «теплоты» (R−B) по внутренней половине найденного края, не меньше чем по 3 кадрам в зоне, порог на каждое крепление; мало кадров или большой разброс — НЕТ РЕШЕНИЯ; blob_share удалён"
+        status: todo
+        evidence: null
+      - id: L2.6
+        text_en: "Stricter cup finder, test-first (ADR-0029, ADR-0030): rim size within ±5% of the mount's, rings that stay still while the chain moves rejected, lens-hole spot masked, warmth self-check window (моти with no cup = НЕТ РЕШЕНИЯ), short exposure allowed under own DC light; ring matcher only if T2 misses cups"
+        text_ru: "Более строгий поиск стаканчика, сначала тесты (ADR-0029, ADR-0030): размер края в пределах ±5% от измеренного на креплении, неподвижные при движущейся цепи кольца отбрасываются, блик отверстия объектива маскируется, контрольное окно «теплоты» (моти без стаканчика — НЕТ РЕШЕНИЯ), короткая выдержка при своём свете на постоянном токе; поиск кольца по дуге — только если T2 пропускает стаканчики"
+        status: todo
+        evidence: null
+      - id: L2.7
+        text_en: "3D-printed prototype mount (ADR-0029): 2020 frame on clamps, white shroud, opal diffuser with a lens hole, warm 24 V DC COB LED, C920 cradle, height 150–400 mm; holds still when knocked; final material after OQ-6"
+        text_ru: "Прототип крепления на 3D-принтере (ADR-0029): рама из профиля 2020 на струбцинах, белый кожух, опаловый рассеиватель с отверстием для объектива, тёплая COB-лента 24 В постоянного тока, держатель C920, высота 150–400 мм; не сдвигается от толчков; итоговый материал — после ответа на OQ-6"
+        status: todo
+        evidence: null
+      - id: L2.8
+        text_en: "Home tests on a mirror-steel sheet (ADR-0029): T1 static (room light ≤10%, empty-cup lip edge ≥5× noise on ≥60% of the rim, white моти vs empty warmth margin ≥10); T2 moving at ≥20 cm/s (0 missed in ≥300 empty passes, ≥99% of full cups found, 0 false cups in ≥100 gaps, 0 empty → ГОДЕН); trigger, check, screen and recording run together"
+        text_ru: "Домашние тесты на зеркальной нержавейке (ADR-0029): T1 неподвижно (посторонний свет ≤10%, край пустого стаканчика ≥5× шума на ≥60% окружности, запас «теплоты» белых моти над пустым ≥10); T2 в движении ≥20 см/с (0 пропусков на ≥300 проходах пустых, ≥99% полных найдено, 0 ложных стаканчиков на ≥100 пропусках, 0 пустых → ГОДЕН); запуск, проверка, экран и запись работают вместе"
         status: todo
         evidence: null
 

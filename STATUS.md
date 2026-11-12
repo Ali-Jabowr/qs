@@ -2,19 +2,19 @@
 # QS — status
 
 **Automated visual quality inspection for a food production line**  
-Owner: Ali, Volgograd · Rendered 2026-11-04
+Owner: Ali, Volgograd · Rendered 2026-11-10
 
-Overall: **21/71 tasks** `███████·················` 30%
+Overall: **26/75 tasks** `████████················` 35%
 
 > Verbal intent to pay. No signed contract, no money moved.  
 > Acceptance criterion: **up to 95% (Q28, client verbatim)**
 
 ## ⚠ Attention
 
-- E0 passed its planned end 2026-09-26 (39 days ago) and is 'in_progress'.
-- S0 passed its planned end 2026-09-25 (40 days ago) and is 'in_progress'.
-- S1 passed its planned end 2026-09-24 (41 days ago) and is 'in_progress'.
-- S4 passed its planned end 2026-09-27 (38 days ago) and is 'in_progress'.
+- E0 passed its planned end 2026-09-26 (45 days ago) and is 'in_progress'.
+- S0 passed its planned end 2026-09-25 (46 days ago) and is 'in_progress'.
+- S1 passed its planned end 2026-09-24 (47 days ago) and is 'in_progress'.
+- S4 passed its planned end 2026-09-27 (44 days ago) and is 'in_progress'.
 - 7 client question(s) are open but have never been sent: OQ-1, OQ-2, OQ-3, OQ-4, OQ-5, OQ-6, OQ-9. Every one of them blocks a decision.
 
 ## Gates
@@ -41,8 +41,8 @@ Overall: **21/71 tasks** `███████················�
 | `[!]` | **GA** Gate A — the full protocol on fresh моти | 28.09 – ? | `············` 0/3 | blocked — blocked on bench access (ADR-0027) |
 | `[~]` | **S5** Site visit with the demo in hand | 14.10 – ? | `███·········` 2/8 | in_progress |
 | `[!]` | **S6** Retrain on their product | — | `············` 0/0 | blocked — blocked on L2 |
-| `[~]` | **L1** Cup-first localizer and the empty cup | — | `██··········` 1/7 | in_progress |
-| `[!]` | **L2** Second visit — a fixed camera on the line | — | `············` 0/4 | blocked — blocked on L1, and the food-safety requirements for equipment over open product (ADR-0027) |
+| `[~]` | **L1** Cup-first localizer and the empty cup | — | `██████████··` 6/7 | in_progress |
+| `[!]` | **L2** Second visit — a fixed camera on the line | — | `············` 0/8 | blocked — blocked on L1, and the food-safety requirements for equipment over open product (ADR-0027) |
 
 ### Marking station
 
@@ -142,22 +142,26 @@ Overall: **21/71 tasks** `███████················�
 - [ ] `S5.7` Name of whoever signs off food safety over open product
 - [ ] `S5.8` Marking conveyor — printer type, failure modes, the returned-batch story in their words
 
-**L1 · Cup-first localizer and the empty cup** — 1/7
+**L1 · Cup-first localizer and the empty cup** — 6/7
 
 - [x] `L1.1` Define unit, cup, empty cup and no cup in CONTEXT.md, with the verdict each one gets; amend FR-25  ↳ `CONTEXT.md, decisions/ADR-0028-line-unit-cup-software-trigger.md, docs/06-requirements.md FR-25`
-- [ ] `L1.2` Recover the cup-finding code from the spike of 19.10
-- [ ] `L1.3` Local labelling tool — line frames marked unit, empty cup, nothing or hand, and whole cups counted through the video; labelled by Ali
-- [ ] `L1.4` Cup-first localizer in src/qs, test-first on synthetic images
-- [ ] `L1.5` The empty cup reaches the operator as a defect, through the same verdict rule as every other check
-- [ ] `L1.6` Score the localizer and the empty-cup check on the labelled footage, with the share of empty cups caught per cup as the main number, numbers only, stamped INDICATIVE
+- [x] `L1.2` Recover the cup-finding code from the spike of 19.10  ↳ `src/qs/inspector/cup.py — rebuilt test-first from the 19.10 spike (#102)`
+- [x] `L1.3` Local labelling tool — line frames marked unit, empty cup, nothing or hand, and whole cups counted through the video; labelled by Ali  ↳ `src/qs/cmd/label.py (#101); 159 cups and 301 frames labelled by Ali, 09.11`
+- [x] `L1.4` Cup-first localizer in src/qs, test-first on synthetic images  ↳ `src/qs/inspector/cup.py, src/qs/cup_trigger.py (#102,`
+- [x] `L1.5` The empty cup reaches the operator as a defect, through the same verdict rule as every other check  ↳ `src/qs/inspector/line.py, operator screen (#102,`
+- [x] `L1.6` Score the localizer and the empty-cup check on the labelled footage, with the share of empty cups caught per cup as the main number, numbers only, stamped INDICATIVE  ↳ `reports/2026-11-09-line-findings.md;`
 - [ ] `L1.7` Train PatchCore on the labelled good line frames and report false alarms only, split by time or series, stamped INDICATIVE; recall on real defects stays unmeasured
 
-**L2 · Second visit — a fixed camera on the line** — 0/4
+**L2 · Second visit — a fixed camera on the line** — 0/8
 
 - [ ] `L2.1` Rigid overhead camera mount and glare diffuser, the one Gate C exception (ADR-0027)
 - [ ] `L2.2` Capture triggered per cup, from a read-only tap of the existing photo sensor or in software from the video
 - [ ] `L2.3` Several hundred good units from the fixed camera; PatchCore trained on them
 - [ ] `L2.4` Advisory trial on the line; real defects labelled on site; line speed timed and defect frequency counted
+- [ ] `L2.5` Empty-cup check in src/qs, test-first (ADR-0029): median warmth (R−B) over the inner half of the found rim, across at least 3 in-zone frames, threshold per mount; too few frames or too much spread is НЕТ РЕШЕНИЯ; blob_share deleted
+- [ ] `L2.6` Stricter cup finder, test-first (ADR-0029, ADR-0030): rim size within ±5% of the mount's, rings that stay still while the chain moves rejected, lens-hole spot masked, warmth self-check window (моти with no cup = НЕТ РЕШЕНИЯ), short exposure allowed under own DC light; ring matcher only if T2 misses cups
+- [ ] `L2.7` 3D-printed prototype mount (ADR-0029): 2020 frame on clamps, white shroud, opal diffuser with a lens hole, warm 24 V DC COB LED, C920 cradle, height 150–400 mm; holds still when knocked; final material after OQ-6
+- [ ] `L2.8` Home tests on a mirror-steel sheet (ADR-0029): T1 static (room light ≤10%, empty-cup lip edge ≥5× noise on ≥60% of the rim, white моти vs empty warmth margin ≥10); T2 moving at ≥20 cm/s (0 missed in ≥300 empty passes, ≥99% of full cups found, 0 false cups in ≥100 gaps, 0 empty → ГОДЕН); trigger, check, screen and recording run together
 
 **M0 · Marking station discovery** — 0/4
 
