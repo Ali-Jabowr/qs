@@ -116,6 +116,7 @@ class LineConfig:
     # `warmth_min` as its threshold.
     untracked_window: tuple[int, int, int, int] | None = None
     # The lens hole's reflection (ADR-0029 §2): (x, y, radius) left out of every warmth measure.
+    # A station file must set it (the mount always has the hole); None only in code-built configs.
     lens_mask_px: tuple[int, int, int] | None = None
 
 
@@ -427,9 +428,9 @@ def _parse_line(value: object, path: str) -> LineConfig:
     _refuse_replaced_keys(mapping, path)
     _check_keys(
         mapping,
-        ("zone", "rim_size_px", "direction", "fps", *_WARMTH_KEYS),
+        ("zone", "rim_size_px", "direction", "fps", "lens_mask_px", *_WARMTH_KEYS),
         path,
-        optional=("burst_min_frames", "untracked_window", "lens_mask_px"),
+        optional=("burst_min_frames", "untracked_window"),
     )
     return LineConfig(
         zone=_roi(mapping, "zone", path),
@@ -440,6 +441,7 @@ def _parse_line(value: object, path: str) -> LineConfig:
         burst=_int(mapping, "burst", path),
         warmth_spread_max=_float(mapping, "warmth_spread_max", path),
         max_speed_px_s=_float(mapping, "max_speed_px_s", path),
+        lens_mask_px=_circle(mapping, "lens_mask_px", path),
         **(
             {"burst_min_frames": _int(mapping, "burst_min_frames", path)}
             if "burst_min_frames" in mapping else {}
@@ -447,7 +449,6 @@ def _parse_line(value: object, path: str) -> LineConfig:
         untracked_window=(
             _roi(mapping, "untracked_window", path) if "untracked_window" in mapping else None
         ),
-        lens_mask_px=_circle(mapping, "lens_mask_px", path) if "lens_mask_px" in mapping else None,
     )
 
 

@@ -567,6 +567,7 @@ WARMTH_KEYS = (
     "    burst: 3\n"
     "    warmth_spread_max: 15.0\n"
     "    max_speed_px_s: 1200\n"
+    "    lens_mask_px: [10, 10, 3]\n"  # required of every line station (#143)
 )
 LINE_BLOCK = (
     "  line:\n"

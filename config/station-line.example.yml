@@ -50,6 +50,8 @@ inspector:
     warmth_spread_max: 15.0                # PLACEHOLDER: more spread over the burst: НЕТ РЕШЕНИЯ
     max_speed_px_s:    1200                # PLACEHOLDER: the chain's fastest speed in the picture;
                                            # the zone must be a rim plus burst frames of travel long
+    lens_mask_px:      [960, 540, 40]      # PLACEHOLDER: x, y, radius of the lens hole's reflection,
+                                           # left out of every warmth measure; required (ADR-0029 §2)
   # The keys below are required of every inspector. A line inspector does not use them, so they
   # hold placeholders: no model and no calibration stand behind this file.
   localize:  { roi: [360, 0, 1200, 1080], threshold: 70, min_area_px: 20000, border_margin_px: 10 }

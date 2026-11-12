@@ -21,6 +21,7 @@ def _written(root: Path, *, line: bool, display: dict[str, Any]) -> Path:
             "zone": [20, 0, 240, 240], "rim_size_px": [105, 105], "direction": "right",
             "fps": 8.0, "warmth_min": 5.0, "burst": 3, "warmth_spread_max": 40.0,
             "max_speed_px_s": 320.0,
+            "lens_mask_px": [10, 10, 3],
         }
     data["display"].update(display)
     path = root / "station.yml"

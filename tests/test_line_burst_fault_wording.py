@@ -31,8 +31,6 @@ def _frames(cups: tuple[int | None, ...]) -> tuple[Frame, ...]:
 @pytest.mark.parametrize(
     ("lens_mask_px", "cups", "message"),
     [
-        (None, (130, None, None),
-         "the cup was found on 1 of 3 frames, fewer than the 3 needed"),
         ([170, 120, 28], (130, 170, 210),
          "the cup was found on 3 of 3 frames, the lens mask covered the whole inner half on 1, "
          "fewer than the 3 needed"),
@@ -41,7 +39,7 @@ def _frames(cups: tuple[int | None, ...]) -> tuple[Frame, ...]:
     ],
 )
 def test_the_fault_names_the_lens_mask_only_when_it_skipped_a_frame(
-    tmp_path: Path, lens_mask_px: list[int] | None, cups: tuple[int | None, ...], message: str
+    tmp_path: Path, lens_mask_px: list[int], cups: tuple[int | None, ...], message: str
 ) -> None:
     inspector = LineInspector(HASH)
     inspector.load(load_config(warmth_config(tmp_path, lens_mask_px=lens_mask_px)).config)
