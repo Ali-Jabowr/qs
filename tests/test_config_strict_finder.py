@@ -1,5 +1,5 @@
 """The measured-rim and lens-mask keys of `inspector.line` (#133, ADR-0029 decisions 2-3).
-`rim_size_px` is required (#135); a config without `lens_mask_px` masks nothing."""
+`rim_size_px` is required (#135), and so is `lens_mask_px` (#143)."""
 
 from __future__ import annotations
 
@@ -24,13 +24,6 @@ def test_the_strict_keys_are_read(tmp_path: Path) -> None:
     assert (line.rim_size_px, line.lens_mask_px) == (
         (70, 100), (160, 120, 20),
     )
-
-
-def test_a_config_without_the_lens_mask_has_none(tmp_path: Path) -> None:
-    line = load_config(warmth_config(tmp_path)).config.inspector.line
-
-    assert line is not None
-    assert line.lens_mask_px is None
 
 
 @pytest.mark.parametrize(

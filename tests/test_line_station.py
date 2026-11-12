@@ -66,6 +66,7 @@ def _config_file(root: Path, *, line: bool = True, direction: str = "right") -> 
             "burst_min_frames": 1,
             "warmth_spread_max": 40.0,
             "max_speed_px_s": 320.0,
+            "lens_mask_px": [10, 10, 3],
         }
     path = root / "line.yml"
     path.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")

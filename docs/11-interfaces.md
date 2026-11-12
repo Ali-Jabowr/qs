@@ -300,8 +300,9 @@ is not ended, so it gives no event. Without the key nothing is measured and noth
   value. A camera not straight overhead sees an ellipse, hence a pair. The pair must be in order,
   with the minor axis at least 16 px. It replaces the wide `rim_axis_px` range (#135); a config
   that still sets `rim_axis_px` is refused with a message naming `rim_size_px`.
-- `lens_mask_px: [x, y, radius]`, optional: a circle in frame pixels, left out of every warmth
-  measurement. It must lie in the frame. A burst frame whose inner half it
+- `lens_mask_px: [x, y, radius]`, required (#143; the mount always has a lens hole): a circle
+  in frame pixels, left out of every warmth measurement. It must lie in the frame. A burst frame
+  whose inner half it
   covers wholly is skipped as not measured, and `burst_min_frames` decides whether the burst
   still counts.
 

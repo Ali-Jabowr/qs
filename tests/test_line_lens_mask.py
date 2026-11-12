@@ -37,12 +37,12 @@ def _with_spot(frames: list[np.ndarray]) -> list[np.ndarray]:
 @pytest.mark.parametrize(
     ("lens_mask_px", "label", "value"),
     [
-        (None, "defect", 40.0),  # unmasked, the black spot drags a pink моти (50) under 45
+        ([10, 10, 3], "defect", 40.0),  # masked elsewhere, the spot drags a pink моти (50) under 45
         ([150, 120, 18], "pass", 50.0),  # masked, the spot is left out
     ],
 )
 def test_a_dark_spot_at_the_masked_circle_does_not_change_a_full_cups_verdict(
-    tmp_path: Path, lens_mask_px: list[int] | None, label: str, value: float
+    tmp_path: Path, lens_mask_px: list[int], label: str, value: float
 ) -> None:
     video = write_video(
         tmp_path / "line.avi", _with_spot(steel(3) + crossing("pink") + steel(3))

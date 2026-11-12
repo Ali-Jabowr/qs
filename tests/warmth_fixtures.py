@@ -1,7 +1,8 @@
 """A line station config that judges by median warmth (#132), drawn at 320x240 and 8 fps.
 
 A cup crosses at 40 px a frame, so `speed_px_s` is 320. Three frames of travel plus the drawn
-rim (105) are 225 px, and the zone is 280 wide.
+rim (105) are 225 px, and the zone is 280 wide. The lens mask sits in the top-left corner, away
+from every drawn cup, since every line station must set one (#143).
 """
 
 from __future__ import annotations
@@ -23,6 +24,7 @@ WARMTH_LINE: dict[str, Any] = {
     "burst": 3,
     "warmth_spread_max": 40.0,
     "max_speed_px_s": 320.0,
+    "lens_mask_px": [10, 10, 3],
 }
 
 

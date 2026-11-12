@@ -69,6 +69,7 @@ def _config(root: Path) -> Path:
         "burst": 3,
         "warmth_spread_max": 40.0,
         "max_speed_px_s": 160.0,  # slow enough for the zone rule at 5 fps too (test_line_fps)
+        "lens_mask_px": [10, 10, 3],
     }
     path = root / "line.yml"
     path.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
