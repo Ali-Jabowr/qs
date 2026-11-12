@@ -222,8 +222,6 @@ def _line_inputs(
     and how they were split."""
     if args.labels is None or args.footage is None:
         raise _CannotRun("a line config trains with --labels and --footage")
-    if line.fps is None:
-        raise _CannotRun("inspector.line.fps: line training needs this key to split by time")
     labels_path = Path(args.labels)
     if not labels_path.is_file():
         raise _CannotRun(f"labels file {labels_path} not found")

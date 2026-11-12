@@ -44,11 +44,19 @@ def loaded(tmp_path: Path, models: Path) -> LoadedConfig:
                       device="cuda", data_source="own", images=images)
     model_id = write_bundle(models, "mochi", _bank(), info)
     data = config_mapping(tmp_path, inspector_type="line", model=model_id)
+    data["camera"]["type"] = "replay"
     data["inspector"]["checks"] = ["empty_cup", "appearance"]
+    # A burst of one, so `inspect` judges the one frame it is given.
     data["inspector"]["line"] = {
         "zone": [20, 0, 240, 240],
         "rim_size_px": [105, 105],
-        "blob_share_min": 0.3,
+        "direction": "right",
+        "fps": 8.0,
+        "warmth_min": 5.0,
+        "burst": 1,
+        "burst_min_frames": 1,
+        "warmth_spread_max": 40.0,
+        "max_speed_px_s": 320.0,
     }
     path = tmp_path / "line.yml"
     path.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")

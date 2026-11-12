@@ -562,21 +562,38 @@ def test_stub_inspector_may_leave_out_the_appearance_check(tmp_path: Path) -> No
 
 LINE_EXAMPLE = EXAMPLE.parent / "station-line.example.yml"
 LINE_HEAD = "  type: line\n  checks: [empty_cup]\n"
+WARMTH_KEYS = (
+    "    warmth_min: 2.0\n"
+    "    burst: 3\n"
+    "    warmth_spread_max: 15.0\n"
+    "    max_speed_px_s: 1200\n"
+)
 LINE_BLOCK = (
     "  line:\n"
     "    zone: [360, 0, 1200, 1080]\n"
     "    rim_size_px: [300, 600]\n"
-    "    blob_share_min: 0.3\n"
-)
+) + WARMTH_KEYS
+CUP_LINE_KEYS = "    direction: right\n    fps: 25\n"
+
+
+def _line_mutated(tmp_path: Path, new: str) -> Path:
+    """The example with its inspector replaced by `new`, on recorded video: a line station
+    judges bursts, which only a recording gives for now."""
+    path = _mutated(tmp_path, "  type: appearance\n", new)
+    return _written(tmp_path, path.read_text(encoding="utf-8").replace(
+        "  type: webcam\n", "  type: replay\n"
+    ))
 
 
 def test_line_block_is_exposed_on_the_config(tmp_path: Path) -> None:
-    loaded = load_config(_mutated(tmp_path, "  type: appearance\n", LINE_HEAD + LINE_BLOCK))
+    loaded = load_config(_line_mutated(tmp_path, LINE_HEAD + LINE_BLOCK + CUP_LINE_KEYS))
     line = loaded.config.inspector.line
     assert line is not None
     assert line.zone == (360, 0, 1200, 1080)
     assert line.rim_size_px == (300, 600)
-    assert line.blob_share_min == 0.3
+    assert (line.warmth_min, line.burst, line.warmth_spread_max, line.max_speed_px_s) == (
+        2.0, 3, 15.0, 1200.0,
+    )
     assert loaded.config.inspector.checks == frozenset({"empty_cup"})
 
 
@@ -595,36 +612,26 @@ def test_line_example_loads_and_lists_only_the_empty_cup_check() -> None:
     [
         (LINE_HEAD, "inspector.line: a line inspector needs this block"),
         (
-            LINE_HEAD + "  line:\n    rim_size_px: [300, 600]\n    blob_share_min: 0.3\n",
+            LINE_HEAD + "  line:\n    rim_size_px: [300, 600]\n" + WARMTH_KEYS + CUP_LINE_KEYS,
             "missing key(s): inspector.line.zone",
         ),
         (
-            LINE_HEAD + LINE_BLOCK.replace("[360, 0, 1200, 1080]", "[360, 0, 1700, 1080]"),
+            LINE_HEAD + LINE_BLOCK.replace("[360, 0, 1200, 1080]", "[360, 0, 1700, 1080]")
+            + CUP_LINE_KEYS,
             "inspector.line.zone: [360, 0, 1700, 1080] is outside the 1920x1080 frame",
         ),
         (
-            LINE_HEAD + LINE_BLOCK.replace("[360, 0, 1200, 1080]", "[1000, 0, 800, 1080]"),
+            LINE_HEAD + LINE_BLOCK.replace("[360, 0, 1200, 1080]", "[1000, 0, 800, 1080]")
+            + CUP_LINE_KEYS,
             "lighting.reference_patch.roi: overlaps inspector.line.zone",
         ),
         (
-            LINE_HEAD + LINE_BLOCK.replace("[300, 600]", "[600, 300]"),
+            LINE_HEAD + LINE_BLOCK.replace("[300, 600]", "[600, 300]") + CUP_LINE_KEYS,
             "inspector.line.rim_size_px: [600, 300] is not [minor, major]",
         ),
         (
-            LINE_HEAD + LINE_BLOCK.replace("[300, 600]", "[15, 600]"),
+            LINE_HEAD + LINE_BLOCK.replace("[300, 600]", "[15, 600]") + CUP_LINE_KEYS,
             "inspector.line.rim_size_px: minor 15 is below 16",
-        ),
-        (
-            LINE_HEAD + LINE_BLOCK.replace("0.3", "0"),
-            "inspector.line.blob_share_min: 0.0 is outside (0, 1)",
-        ),
-        (
-            LINE_HEAD + LINE_BLOCK.replace("0.3", "1.5"),
-            "inspector.line.blob_share_min: 1.5 is outside (0, 1)",
-        ),
-        (
-            LINE_HEAD + LINE_BLOCK.replace("0.3", ".nan"),
-            "inspector.line.blob_share_min: nan is outside (0, 1)",
         ),
         (
             "  type: line\n" + LINE_BLOCK,
@@ -655,17 +662,17 @@ def test_line_example_loads_and_lists_only_the_empty_cup_check() -> None:
     ],
 )
 def test_bad_line_settings_are_refused(tmp_path: Path, replacement: str, words: str) -> None:
-    _refused(_mutated(tmp_path, "  type: appearance\n", replacement), words)
+    _refused(_line_mutated(tmp_path, replacement), words)
 
 
 CUP_TRIGGER = "trigger:   { type: cup, key: space }"
-CUP_LINE_KEYS = "    direction: right\n    fps: 25\n"
 
 
 def _cup_config(tmp_path: Path, inspector: str) -> Path:
-    text = EXAMPLE.read_text(encoding="utf-8")
-    text = text.replace("trigger:   { type: keyboard, key: space }", CUP_TRIGGER)
-    return _written(tmp_path, text.replace("  type: appearance\n", inspector))
+    text = _line_mutated(tmp_path, inspector).read_text(encoding="utf-8")
+    return _written(
+        tmp_path, text.replace("trigger:   { type: keyboard, key: space }", CUP_TRIGGER)
+    )
 
 
 def test_a_cup_trigger_config_exposes_its_direction_and_pace(tmp_path: Path) -> None:
@@ -676,30 +683,22 @@ def test_a_cup_trigger_config_exposes_its_direction_and_pace(tmp_path: Path) -> 
     assert config.inspector.line.fps == 25.0
 
 
-def test_a_line_block_without_a_cup_trigger_needs_no_direction_or_pace(tmp_path: Path) -> None:
-    loaded = load_config(_mutated(tmp_path, "  type: appearance\n", LINE_HEAD + LINE_BLOCK))
-    assert loaded.config.inspector.line is not None
-    assert loaded.config.inspector.line.direction is None
-    assert loaded.config.inspector.line.fps is None
-
-
 @pytest.mark.parametrize(
     ("inspector", "words"),
     [
         ("  type: appearance\n", "trigger.type: cup needs inspector.line"),
         ("  type: stub\n", "trigger.type: cup needs inspector.line"),
         (
-            LINE_HEAD + "  line:\n    rim_size_px: [300, 600]\n    blob_share_min: 0.3\n"
-            + CUP_LINE_KEYS,
+            LINE_HEAD + "  line:\n    rim_size_px: [300, 600]\n" + WARMTH_KEYS + CUP_LINE_KEYS,
             "missing key(s): inspector.line.zone",
         ),
         (
             LINE_HEAD + LINE_BLOCK + "    fps: 25\n",
-            "inspector.line.direction: a cup trigger needs this key",
+            "missing key(s): inspector.line.direction",
         ),
         (
             LINE_HEAD + LINE_BLOCK + "    direction: right\n",
-            "inspector.line.fps: a cup trigger needs this key",
+            "missing key(s): inspector.line.fps",
         ),
         (
             LINE_HEAD + LINE_BLOCK + "    direction: sideways\n    fps: 25\n",

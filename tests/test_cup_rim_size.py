@@ -8,11 +8,11 @@ import pytest
 
 from qs.config import LineConfig
 from qs.inspector.cup import _rim_sized, find_cup, no_cup_reason
-from test_cup import drawn_frame
+from test_cup import drawn_frame, line_config
 
 
 def _line(rim_size_px: tuple[int, int]) -> LineConfig:
-    return LineConfig(zone=(20, 0, 240, 240), rim_size_px=rim_size_px, blob_share_min=0.3)
+    return line_config((20, 0, 240, 240), rim_size_px)
 
 
 @pytest.mark.parametrize(

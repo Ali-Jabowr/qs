@@ -14,7 +14,17 @@ from qs.config import LineConfig
 from qs.inspector.cup import find_cup
 from station_fixtures import HEIGHT, PATCH_GREY, PATCH_ROI, WIDTH
 
-LINE = LineConfig(zone=(20, 0, 240, 240), rim_size_px=(105, 105), blob_share_min=0.3)
+
+def line_config(zone: tuple[int, int, int, int], rim_size_px: tuple[int, int]) -> LineConfig:
+    """A line block for the finder: `zone` and `rim_size_px`, and the keys every line block
+    needs, which the finder never reads."""
+    return LineConfig(
+        zone=zone, rim_size_px=rim_size_px, direction="right", fps=8.0,
+        warmth_min=5.0, burst=3, warmth_spread_max=40.0, max_speed_px_s=320.0,
+    )
+
+
+LINE = line_config((20, 0, 240, 240), (105, 105))
 CENTRE = (130, 120)
 ROUND = (50, 50)
 COLOURS = {"pale": (222, 228, 232), "pink": (190, 175, 240), "green": (60, 180, 60)}
@@ -89,7 +99,7 @@ def test_the_same_rim_is_found_whatever_the_cup_holds(contents: str) -> None:
 
 
 def test_an_elliptical_rim_is_found() -> None:
-    tilted = LineConfig(zone=(20, 0, 240, 240), rim_size_px=(73, 105), blob_share_min=0.3)
+    tilted = line_config((20, 0, 240, 240), (73, 105))
     cup = find_cup(drawn_frame("pale", axes=(50, 34), angle=25.0), tilted)
     assert cup is not None
     (cx, cy), axes, _ = cup.rim
@@ -145,7 +155,7 @@ def test_a_larger_neighbour_cut_by_the_zone_does_not_hide_the_cup_inside_it() ->
     pixels = drawn_frame("pale", centre=(80, 120), axes=(30, 30))
     # The neighbour is within the 5% a rim may differ from rim_size_px, so both are rims.
     cv2.ellipse(pixels, (255, 120), (32, 32), 0.0, 0, 360, (RIM_GREY,) * 3, 3)
-    small = LineConfig(zone=(20, 0, 240, 240), rim_size_px=(67, 67), blob_share_min=0.3)
+    small = line_config((20, 0, 240, 240), (67, 67))
     cup = find_cup(pixels, small)
     assert cup is not None
     (cx, cy), _, _ = cup.rim
@@ -153,7 +163,7 @@ def test_a_larger_neighbour_cut_by_the_zone_does_not_hide_the_cup_inside_it() ->
 
 
 def test_a_rim_outside_the_size_limits_gives_none() -> None:
-    narrow = LineConfig(zone=(20, 0, 240, 240), rim_size_px=(130, 130), blob_share_min=0.3)
+    narrow = line_config((20, 0, 240, 240), (130, 130))
     assert find_cup(drawn_frame("pale"), narrow) is None
 
 

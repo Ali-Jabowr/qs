@@ -91,8 +91,6 @@ def _line_config(path: Path) -> tuple[StationConfig, LineConfig, float]:
     line = config.inspector.line
     if config.inspector.type != "line" or line is None:
         raise _CannotRun(f"{path}: not a line config")
-    if line.fps is None:
-        raise _CannotRun("inspector.line.fps: the time split needs this key")
     return config, line, line.fps
 
 

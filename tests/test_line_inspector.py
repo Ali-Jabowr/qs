@@ -31,10 +31,9 @@ from station_fixtures import (
     station_args,
     write_png,
 )
-from test_cup import GLARE_ACROSS, GLARE_APART, drawn_frame
+from test_cup import GLARE_APART, drawn_frame
 
 HASH = "c" * 64
-BIG_GLARE_INSIDE = ([(106, 98), (154, 98), (154, 142), (106, 142)],)
 LINE_EXAMPLE = Path(__file__).resolve().parents[1] / "config" / "station-line.example.yml"
 
 
@@ -46,11 +45,19 @@ def _fast(monkeypatch: pytest.MonkeyPatch) -> None:
 def _line_config_file(root: Path) -> Path:
     """A valid line config for the drawn 320×240 frames, with the evidence under `root`."""
     data = config_mapping(root, inspector_type="line")
+    data["camera"]["type"] = "replay"
     data["inspector"]["checks"] = ["empty_cup"]
+    # A burst of one, so `inspect` judges the one frame it is given.
     data["inspector"]["line"] = {
         "zone": [20, 0, 240, 240],
         "rim_size_px": [105, 105],
-        "blob_share_min": 0.3,
+        "direction": "right",
+        "fps": 8.0,
+        "warmth_min": 5.0,
+        "burst": 1,
+        "burst_min_frames": 1,
+        "warmth_spread_max": 40.0,
+        "max_speed_px_s": 320.0,
     }
     path = root / "line.yml"
     path.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
@@ -82,52 +89,6 @@ def _inspected(root: Path, pixels: np.ndarray) -> Verdict:
     return _inspector(root).inspect(_frame(pixels))
 
 
-@pytest.mark.parametrize(
-    "pixels",
-    [
-        drawn_frame("pale"),
-        drawn_frame("pink"),
-        drawn_frame("pink", glare_on_steel=GLARE_APART),
-        drawn_frame("pale", glare_on_steel=GLARE_ACROSS),
-        drawn_frame("pale", glare_inside=5),
-        drawn_frame("pink", glare_inside=5),
-    ],
-    ids=["pale", "pink", "pink_glare_steel", "pale_glare_rim", "pale_glare_in", "pink_glare_in"],
-)
-def test_a_full_cup_passes_on_the_empty_cup_check(tmp_path: Path, pixels: np.ndarray) -> None:
-    verdict = _inspected(tmp_path, pixels)
-    assert verdict.label is Label.PASS
-    [check] = verdict.checks
-    assert check.name == "empty_cup"
-    assert check.passed is True
-    assert check.limit == 0.3
-    assert check.value is not None and check.value >= 0.5
-
-
-@pytest.mark.parametrize(
-    "pixels",
-    [
-        drawn_frame("empty"),
-        drawn_frame("empty", glare_on_steel=GLARE_APART),
-        drawn_frame("empty", glare_on_steel=GLARE_ACROSS),
-        drawn_frame("empty", glare_inside=5),
-        drawn_frame("empty", glare_on_steel=BIG_GLARE_INSIDE),
-    ],
-    ids=["empty", "glare_steel", "glare_rim", "glare_in", "big_glare_in"],
-)
-def test_an_empty_cup_is_a_defect_on_the_empty_cup_check(
-    tmp_path: Path, pixels: np.ndarray
-) -> None:
-    verdict = _inspected(tmp_path, pixels)
-    assert verdict.label is Label.DEFECT
-    [check] = verdict.checks
-    assert check.name == "empty_cup"
-    assert check.passed is False
-    assert check.limit == 0.3
-    assert check.value is not None and check.value <= 0.1
-    assert check.failed_on == "blob_share<min"
-
-
 def test_the_verdict_outlines_the_cup_it_judged(tmp_path: Path) -> None:
     verdict = _inspected(tmp_path, drawn_frame("empty"))
     assert verdict.unit_box == pytest.approx((78, 68, 105, 105), abs=4)
@@ -142,7 +103,7 @@ def test_the_verdict_outlines_the_cup_it_judged(tmp_path: Path) -> None:
     ids=["steel", "glare"],
 )
 def test_no_cup_is_a_placement_fault(tmp_path: Path, pixels: np.ndarray) -> None:
-    with pytest.raises(PlacementFault, match="no cup wholly in the zone"):
+    with pytest.raises(PlacementFault, match="^the cup was found on 0 of 1 frames"):
         _inspected(tmp_path, pixels)
 
 
@@ -150,7 +111,7 @@ def test_no_cup_is_a_placement_fault(tmp_path: Path, pixels: np.ndarray) -> None
 def test_a_cup_partly_out_of_the_zone_is_a_placement_fault(
     tmp_path: Path, contents: str
 ) -> None:
-    with pytest.raises(PlacementFault, match="no cup wholly in the zone"):
+    with pytest.raises(PlacementFault, match="^the cup was found on 0 of 1 frames"):
         _inspected(tmp_path, drawn_frame(contents, centre=(235, 120)))
 
 
@@ -238,9 +199,9 @@ def test_station_replay_runs_end_to_end_on_a_line_config(
         " JOIN inspection i ON i.id = c.inspection_id ORDER BY i.seq",
     )
     assert [tuple(c) for c in checks] == [
-        (1, "empty_cup", 0, 0.3, "blob_share<min"),
-        (2, "empty_cup", 1, 0.3, None),
-        (3, "empty_cup", 1, 0.3, None),
+        (1, "empty_cup", 0, 5.0, "warmth<min"),
+        (2, "empty_cup", 1, 5.0, None),
+        (3, "empty_cup", 1, 5.0, None),
     ]
 
 

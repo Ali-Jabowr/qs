@@ -12,10 +12,6 @@ from qs.config import load_config
 from qs.errors import ConfigError
 from warmth_fixtures import warmth_config
 
-NO_WARMTH: dict[str, Any] = {
-    "warmth_min": None, "burst": None, "warmth_spread_max": None, "max_speed_px_s": None,
-}
-
 
 def test_the_strict_keys_are_read(tmp_path: Path) -> None:
     path = warmth_config(
@@ -46,7 +42,6 @@ def test_a_config_without_the_lens_mask_has_none(tmp_path: Path) -> None:
         ({"lens_mask_px": [160, 120]}, "inspector.line.lens_mask_px"),
         ({"lens_mask_px": [160, 120, 0]}, "inspector.line.lens_mask_px"),
         ({"lens_mask_px": [400, 120, 20]}, "inspector.line.lens_mask_px"),
-        ({"lens_mask_px": [160, 120, 20], **NO_WARMTH}, "inspector.line.lens_mask_px"),
     ],
 )
 def test_a_strict_key_that_cannot_work_is_refused(

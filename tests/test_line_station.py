@@ -54,12 +54,18 @@ def _config_file(root: Path, *, line: bool = True, direction: str = "right") -> 
     data["trigger"]["type"] = "cup"
     if line:
         data["inspector"]["checks"] = ["empty_cup"]
+        data["camera"]["type"] = "replay"
+        # A burst of one: each cup is judged on the one frame captured after its event.
         data["inspector"]["line"] = {
             "zone": [20, 30, 240, 180],
             "rim_size_px": [105, 105],
-            "blob_share_min": 0.3,
             "direction": direction,
             "fps": FPS,
+            "warmth_min": 5.0,
+            "burst": 1,
+            "burst_min_frames": 1,
+            "warmth_spread_max": 40.0,
+            "max_speed_px_s": 320.0,
         }
     path = root / "line.yml"
     path.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
@@ -111,9 +117,9 @@ class _Inspected(LineInspector):
         super().__init__(config_hash)
         self.seen: list[Frame] = []
 
-    def inspect(self, frame: Frame) -> Verdict:
-        self.seen.append(frame)
-        return super().inspect(frame)
+    def inspect_burst(self, frames: Sequence[Frame]) -> Verdict:
+        self.seen.extend(frames)
+        return super().inspect_burst(frames)
 
 
 class _Station:
