@@ -1,7 +1,7 @@
 """A line station config that judges by median warmth (#132), drawn at 320x240 and 8 fps.
 
-A cup crosses at 40 px a frame, so `speed_px_s` is 320. Three frames of travel plus the widest
-rim (140) are 260 px, and the zone is 280 wide.
+A cup crosses at 40 px a frame, so `speed_px_s` is 320. Three frames of travel plus the drawn
+rim (105) are 225 px, and the zone is 280 wide.
 """
 
 from __future__ import annotations
@@ -16,8 +16,7 @@ from station_fixtures import config_mapping
 FPS = 8.0
 WARMTH_LINE: dict[str, Any] = {
     "zone": [20, 50, 280, 180],
-    "rim_axis_px": [50, 140],
-    "blob_share_min": 0.3,
+    "rim_size_px": [105, 105],
     "direction": "right",
     "fps": FPS,
     "warmth_min": 5.0,

@@ -7,11 +7,10 @@ import cv2
 import numpy as np
 import pytest
 
-from qs.config import LineConfig
 from qs.inspector.cup import find_rims
-from test_cup import RIM_GREY, drawn_frame
+from test_cup import RIM_GREY, drawn_frame, line_config
 
-LINE = LineConfig(zone=(20, 30, 240, 180), rim_axis_px=(50, 140), blob_share_min=0.3)
+LINE = line_config((20, 30, 240, 180), (105, 105))
 
 
 def _two_cups() -> np.ndarray:

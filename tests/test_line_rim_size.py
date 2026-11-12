@@ -23,11 +23,10 @@ from warmth_fixtures import warmth_config
         ([102, 102], ["pass"]),  # 3% over
         ([117, 117], []),        # 10% under: no cup, no record
         ([90, 90], []),          # 15% over the rim, 10% over its inner edge (99)
-        (None, ["pass"]),  # no key: the old axis range alone, as before
     ],
 )
 def test_a_rim_off_the_set_size_by_more_than_5_percent_gives_no_record(
-    tmp_path: Path, rim_size_px: list[int] | None, labels: list[str]
+    tmp_path: Path, rim_size_px: list[int], labels: list[str]
 ) -> None:
     video = write_video(tmp_path / "line.avi", steel(3) + crossing("pink") + steel(3))
     loaded = load_config(warmth_config(tmp_path, rim_size_px=rim_size_px))

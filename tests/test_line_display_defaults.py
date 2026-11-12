@@ -16,8 +16,11 @@ def _written(root: Path, *, line: bool, display: dict[str, Any]) -> Path:
     data = config_mapping(root, inspector_type="line" if line else "stub")
     if line:
         data["inspector"]["checks"] = ["empty_cup"]
+        data["camera"]["type"] = "replay"
         data["inspector"]["line"] = {
-            "zone": [20, 0, 240, 240], "rim_axis_px": [50, 140], "blob_share_min": 0.3,
+            "zone": [20, 0, 240, 240], "rim_size_px": [105, 105], "direction": "right",
+            "fps": 8.0, "warmth_min": 5.0, "burst": 3, "warmth_spread_max": 40.0,
+            "max_speed_px_s": 320.0,
         }
     data["display"].update(display)
     path = root / "station.yml"

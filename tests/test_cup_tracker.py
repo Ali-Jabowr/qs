@@ -7,17 +7,16 @@ from __future__ import annotations
 from collections.abc import Callable
 
 import numpy as np
-import pytest
 
 from qs.config import LineConfig
 from qs.cup_trigger import CupTracker, CupTrigger, SeenCup
-from qs.errors import ConfigError
 from station_fixtures import FakeClock, ScriptedSource, StepWall
 from test_cup import drawn_frame
 
 TOLERANCE = 25.0
 LINE = LineConfig(
-    zone=(20, 30, 240, 180), rim_axis_px=(50, 140), blob_share_min=0.3, direction="right", fps=8.0
+    zone=(20, 30, 240, 180), rim_size_px=(105, 105), direction="right", fps=8.0,
+    warmth_min=5.0, burst=3, warmth_spread_max=40.0, max_speed_px_s=320.0,
 )
 
 
@@ -148,8 +147,8 @@ def test_a_frozen_preview_tells_nothing_so_a_cup_is_gone_only_on_a_new_frame() -
 def test_the_configured_axis_is_the_one_that_tells_a_new_cup_from_a_moved_one() -> None:
     """Travelling down, a rim further up by more than the tolerance is a cup coming behind."""
     line = LineConfig(
-        zone=(20, 30, 240, 180), rim_axis_px=(50, 140), blob_share_min=0.3, direction="down",
-        fps=8.0,
+        zone=(20, 30, 240, 180), rim_size_px=(105, 105), direction="down", fps=8.0,
+        warmth_min=5.0, burst=3, warmth_spread_max=40.0, max_speed_px_s=320.0,
     )
     clock = FakeClock(start=500.0)
     source = ScriptedSource(clock=clock, preview_pixels=drawn_frame("pale", centre=(130, 90)))
@@ -188,13 +187,3 @@ def test_closing_ends_it_and_drops_events_not_yet_returned() -> None:
     trigger.close()
     assert trigger.exhausted is True
     assert trigger.poll() is None
-
-
-def test_a_line_block_with_no_direction_is_refused() -> None:
-    no_direction = LineConfig(zone=(20, 30, 240, 180), rim_axis_px=(50, 140), blob_share_min=0.3)
-    source = _source(None)
-    with pytest.raises(ConfigError, match="inspector.line.direction"):
-        CupTrigger(
-            no_direction, source, source_id="s", clock=source.clock, wall=StepWall(),
-            ended=lambda: False,
-        )

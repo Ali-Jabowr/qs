@@ -29,7 +29,6 @@ import numpy as np
 
 from qs.config import LineConfig
 from qs.contracts import FrameSource, TriggerEvent
-from qs.errors import ConfigError
 from qs.inspector.cup import Rim, find_rims
 
 LOST_AFTER_S = 0.25  # unmeasured on real footage; cups pass about every 1–1.5 s, by estimate
@@ -160,8 +159,6 @@ class CupTrigger:
         wall: Callable[[], datetime],
         ended: Callable[[], bool],
     ) -> None:
-        if line.direction is None:
-            raise ConfigError("inspector.line.direction: a cup trigger needs this key")
         self._axis, self._sign = _TRAVEL[line.direction]
         self._line = line
         self._source = source
@@ -171,13 +168,13 @@ class CupTrigger:
         self._ended = ended
         # Cups cannot overlap, so a position less than half the smallest rim behind a followed
         # cup can only be that same cup, whatever the camera's resolution.
-        self._tracker = CupTracker(line.rim_axis_px[0] / 2)
+        self._tracker = CupTracker(line.rim_size_px[0] / 2)
         # The self-check (ADR-0029 §7): a slit across the travel, and the position along the travel
         # of its centre line, which a tracked cup's rim centre must cross to credit a warm stretch.
         self._slit = line.untracked_window
         self._watch: UntrackedWatch | None = None
         self._centre_line: float | None = None
-        if self._slit is not None and line.warmth_min is not None:
+        if self._slit is not None:
             x, y, w, h = self._slit
             self._centre_line = self._sign * ((x + w / 2) if self._axis == 0 else (y + h / 2))
             self._watch = UntrackedWatch(line.warmth_min)

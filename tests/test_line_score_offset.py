@@ -28,13 +28,15 @@ def test_each_pair_gives_its_record_frame_minus_its_label_frame() -> None:
 def test_the_median_offset_is_printed_per_position(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    # Records at 6, 19, 40 and 45 against labels at 7, 18, 39 and 46: offsets -1, 1, 1, -1.
+    # Records at 6, 19, 39 and 45 against labels at 7, 18, 39 and 46: offsets -1, 1, 0, -1. The
+    # cup never wholly in the zone is lost at 39: at x 290 its rim is cut by the frame's edge, and
+    # the cut arc is not within 5% of rim_size_px.
     labels = _labels(tmp_path, "top.json", CUPS)
 
     _run(tmp_path, f"top={labels}")
 
     out = capsys.readouterr().out
-    assert "- record frame minus labelled frame: median 0.0 over 4 pairs" in out
+    assert "- record frame minus labelled frame: median -0.5 over 4 pairs" in out
     assert "WARNING" not in out
 
 

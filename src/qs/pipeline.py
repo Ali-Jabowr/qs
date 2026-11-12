@@ -468,12 +468,10 @@ class Pipeline:
         return self._encode(verdict, frames[verdict.evidence_index], inspect_ms)
 
     def _burst_length(self) -> int | None:
-        """The burst a station captures and inspects: only a line station with `warmth_min` set
-        (ADR-0029 §4) uses bursts; every other station captures and inspects one frame."""
+        """The burst a station captures and inspects: a line station judges by median warmth over
+        a burst (ADR-0029 §4); every other station captures and inspects one frame."""
         line = self._config.inspector.line
-        if line is None or line.warmth_min is None:
-            return None
-        return line.burst
+        return None if line is None else line.burst
 
     def _inference_failed(self, frame: Frame, inspect_ms: float) -> _Outcome:
         """NO_VERDICT(`inference`) with the image; the third in a row is FAULT(inference)."""
@@ -500,7 +498,7 @@ class Pipeline:
         return _Outcome(self._no_verdict("capture"), None)
 
     def _capture(self, event: TriggerEvent, burst: int | None) -> tuple[Frame, ...] | _Outcome:
-        """Step 2: the frame (the `burst` frames of a warmth station), or the NO_VERDICT its
+        """Step 2: the frame (the `burst` frames of a line station), or the NO_VERDICT its
         failure means. None of these has an image."""
         try:
             frames: tuple[Frame, ...]

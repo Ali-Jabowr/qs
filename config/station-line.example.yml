@@ -38,10 +38,18 @@ inspector:
   checks: [empty_cup]
   line:
     zone:           [360, 0, 1200, 1080]   # x, y, w, h: a cup is judged only if all of it is inside
-    rim_axis_px:    [300, 700]             # both full axes of the rim ellipse must lie in this range
-    blob_share_min: 0.30                   # below this share of the cup's middle, the cup is empty
+    rim_size_px:    [500, 500]             # PLACEHOLDER: the rim's [minor, major] full axes measured
+                                           # on the mount; a rim is accepted within ±5% of each
     direction:      right                  # the way the chain moves in the picture: set it per footage
     fps:            30                     # the rate the footage was shot at; the file's own rate is ignored
+    # The empty-cup verdict: the median warmth (mean of red minus blue over the inner half of the
+    # rim) over a burst of frames (ADR-0029 §4). Every value below is a PLACEHOLDER, set per mount.
+    warmth_min:        2.0                 # PLACEHOLDER: below this median warmth, the cup is empty
+    burst:             3                   # frames judged per cup
+    burst_min_frames:  3                   # fewer frames showing the cup: НЕТ РЕШЕНИЯ (default 3)
+    warmth_spread_max: 15.0                # PLACEHOLDER: more spread over the burst: НЕТ РЕШЕНИЯ
+    max_speed_px_s:    1200                # PLACEHOLDER: the chain's fastest speed in the picture;
+                                           # the zone must be a rim plus burst frames of travel long
   # The keys below are required of every inspector. A line inspector does not use them, so they
   # hold placeholders: no model and no calibration stand behind this file.
   localize:  { roi: [360, 0, 1200, 1080], threshold: 70, min_area_px: 20000, border_margin_px: 10 }

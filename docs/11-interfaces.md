@@ -252,28 +252,30 @@ for a unit — the factory's photoelectric sensor.
 After one trigger event a source can return a **burst** of N frames, and the inspector judges the
 unit from the burst. Every frame of the burst is later than `event.t0` plus one exposure (C4), and
 each is later than the one before. All N frames
-carry the same `event`. A burst of 1 is today's single capture, so the bench and today's line
-inspector, which run with a burst of 1, write the same records as before. A burst promises
+carry the same `event`. A burst of 1 is a single capture, so the bench, which runs with a burst
+of 1, writes the same records as before. A burst promises
 "N frames, each later than the last; even spacing is not promised".
 
-**Who bursts.** The pipeline calls `capture_burst` and `inspect_burst` only for a line station
-whose config sets `inspector.line.warmth_min`, with `inspector.line.burst` frames. Every other
-station calls `capture` and `inspect`. A verdict names its evidence frame in `evidence_index`
-(0 for a single frame); the record's image, camera read-back, reference patch and capture time are
-that frame's own.
+**Who bursts.** The pipeline calls `capture_burst` and `inspect_burst` for every line station,
+with `inspector.line.burst` frames. Every other station calls `capture` and `inspect`. A verdict
+names its evidence frame in `evidence_index` (0 for a single frame); the record's image, camera
+read-back, reference patch and capture time are that frame's own.
 
-**Median warmth** (ADR-0029 decision 4). The line inspector measures each burst frame's cup as
+**Median warmth** (ADR-0029 decisions 4-5). The empty-cup check of every line station; it
+replaced `blob_share` (#135), and a config that still sets `blob_share_min` is refused with a
+message naming `warmth_min`, `burst`, `warmth_spread_max` and `max_speed_px_s`. All four, with
+`direction` and `fps`, are required. The line inspector measures each burst frame's cup as
 the mean of red minus blue over the inner half of the found rim (its ellipse at half the axes).
 The check's value is the median over the frames that show the cup, its limit is `warmth_min`, and
 its measures are `frames` (how many showed it) and `spread` (largest minus smallest warmth).
 Fewer than `burst_min_frames` (default 3) frames, or a spread above `warmth_spread_max`, is a
 `PlacementFault`. The evidence frame is the one whose warmth is closest to the median.
 
-**Zone rule.** On a line station with `warmth_min` the inspection zone must be at least
+**Zone rule.** On a line station the inspection zone must be at least
 
     rim + burst * max_speed_px_s / fps
 
-long along the direction of travel, where `rim` is the larger of `rim_axis_px`. The cup keeps
+long along the direction of travel, where `rim` is the larger of `rim_size_px`. The cup keeps
 moving while the burst is taken: this is the conservative travel of one frame period to the first
 frame plus `burst - 1` frame intervals, and one rim size, since the last frame must still show the
 cup wholly in the zone. The check assumes one frame period per frame, so a source that drops
@@ -281,8 +283,8 @@ frames makes it less conservative. `max_speed_px_s` is the fastest the chain mov
 config loader refuses a shorter zone.
 
 **Untracked passages** (ADR-0029 decision 7). With `inspector.line.untracked_window` (a slit
-`[x, y, w, h]` across the direction of travel, at most half the smallest `rim_axis_px` long along
-it, which needs `warmth_min`) the cup trigger also measures warmth in that slit on every new
+`[x, y, w, h]` across the direction of travel, at most half the smaller of `rim_size_px` long along
+it) the cup trigger also measures warmth in that slit on every new
 preview: the mean of red minus blue over the whole slit, against the same `warmth_min`. A warm
 stretch starts when warmth is `warmth_min` or more and ends after two frames in a row below it.
 It is credited when a tracked rim centre crosses the slit's centre line during it; a crossing while
@@ -291,20 +293,21 @@ set. The slit is thin so that it goes cold in any gap between cups, and a missed
 tracked one is still a stretch of its own. A stretch still warm at the last frame of a video
 is not ended, so it gives no event. Without the key nothing is measured and nothing changes.
 
-**Measured rim and lens mask** (ADR-0029 decisions 2-3). Two optional keys of `inspector.line`; a
-config without them behaves as before.
+**Measured rim and lens mask** (ADR-0029 decisions 2-3).
 
-- `rim_size_px: [minor, major]`: the rim's axes in pixels, as measured on the mount. The finder
-  accepts a rim only when each of its axes, smaller first, is within ±5% of its own value, beside
-  `rim_axis_px`. A camera not straight overhead sees an ellipse, hence a pair. The pair must be in
-  order and lie inside `rim_axis_px`.
-- `lens_mask_px: [x, y, radius]`: a circle in frame pixels, left out of every warmth measurement.
-  Needs `warmth_min` and must lie in the frame. A burst frame whose inner half it covers wholly is
-  skipped as not measured, and `burst_min_frames` decides whether the burst still counts.
+- `rim_size_px: [minor, major]`, required: the rim's axes in pixels, as measured on the mount.
+  The finder accepts a rim only when each of its axes, smaller first, is within ±5% of its own
+  value. A camera not straight overhead sees an ellipse, hence a pair. The pair must be in order,
+  with the minor axis at least 16 px. It replaces the wide `rim_axis_px` range (#135); a config
+  that still sets `rim_axis_px` is refused with a message naming `rim_size_px`.
+- `lens_mask_px: [x, y, radius]`, optional: a circle in frame pixels, left out of every warmth
+  measurement. It must lie in the frame. A burst frame whose inner half it
+  covers wholly is skipped as not measured, and `burst_min_frames` decides whether the burst
+  still counts.
 
 Limit, unmeasured on real footage: the inspector re-finds the largest rim in the zone on the
 captured frame, so `rim_size_px` is what keeps a bigger reflection from being judged in place of
-the cup; without it, one can be.
+the cup.
 
 ## 4. Implementations
 

@@ -39,13 +39,17 @@ def _edited(path: Path, *, exposure_us: int, own_dc_light: object) -> Path:
 def _config_file(root: Path) -> Path:
     data = config_mapping(root, inspector_type="line")
     data["trigger"]["type"] = "cup"
+    data["camera"]["type"] = "replay"
     data["inspector"]["checks"] = ["empty_cup"]
     data["inspector"]["line"] = {
         "zone": [20, 30, 240, 180],
-        "rim_axis_px": [50, 140],
-        "blob_share_min": 0.3,
+        "rim_size_px": [105, 105],
         "direction": "right",
         "fps": 8.0,
+        "warmth_min": 5.0,
+        "burst": 3,
+        "warmth_spread_max": 40.0,
+        "max_speed_px_s": 320.0,
     }
     path = root / "line.yml"
     path.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")

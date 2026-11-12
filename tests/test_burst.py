@@ -8,7 +8,6 @@ from pathlib import Path
 import pytest
 
 from qs.errors import CaptureError
-from qs.inspector.line import LineInspector
 from qs.inspector.stub import StubInspector
 from qs.sources.replay import ReplaySource
 from station_fixtures import FakeClock, event, loaded_config, write_frames
@@ -79,13 +78,8 @@ def test_the_line_inspector_judges_a_burst_of_one_as_the_single_frame(tmp_path: 
     )
 
 
-@pytest.mark.parametrize("inspector_kind", ["line", "stub"])
-def test_an_inspector_that_cannot_judge_a_burst_refuses_more_than_one_frame(
-    tmp_path: Path, inspector_kind: str
-) -> None:
-    inspector: LineInspector | StubInspector = (
-        _inspector(tmp_path) if inspector_kind == "line" else StubInspector(HASH)
-    )
+def test_an_inspector_that_cannot_judge_a_burst_refuses_more_than_one_frame() -> None:
+    inspector = StubInspector(HASH)
     frame = _frame(drawn_frame("pale"))
     with pytest.raises(ValueError, match="burst of 2"):
         inspector.inspect_burst((frame, frame))

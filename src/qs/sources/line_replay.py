@@ -200,8 +200,8 @@ def _cup_pair(
     wall: WallClock,
 ) -> tuple[CupTrigger, _Paced]:
     line = config.inspector.line
-    if line is None or line.fps is None:
-        raise ReplayError("line replay: inspector.line needs fps")
+    if line is None:
+        raise ReplayError("line replay: needs inspector.line")
     paced = source(line.fps)
     trigger = CupTrigger(
         line, paced, source_id=f"replay:{name}", clock=clock, wall=wall,
