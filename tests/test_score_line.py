@@ -4,7 +4,7 @@ frame plan below; the bounds are the exact one-sided 95% Clopper-Pearson values 
 
 The drawn video, at 8 fps, frame by frame. In these drawings a rim is wholly in the zone from x 90,
 the third step of a crossing, so a crossing that starts at frame s fires at s + 2 and judges the
-next frame, s + 3:
+next three frames, s + 3 to s + 5, and the record is at the first of them, s + 3:
 
     0–2    steel
     3–15   an empty cup crosses                      judged at 6:  БРАК
@@ -67,15 +67,15 @@ def _config(root: Path) -> Path:
     data["trigger"]["type"] = "cup"
     data["camera"]["type"] = "replay"
     data["inspector"]["checks"] = ["empty_cup"]
-    # A burst of one: each cup is judged on the one frame after its event, as planned above.
+    # A burst of three: each cup is judged on the three frames after its event, as planned above;
+    # the zone is long enough for a rim to be wholly in it on all three.
     data["inspector"]["line"] = {
-        "zone": [20, 30, 240, 180],
+        "zone": [20, 30, 255, 180],
         "rim_size_px": [105, 105],
         "direction": "right",
         "fps": FPS,
         "warmth_min": 5.0,
-        "burst": 1,
-        "burst_min_frames": 1,
+        "burst": 3,
         "warmth_spread_max": 40.0,
         "max_speed_px_s": 320.0,
     }

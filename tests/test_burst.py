@@ -1,5 +1,5 @@
 """The burst contract (#130): a source returns N frames after an event, an inspector judges a
-burst, and a burst of 1 is today's single capture and single inspection."""
+burst, and a burst of 1 is today's single capture."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from qs.contracts import Label
 from qs.errors import CaptureError
 from qs.inspector.stub import StubInspector
 from qs.sources.replay import ReplaySource
@@ -66,16 +67,16 @@ def test_a_source_that_cannot_burst_refuses_more_than_one_frame(tmp_path: Path) 
         source.capture_burst(event(1), 2)
 
 
-def test_the_line_inspector_judges_a_burst_of_one_as_the_single_frame(tmp_path: Path) -> None:
-    inspector = _inspector(tmp_path)
+def test_the_line_inspector_judges_a_burst_of_three_identical_frames_as_that_frame(
+    tmp_path: Path,
+) -> None:
     frame = _frame(drawn_frame("pale"))
-    single = inspector.inspect(frame)
-    burst = inspector.inspect_burst((frame,))
-    assert (burst.label, burst.checks, burst.unit_box) == (
-        single.label,
-        single.checks,
-        single.unit_box,
-    )
+    verdict = _inspector(tmp_path).inspect_burst((frame, frame, frame))
+    (check,) = verdict.checks
+    assert verdict.label is Label.PASS
+    assert check.value == pytest.approx(10.0, abs=2.0)  # a pale моти's warmth
+    assert dict(check.measures) == {"frames": 3.0, "spread": 0.0}
+    assert verdict.unit_box == pytest.approx((78, 68, 105, 105), abs=4)
 
 
 def test_an_inspector_that_cannot_judge_a_burst_refuses_more_than_one_frame() -> None:

@@ -66,8 +66,8 @@ def test_a_mask_covering_the_whole_inner_half_measures_nothing() -> None:
 @pytest.mark.parametrize(
     ("burst_min_frames", "labels"),
     [
-        (3, ["no_verdict"]),  # the cup at x 170 is wholly masked: 2 frames of 3 are fewer than 3
-        (2, ["pass"]),        # the two frames that can be measured are enough
+        (4, ["no_verdict"]),  # the cup at x 170 is wholly masked: 3 frames of 4 are fewer than 4
+        (3, ["pass"]),        # the three frames that can be measured are enough
     ],
 )
 def test_a_burst_frame_the_mask_covers_is_skipped_and_burst_min_frames_decides(
@@ -75,7 +75,8 @@ def test_a_burst_frame_the_mask_covers_is_skipped_and_burst_min_frames_decides(
 ) -> None:
     video = write_video(tmp_path / "line.avi", steel(3) + crossing("pink") + steel(3))
     loaded = load_config(warmth_config(
-        tmp_path, warmth_min=45.0, lens_mask_px=[170, 120, 28], burst_min_frames=burst_min_frames
+        tmp_path, warmth_min=45.0, lens_mask_px=[170, 120, 28], burst=4,
+        burst_min_frames=burst_min_frames, zone=[20, 50, 300, 180],  # the burst is x 130–250
     ))
 
     records, _ = play_video(loaded, video)

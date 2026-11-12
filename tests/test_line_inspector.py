@@ -1,30 +1,25 @@
-"""The line inspector on drawn frames: one frame gives one verdict, through `inspect`, through a
-whole Pipeline, and through `qs station --replay`. Every value here proves the check on these
-drawings only, never on real footage."""
+"""The line inspector on drawn frames: a burst of three frames gives one verdict, through
+`inspect_burst`, through a whole Pipeline, and through `qs station --replay`. Every value here
+proves the check on these drawings only, never on real footage."""
 
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
 import yaml
 
 from evidence_records import fast_sqlite
-from qs.annunciator import NullAnnunciator
 from qs.cmd.station import main
 from qs.config import LoadedConfig, load_config
 from qs.contracts import Frame, Label, Verdict
 from qs.errors import ConfigError, InferenceError, PlacementFault
 from qs.inspector.line import LineInspector
-from qs.pipeline import Pipeline
-from qs.sources.replay import replay_files, replay_pair
 from station_fixtures import (
     PATCH_GREY,
     VERIFIED,
-    FakeClock,
-    RecordingSink,
-    StepWall,
     config_mapping,
     event,
     rows,
@@ -32,7 +27,9 @@ from station_fixtures import (
     write_png,
 )
 from test_cup import GLARE_APART, drawn_frame
+from test_line_station import BLANK_AFTER, OFF_THE_ZONE_Y, PATH_X, _Station, _steel
 
+OFF_THE_ZONE_BELOW = 175  # a rim riding here sticks out of the bottom of the zone
 HASH = "c" * 64
 LINE_EXAMPLE = Path(__file__).resolve().parents[1] / "config" / "station-line.example.yml"
 
@@ -47,15 +44,15 @@ def _line_config_file(root: Path) -> Path:
     data = config_mapping(root, inspector_type="line")
     data["camera"]["type"] = "replay"
     data["inspector"]["checks"] = ["empty_cup"]
-    # A burst of one, so `inspect` judges the one frame it is given.
+    data["trigger"]["type"] = "cup"
+    # A burst of three, so the zone is long enough for the cup to be wholly in it on all three.
     data["inspector"]["line"] = {
-        "zone": [20, 0, 240, 240],
+        "zone": [20, 30, 255, 180],
         "rim_size_px": [105, 105],
         "direction": "right",
         "fps": 8.0,
         "warmth_min": 5.0,
-        "burst": 1,
-        "burst_min_frames": 1,
+        "burst": 3,
         "warmth_spread_max": 40.0,
         "max_speed_px_s": 320.0,
     }
@@ -85,8 +82,19 @@ def _frame(pixels: np.ndarray) -> Frame:
     )
 
 
+def _crossing(contents: str, *, y: int = 120, **drawing: Any) -> list[np.ndarray]:
+    """One cup carried across the view at a height `y`, then steel."""
+    path = [drawn_frame(contents, centre=(x, y), seed=x, **drawing) for x in PATH_X]
+    return path + _steel(BLANK_AFTER)
+
+
+def _burst(pixels: np.ndarray) -> tuple[Frame, Frame, Frame]:
+    """The same cup on three frames: a burst in which nothing moves."""
+    return (_frame(pixels), _frame(pixels), _frame(pixels))
+
+
 def _inspected(root: Path, pixels: np.ndarray) -> Verdict:
-    return _inspector(root).inspect(_frame(pixels))
+    return _inspector(root).inspect_burst(_burst(pixels))
 
 
 def test_the_verdict_outlines_the_cup_it_judged(tmp_path: Path) -> None:
@@ -103,7 +111,7 @@ def test_the_verdict_outlines_the_cup_it_judged(tmp_path: Path) -> None:
     ids=["steel", "glare"],
 )
 def test_no_cup_is_a_placement_fault(tmp_path: Path, pixels: np.ndarray) -> None:
-    with pytest.raises(PlacementFault, match="^the cup was found on 0 of 1 frames"):
+    with pytest.raises(PlacementFault, match="^the cup was found on 0 of 3 frames"):
         _inspected(tmp_path, pixels)
 
 
@@ -111,7 +119,7 @@ def test_no_cup_is_a_placement_fault(tmp_path: Path, pixels: np.ndarray) -> None
 def test_a_cup_partly_out_of_the_zone_is_a_placement_fault(
     tmp_path: Path, contents: str
 ) -> None:
-    with pytest.raises(PlacementFault, match="^the cup was found on 0 of 1 frames"):
+    with pytest.raises(PlacementFault, match="^the cup was found on 0 of 3 frames"):
         _inspected(tmp_path, drawn_frame(contents, centre=(235, 120)))
 
 
@@ -119,8 +127,8 @@ def test_the_same_frame_gives_the_same_verdict_and_stays_unwritten(tmp_path: Pat
     pixels = drawn_frame("pale", glare_inside=5)
     pixels.setflags(write=False)
     inspector = _inspector(tmp_path)
-    first = inspector.inspect(_frame(pixels))
-    second = inspector.inspect(_frame(pixels))
+    first = inspector.inspect_burst(_burst(pixels))
+    second = inspector.inspect_burst(_burst(pixels))
     assert first.checks == second.checks
 
 
@@ -138,32 +146,7 @@ def test_loading_a_config_without_the_line_block_is_refused(tmp_path: Path) -> N
 
 
 def test_a_pipeline_record_lists_empty_cup_and_only_that(tmp_path: Path) -> None:
-    shoot = tmp_path / "shoot"
-    shoot.mkdir()
-    write_png(shoot / "f1.png", drawn_frame("empty"))
-    write_png(shoot / "f2.png", drawn_frame("pale"))
-    loaded = _loaded(tmp_path)
-    clock = FakeClock(step=0.001)
-    trigger, source = replay_pair(
-        loaded.config, replay_files(shoot), "shoot", clock=clock, wall=StepWall()
-    )
-    inspector = LineInspector(loaded.config_hash)
-    inspector.load(loaded.config)
-    sink = RecordingSink()
-    pipeline = Pipeline(
-        config=loaded.config,
-        config_hash=loaded.config_hash,
-        run_id="run",
-        source=source,
-        inspector=inspector,
-        annunciator=NullAnnunciator(),
-        sink=sink,
-        clock=clock,
-        wall=StepWall(),
-    )
-    pipeline.start()
-    first = pipeline.handle(trigger.poll())  # type: ignore[arg-type]
-    second = pipeline.handle(trigger.poll())  # type: ignore[arg-type]
+    first, second = _Station(tmp_path, _crossing("empty") + _crossing("pale")).run()
     assert first.verdict.label is Label.DEFECT
     assert second.verdict.label is Label.PASS
     assert [c.name for c in first.verdict.checks] == ["empty_cup"]
@@ -177,11 +160,16 @@ def test_station_replay_runs_end_to_end_on_a_line_config(
     config = _line_config_file(tmp_path)
     shoot = tmp_path / "shoot"
     shoot.mkdir()
-    write_png(shoot / "f1_empty.png", drawn_frame("empty", glare_on_steel=GLARE_APART))
-    write_png(shoot / "f2_pale.png", drawn_frame("pale", glare_inside=5))
-    write_png(shoot / "f3_pink.png", drawn_frame("pink"))
-    write_png(shoot / "f4_none.png", drawn_frame("none"))
-    write_png(shoot / "f5_partly.png", drawn_frame("pale", centre=(235, 120)))
+    frames = (
+        _crossing("empty", glare_on_steel=GLARE_APART)
+        + _crossing("pale", glare_inside=5)
+        + _crossing("pink")
+        + _crossing("pale", y=OFF_THE_ZONE_Y)
+        + _crossing("pale", y=OFF_THE_ZONE_BELOW)
+        + _steel(BLANK_AFTER)  # a burst for the last cup to be captured from
+    )
+    for index, pixels in enumerate(frames):
+        write_png(shoot / f"f{index:03d}.png", pixels)
 
     assert main(station_args(config, shoot)) == 0
 
