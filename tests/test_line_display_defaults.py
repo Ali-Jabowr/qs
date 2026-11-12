@@ -17,7 +17,7 @@ def _written(root: Path, *, line: bool, display: dict[str, Any]) -> Path:
     if line:
         data["inspector"]["checks"] = ["empty_cup"]
         data["inspector"]["line"] = {
-            "zone": [20, 0, 240, 240], "rim_axis_px": [50, 140], "blob_share_min": 0.3,
+            "zone": [20, 0, 240, 240], "rim_size_px": [105, 105], "blob_share_min": 0.3,
         }
     data["display"].update(display)
     path = root / "station.yml"

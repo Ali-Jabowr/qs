@@ -16,7 +16,7 @@ from station_fixtures import config_mapping
 FPS = 8.0
 WARMTH_LINE: dict[str, Any] = {
     "zone": [20, 50, 280, 180],
-    "rim_axis_px": [50, 140],
+    "rim_size_px": [105, 105],
     "blob_share_min": 0.3,
     "direction": "right",
     "fps": FPS,

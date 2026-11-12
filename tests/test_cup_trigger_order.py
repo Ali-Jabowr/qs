@@ -16,7 +16,7 @@ from qs.config import LineConfig
 from qs.cup_trigger import CupTrigger
 
 LINE = LineConfig(
-    zone=(20, 30, 240, 180), rim_axis_px=(50, 140), blob_share_min=0.3, direction="right", fps=8.0
+    zone=(20, 30, 240, 180), rim_size_px=(105, 105), blob_share_min=0.3, direction="right", fps=8.0
 )
 ZONE, LOST, UNTRACKED = (False, False), (True, False), (False, True)
 

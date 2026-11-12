@@ -49,7 +49,7 @@ def _line_config_file(root: Path) -> Path:
     data["inspector"]["checks"] = ["empty_cup"]
     data["inspector"]["line"] = {
         "zone": [20, 0, 240, 240],
-        "rim_axis_px": [50, 140],
+        "rim_size_px": [105, 105],
         "blob_share_min": 0.3,
     }
     path = root / "line.yml"
@@ -87,14 +87,12 @@ def _inspected(root: Path, pixels: np.ndarray) -> Verdict:
     [
         drawn_frame("pale"),
         drawn_frame("pink"),
-        drawn_frame("pale", axes=(50, 34), angle=25.0),
         drawn_frame("pink", glare_on_steel=GLARE_APART),
         drawn_frame("pale", glare_on_steel=GLARE_ACROSS),
         drawn_frame("pale", glare_inside=5),
         drawn_frame("pink", glare_inside=5),
     ],
-    ids=["pale", "pink", "pale_ellipse", "pink_glare_steel", "pale_glare_rim", "pale_glare_in",
-         "pink_glare_in"],
+    ids=["pale", "pink", "pink_glare_steel", "pale_glare_rim", "pale_glare_in", "pink_glare_in"],
 )
 def test_a_full_cup_passes_on_the_empty_cup_check(tmp_path: Path, pixels: np.ndarray) -> None:
     verdict = _inspected(tmp_path, pixels)
@@ -110,13 +108,12 @@ def test_a_full_cup_passes_on_the_empty_cup_check(tmp_path: Path, pixels: np.nda
     "pixels",
     [
         drawn_frame("empty"),
-        drawn_frame("empty", axes=(50, 34), angle=25.0),
         drawn_frame("empty", glare_on_steel=GLARE_APART),
         drawn_frame("empty", glare_on_steel=GLARE_ACROSS),
         drawn_frame("empty", glare_inside=5),
         drawn_frame("empty", glare_on_steel=BIG_GLARE_INSIDE),
     ],
-    ids=["empty", "ellipse", "glare_steel", "glare_rim", "glare_in", "big_glare_in"],
+    ids=["empty", "glare_steel", "glare_rim", "glare_in", "big_glare_in"],
 )
 def test_an_empty_cup_is_a_defect_on_the_empty_cup_check(
     tmp_path: Path, pixels: np.ndarray

@@ -273,7 +273,7 @@ Fewer than `burst_min_frames` (default 3) frames, or a spread above `warmth_spre
 
     rim + burst * max_speed_px_s / fps
 
-long along the direction of travel, where `rim` is the larger of `rim_axis_px`. The cup keeps
+long along the direction of travel, where `rim` is the larger of `rim_size_px`. The cup keeps
 moving while the burst is taken: this is the conservative travel of one frame period to the first
 frame plus `burst - 1` frame intervals, and one rim size, since the last frame must still show the
 cup wholly in the zone. The check assumes one frame period per frame, so a source that drops
@@ -281,7 +281,7 @@ frames makes it less conservative. `max_speed_px_s` is the fastest the chain mov
 config loader refuses a shorter zone.
 
 **Untracked passages** (ADR-0029 decision 7). With `inspector.line.untracked_window` (a slit
-`[x, y, w, h]` across the direction of travel, at most half the smallest `rim_axis_px` long along
+`[x, y, w, h]` across the direction of travel, at most half the smaller of `rim_size_px` long along
 it, which needs `warmth_min`) the cup trigger also measures warmth in that slit on every new
 preview: the mean of red minus blue over the whole slit, against the same `warmth_min`. A warm
 stretch starts when warmth is `warmth_min` or more and ends after two frames in a row below it.
@@ -291,20 +291,21 @@ set. The slit is thin so that it goes cold in any gap between cups, and a missed
 tracked one is still a stretch of its own. A stretch still warm at the last frame of a video
 is not ended, so it gives no event. Without the key nothing is measured and nothing changes.
 
-**Measured rim and lens mask** (ADR-0029 decisions 2-3). Two optional keys of `inspector.line`; a
-config without them behaves as before.
+**Measured rim and lens mask** (ADR-0029 decisions 2-3).
 
-- `rim_size_px: [minor, major]`: the rim's axes in pixels, as measured on the mount. The finder
-  accepts a rim only when each of its axes, smaller first, is within ±5% of its own value, beside
-  `rim_axis_px`. A camera not straight overhead sees an ellipse, hence a pair. The pair must be in
-  order and lie inside `rim_axis_px`.
-- `lens_mask_px: [x, y, radius]`: a circle in frame pixels, left out of every warmth measurement.
-  Needs `warmth_min` and must lie in the frame. A burst frame whose inner half it covers wholly is
-  skipped as not measured, and `burst_min_frames` decides whether the burst still counts.
+- `rim_size_px: [minor, major]`, required: the rim's axes in pixels, as measured on the mount.
+  The finder accepts a rim only when each of its axes, smaller first, is within ±5% of its own
+  value. A camera not straight overhead sees an ellipse, hence a pair. The pair must be in order,
+  with the minor axis at least 16 px. It replaces the wide `rim_axis_px` range (#135); a config
+  that still sets `rim_axis_px` is refused with a message naming `rim_size_px`.
+- `lens_mask_px: [x, y, radius]`, optional: a circle in frame pixels, left out of every warmth
+  measurement. Needs `warmth_min` and must lie in the frame. A burst frame whose inner half it
+  covers wholly is skipped as not measured, and `burst_min_frames` decides whether the burst
+  still counts.
 
 Limit, unmeasured on real footage: the inspector re-finds the largest rim in the zone on the
 captured frame, so `rim_size_px` is what keeps a bigger reflection from being judged in place of
-the cup; without it, one can be.
+the cup.
 
 ## 4. Implementations
 

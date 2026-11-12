@@ -38,7 +38,8 @@ inspector:
   checks: [empty_cup]
   line:
     zone:           [360, 0, 1200, 1080]   # x, y, w, h: a cup is judged only if all of it is inside
-    rim_axis_px:    [300, 700]             # both full axes of the rim ellipse must lie in this range
+    rim_size_px:    [500, 500]             # PLACEHOLDER: the rim's [minor, major] full axes measured
+                                           # on the mount; a rim is accepted within ±5% of each
     blob_share_min: 0.30                   # below this share of the cup's middle, the cup is empty
     direction:      right                  # the way the chain moves in the picture: set it per footage
     fps:            30                     # the rate the footage was shot at; the file's own rate is ignored

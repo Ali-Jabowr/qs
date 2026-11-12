@@ -11,10 +11,8 @@ from qs.inspector.cup import _rim_sized, find_cup, no_cup_reason
 from test_cup import drawn_frame
 
 
-def _line(rim_size_px: tuple[int, int] | None) -> LineConfig:
-    return LineConfig(
-        zone=(20, 0, 240, 240), rim_axis_px=(50, 140), blob_share_min=0.3, rim_size_px=rim_size_px
-    )
+def _line(rim_size_px: tuple[int, int]) -> LineConfig:
+    return LineConfig(zone=(20, 0, 240, 240), rim_size_px=rim_size_px, blob_share_min=0.3)
 
 
 @pytest.mark.parametrize(
@@ -24,11 +22,10 @@ def _line(rim_size_px: tuple[int, int] | None) -> LineConfig:
         ((77, 108), True),   # each axis 2-3% off its own value
         ((75, 116), False),  # the major axis 10% off
         ((83, 105), False),  # the minor axis 10% off
-        (None, True),        # no key: the axis range alone
     ],
 )
 def test_an_elliptical_rim_is_accepted_when_each_axis_is_within_5_percent_of_its_own(
-    rim_size_px: tuple[int, int] | None, found: bool
+    rim_size_px: tuple[int, int], found: bool
 ) -> None:
     pixels = drawn_frame("pink", axes=(35, 50))
 

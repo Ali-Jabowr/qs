@@ -171,7 +171,7 @@ class CupTrigger:
         self._ended = ended
         # Cups cannot overlap, so a position less than half the smallest rim behind a followed
         # cup can only be that same cup, whatever the camera's resolution.
-        self._tracker = CupTracker(line.rim_axis_px[0] / 2)
+        self._tracker = CupTracker(line.rim_size_px[0] / 2)
         # The self-check (ADR-0029 §7): a slit across the travel, and the position along the travel
         # of its centre line, which a tracked cup's rim centre must cross to credit a warm stretch.
         self._slit = line.untracked_window

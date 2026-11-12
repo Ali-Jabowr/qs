@@ -11,7 +11,7 @@ from qs.config import LineConfig
 from qs.inspector.cup import find_rims
 from test_cup import RIM_GREY, drawn_frame
 
-LINE = LineConfig(zone=(20, 30, 240, 180), rim_axis_px=(50, 140), blob_share_min=0.3)
+LINE = LineConfig(zone=(20, 30, 240, 180), rim_size_px=(105, 105), blob_share_min=0.3)
 
 
 def _two_cups() -> np.ndarray:

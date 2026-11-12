@@ -98,7 +98,9 @@ class LocalizeConfig:
 @dataclass(frozen=True, slots=True)
 class LineConfig:
     zone: tuple[int, int, int, int]
-    rim_axis_px: tuple[int, int]
+    # The rim's (minor, major) axes measured on the mount, each accepted within ±5% of its own
+    # value (ADR-0029 §2-3).
+    rim_size_px: tuple[int, int]
     blob_share_min: float
     direction: str | None = None
     fps: float | None = None
@@ -113,10 +115,7 @@ class LineConfig:
     # also measured, so a warm passage with no tracked cup crossing it is reported. Needs
     # `warmth_min`, whose threshold it uses.
     untracked_window: tuple[int, int, int, int] | None = None
-    # The strict finder (ADR-0029 §2-3). `rim_size_px`: the rim's (minor, major) axes measured on
-    # the mount, each accepted within ±5% of its own value. `lens_mask_px`: (x, y, radius) left
-    # out of every warmth measure.
-    rim_size_px: tuple[int, int] | None = None
+    # The lens hole's reflection (ADR-0029 §2): (x, y, radius) left out of every warmth measure.
     lens_mask_px: tuple[int, int, int] | None = None
 
 
@@ -405,7 +404,9 @@ def _refuse_malformed_checks(mapping: Mapping[str, Any], parent: str) -> None:
             raise ConfigError(f"{path}: {name!r} is repeated")
 
 
-_STRICT_KEYS = ("rim_size_px", "lens_mask_px")
+# Keys a line station no longer reads, each with the key(s) that replaced it (#135): a config
+# still setting one would otherwise be judged by a rule that is gone.
+_REPLACED_LINE_KEYS: dict[str, tuple[str, ...]] = {"rim_axis_px": ("rim_size_px",)}
 _WARMTH_KEYS = ("warmth_min", "burst", "burst_min_frames", "warmth_spread_max", "max_speed_px_s")
 
 
@@ -430,13 +431,23 @@ def _parse_warmth(mapping: Mapping[str, Any], path: str) -> dict[str, Any]:
     return parsed
 
 
+def _refuse_replaced_keys(mapping: Mapping[str, Any], path: str) -> None:
+    for old, new in _REPLACED_LINE_KEYS.items():
+        if old in mapping:
+            raise ConfigError(
+                f"{_key(path, old)}: no longer read; replaced by "
+                + ", ".join(_key(path, key) for key in new)
+            )
+
+
 def _parse_line(value: object, path: str) -> LineConfig:
     mapping = _mapping(value, path)
+    _refuse_replaced_keys(mapping, path)
     _check_keys(
         mapping,
-        ("zone", "rim_axis_px", "blob_share_min"),
+        ("zone", "rim_size_px", "blob_share_min"),
         path,
-        optional=("direction", "fps", "untracked_window", *_WARMTH_KEYS, *_STRICT_KEYS),
+        optional=("direction", "fps", "untracked_window", "lens_mask_px", *_WARMTH_KEYS),
     )
     warmth = _parse_warmth(mapping, path)
     return LineConfig(
@@ -445,16 +456,12 @@ def _parse_line(value: object, path: str) -> LineConfig:
             _roi(mapping, "untracked_window", path) if "untracked_window" in mapping else None
         ),
         zone=_roi(mapping, "zone", path),
-        rim_axis_px=_pair(mapping, "rim_axis_px", path),
+        rim_size_px=_pair(mapping, "rim_size_px", path, "[minor, major]"),
         blob_share_min=_float(mapping, "blob_share_min", path),
         direction=(
             _enum(mapping, "direction", path, TRAVEL_DIRECTIONS) if "direction" in mapping else None
         ),
         fps=_float(mapping, "fps", path) if "fps" in mapping else None,
-        rim_size_px=(
-            _pair(mapping, "rim_size_px", path, "[minor, major]")
-            if "rim_size_px" in mapping else None
-        ),
         lens_mask_px=_circle(mapping, "lens_mask_px", path) if "lens_mask_px" in mapping else None,
     )
 
@@ -651,16 +658,16 @@ def _validate_line(line: LineConfig, config: StationConfig) -> None:
             "lighting.reference_patch.roi: overlaps inspector.line.zone — the grey card "
             "would be read as part of the view of a cup"
         )
-    low, high = line.rim_axis_px
-    if low >= high:
-        raise ConfigError(f"inspector.line.rim_axis_px: min {low} is not below max {high}")
-    if low < _RIM_AXIS_MIN_PX:
-        raise ConfigError(f"inspector.line.rim_axis_px: min {low} is below {_RIM_AXIS_MIN_PX}")
+    minor, major = line.rim_size_px
+    if minor > major:
+        raise ConfigError(f"inspector.line.rim_size_px: [{minor}, {major}] is not [minor, major]")
+    if minor < _RIM_AXIS_MIN_PX:
+        raise ConfigError(f"inspector.line.rim_size_px: minor {minor} is below {_RIM_AXIS_MIN_PX}")
     if not 0 < line.blob_share_min < 1:
         raise ConfigError(f"inspector.line.blob_share_min: {line.blob_share_min} is outside (0, 1)")
     if line.fps is not None and (not math.isfinite(line.fps) or line.fps <= 0):
         raise ConfigError(f"inspector.line.fps: {line.fps} is not a finite number above 0")
-    _validate_strict(line, config)
+    _validate_lens_mask(line, config)
     if line.warmth_min is not None:
         if config.camera.type != "replay":
             raise ConfigError(
@@ -676,7 +683,7 @@ def _validate_line(line: LineConfig, config: StationConfig) -> None:
         _check_in_frame("inspector.line.untracked_window", line.untracked_window, config)
         window_w, window_h = line.untracked_window[2:]
         along = window_w if line.direction in ("left", "right") else window_h
-        limit = line.rim_axis_px[0] // 2
+        limit = line.rim_size_px[0] // 2
         if along > limit:
             raise ConfigError(
                 f"inspector.line.untracked_window: {along} px along the travel; a slit is at most "
@@ -684,15 +691,8 @@ def _validate_line(line: LineConfig, config: StationConfig) -> None:
             )
 
 
-def _validate_strict(line: LineConfig, config: StationConfig) -> None:
-    """The measured-rim and lens-mask keys: integers that work with the rest of the block."""
-    low, high = line.rim_axis_px
-    size = line.rim_size_px
-    if size is not None and not low <= size[0] <= size[1] <= high:
-        raise ConfigError(
-            f"inspector.line.rim_size_px: [{size[0]}, {size[1]}] is not [minor, major] within "
-            f"rim_axis_px {low}-{high}"
-        )
+def _validate_lens_mask(line: LineConfig, config: StationConfig) -> None:
+    """The lens mask: a circle in the frame, on a station that measures warmth."""
     if line.lens_mask_px is not None:
         x, y, radius = line.lens_mask_px
         if radius < 1:
@@ -722,13 +722,13 @@ def _validate_warmth(line: LineConfig) -> None:
         raise ConfigError(f"inspector.line.warmth_spread_max: {spread} is not above 0")
     if not math.isfinite(speed) or speed <= 0:
         raise ConfigError(f"inspector.line.max_speed_px_s: {speed} is not above 0")
-    needed = line.rim_axis_px[1] + burst * speed / fps
+    needed = line.rim_size_px[1] + burst * speed / fps
     zone_w, zone_h = line.zone[2], line.zone[3]
     available = zone_w if line.direction in ("left", "right") else zone_h
     if available < needed:
         raise ConfigError(
             f"inspector.line.zone: {available} px along the travel is shorter than a rim "
-            f"({line.rim_axis_px[1]} px) plus {burst} frames of travel ({needed:.0f} px in all)"
+            f"({line.rim_size_px[1]} px) plus {burst} frames of travel ({needed:.0f} px in all)"
         )
 
 

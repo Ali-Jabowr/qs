@@ -47,7 +47,7 @@ def loaded(tmp_path: Path, models: Path) -> LoadedConfig:
     data["inspector"]["checks"] = ["empty_cup", "appearance"]
     data["inspector"]["line"] = {
         "zone": [20, 0, 240, 240],
-        "rim_axis_px": [50, 140],
+        "rim_size_px": [105, 105],
         "blob_share_min": 0.3,
     }
     path = tmp_path / "line.yml"

@@ -14,7 +14,7 @@ from qs.config import LineConfig
 from qs.inspector.cup import find_cup
 from station_fixtures import HEIGHT, PATCH_GREY, PATCH_ROI, WIDTH
 
-LINE = LineConfig(zone=(20, 0, 240, 240), rim_axis_px=(50, 140), blob_share_min=0.3)
+LINE = LineConfig(zone=(20, 0, 240, 240), rim_size_px=(105, 105), blob_share_min=0.3)
 CENTRE = (130, 120)
 ROUND = (50, 50)
 COLOURS = {"pale": (222, 228, 232), "pink": (190, 175, 240), "green": (60, 180, 60)}
@@ -89,7 +89,8 @@ def test_the_same_rim_is_found_whatever_the_cup_holds(contents: str) -> None:
 
 
 def test_an_elliptical_rim_is_found() -> None:
-    cup = find_cup(drawn_frame("pale", axes=(50, 34), angle=25.0), LINE)
+    tilted = LineConfig(zone=(20, 0, 240, 240), rim_size_px=(73, 105), blob_share_min=0.3)
+    cup = find_cup(drawn_frame("pale", axes=(50, 34), angle=25.0), tilted)
     assert cup is not None
     (cx, cy), axes, _ = cup.rim
     assert (cx, cy) == pytest.approx((130.0, 120.0), abs=2.0)
@@ -142,15 +143,17 @@ def test_a_cup_partly_out_of_the_zone_gives_none(centre: tuple[int, int]) -> Non
 
 def test_a_larger_neighbour_cut_by_the_zone_does_not_hide_the_cup_inside_it() -> None:
     pixels = drawn_frame("pale", centre=(80, 120), axes=(30, 30))
-    cv2.ellipse(pixels, (255, 120), (40, 40), 0.0, 0, 360, (RIM_GREY,) * 3, 3)
-    cup = find_cup(pixels, LINE)
+    # The neighbour is within the 5% a rim may differ from rim_size_px, so both are rims.
+    cv2.ellipse(pixels, (255, 120), (32, 32), 0.0, 0, 360, (RIM_GREY,) * 3, 3)
+    small = LineConfig(zone=(20, 0, 240, 240), rim_size_px=(67, 67), blob_share_min=0.3)
+    cup = find_cup(pixels, small)
     assert cup is not None
     (cx, cy), _, _ = cup.rim
     assert (cx, cy) == pytest.approx((80.0, 120.0), abs=2.0)
 
 
 def test_a_rim_outside_the_size_limits_gives_none() -> None:
-    narrow = LineConfig(zone=(20, 0, 240, 240), rim_axis_px=(120, 140), blob_share_min=0.3)
+    narrow = LineConfig(zone=(20, 0, 240, 240), rim_size_px=(130, 130), blob_share_min=0.3)
     assert find_cup(drawn_frame("pale"), narrow) is None
 
 

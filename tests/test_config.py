@@ -565,7 +565,7 @@ LINE_HEAD = "  type: line\n  checks: [empty_cup]\n"
 LINE_BLOCK = (
     "  line:\n"
     "    zone: [360, 0, 1200, 1080]\n"
-    "    rim_axis_px: [300, 600]\n"
+    "    rim_size_px: [300, 600]\n"
     "    blob_share_min: 0.3\n"
 )
 
@@ -575,7 +575,7 @@ def test_line_block_is_exposed_on_the_config(tmp_path: Path) -> None:
     line = loaded.config.inspector.line
     assert line is not None
     assert line.zone == (360, 0, 1200, 1080)
-    assert line.rim_axis_px == (300, 600)
+    assert line.rim_size_px == (300, 600)
     assert line.blob_share_min == 0.3
     assert loaded.config.inspector.checks == frozenset({"empty_cup"})
 
@@ -595,7 +595,7 @@ def test_line_example_loads_and_lists_only_the_empty_cup_check() -> None:
     [
         (LINE_HEAD, "inspector.line: a line inspector needs this block"),
         (
-            LINE_HEAD + "  line:\n    rim_axis_px: [300, 600]\n    blob_share_min: 0.3\n",
+            LINE_HEAD + "  line:\n    rim_size_px: [300, 600]\n    blob_share_min: 0.3\n",
             "missing key(s): inspector.line.zone",
         ),
         (
@@ -607,12 +607,12 @@ def test_line_example_loads_and_lists_only_the_empty_cup_check() -> None:
             "lighting.reference_patch.roi: overlaps inspector.line.zone",
         ),
         (
-            LINE_HEAD + LINE_BLOCK.replace("[300, 600]", "[600, 600]"),
-            "inspector.line.rim_axis_px: min 600 is not below max 600",
+            LINE_HEAD + LINE_BLOCK.replace("[300, 600]", "[600, 300]"),
+            "inspector.line.rim_size_px: [600, 300] is not [minor, major]",
         ),
         (
             LINE_HEAD + LINE_BLOCK.replace("[300, 600]", "[15, 600]"),
-            "inspector.line.rim_axis_px: min 15 is below 16",
+            "inspector.line.rim_size_px: minor 15 is below 16",
         ),
         (
             LINE_HEAD + LINE_BLOCK.replace("0.3", "0"),
@@ -689,7 +689,7 @@ def test_a_line_block_without_a_cup_trigger_needs_no_direction_or_pace(tmp_path:
         ("  type: appearance\n", "trigger.type: cup needs inspector.line"),
         ("  type: stub\n", "trigger.type: cup needs inspector.line"),
         (
-            LINE_HEAD + "  line:\n    rim_axis_px: [300, 600]\n    blob_share_min: 0.3\n"
+            LINE_HEAD + "  line:\n    rim_size_px: [300, 600]\n    blob_share_min: 0.3\n"
             + CUP_LINE_KEYS,
             "missing key(s): inspector.line.zone",
         ),

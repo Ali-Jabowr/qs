@@ -56,7 +56,7 @@ def _config_file(root: Path, *, line: bool = True, direction: str = "right") -> 
         data["inspector"]["checks"] = ["empty_cup"]
         data["inspector"]["line"] = {
             "zone": [20, 30, 240, 180],
-            "rim_axis_px": [50, 140],
+            "rim_size_px": [105, 105],
             "blob_share_min": 0.3,
             "direction": direction,
             "fps": FPS,
@@ -224,7 +224,7 @@ def test_a_cup_seen_but_never_wholly_in_the_zone_gives_one_placement(tmp_path: P
 
 
 def test_a_cup_never_seen_gives_no_event_and_no_record(tmp_path: Path) -> None:
-    """A rim too small for `rim_axis_px` is a cup the finder cannot see, between two it can."""
+    """A rim too small for `rim_size_px` is a cup the finder cannot see, between two it can."""
     unseen = [drawn_frame("pale", centre=(x, 120), axes=(20, 20), seed=x) for x in PATH_X]
     station = _Station(tmp_path, _crossing("pale") + unseen + _crossing("empty"))
     records = station.run()
