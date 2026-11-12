@@ -685,8 +685,11 @@ def _validate_warmth(line: LineConfig) -> None:
     """The warmth numbers, and the zone rule of docs/11 "Bursts": the zone is at least one rim
     plus `burst` frame periods of travel long (one to the first frame, burst - 1 between)."""
     burst, spread, speed, fps = line.burst, line.warmth_spread_max, line.max_speed_px_s, line.fps
-    if burst < 1:
-        raise ConfigError(f"inspector.line.burst: {burst} is below 1")
+    if burst < MIN_BURST_FRAMES:
+        raise ConfigError(
+            f"inspector.line.burst: {burst} is below {MIN_BURST_FRAMES}, the least "
+            "inspector.line.burst_min_frames allows (ADR-0031)"
+        )
     if line.burst_min_frames < MIN_BURST_FRAMES:
         raise ConfigError(
             f"inspector.line.burst_min_frames: {line.burst_min_frames} is below "
