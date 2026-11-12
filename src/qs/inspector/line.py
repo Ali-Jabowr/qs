@@ -45,7 +45,7 @@ from qs.inspector.appearance import (
     real_cuda_available,
     real_scorer,
 )
-from qs.inspector.cup import Cup, Ellipse, find_cup, inside_of
+from qs.inspector.cup import Cup, Ellipse, find_cup, inside_of, no_cup_reason
 from qs.inspector.model import Scorer
 
 LINE_MODEL_ID = "none"
@@ -129,8 +129,10 @@ class LineInspector:
 
     def _judge_by_warmth(self, frames: Sequence[Frame], line: LineConfig) -> Verdict:
         """The median warmth of the cup over the burst's frames that show it (ADR-0029 §4). Too
-        few frames, or warmth spread over `warmth_spread_max`, is a `PlacementFault`. The evidence
-        is the frame whose warmth is closest to the median (the earliest on a tie)."""
+        few frames, or warmth spread over `warmth_spread_max`, is a `PlacementFault`; when a frame
+        showed no cup, the fault adds why the first such frame had none (a wrong-size rim after a
+        remount, say). The evidence is the frame whose warmth is closest to the median (the
+        earliest on a tie)."""
         start = time.perf_counter()
         found = [(i, frame, cup) for i, frame in enumerate(frames)
                  if (cup := find_cup(frame.pixels, line)) is not None]
@@ -141,7 +143,12 @@ class LineInspector:
             seen = f"the cup was found on {len(found)} of {len(frames)} frames"
             if masked:
                 seen += f", the lens mask covered the whole inner half on {masked}"
-            raise PlacementFault(f"{seen}, fewer than the {line.burst_min_frames} needed")
+            fault = f"{seen}, fewer than the {line.burst_min_frames} needed"
+            found_at = {i for i, _, _ in found}
+            missed = next((f for i, f in enumerate(frames) if i not in found_at), None)
+            if missed is not None:
+                fault += f"; {no_cup_reason(missed.pixels, line)}"
+            raise PlacementFault(fault)
         kept = [(i, frame, cup) for i, frame, cup, _ in measured]
         warmths = np.array([w for *_, w in measured])
         spread = float(warmths.max() - warmths.min())
