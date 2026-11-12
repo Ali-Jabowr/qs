@@ -46,7 +46,8 @@ inspector:
     # rim) over a burst of frames (ADR-0029 §4). Every value below is a PLACEHOLDER, set per mount.
     warmth_min:        2.0                 # PLACEHOLDER: below this median warmth, the cup is empty
     burst:             3                   # frames judged per cup
-    burst_min_frames:  3                   # fewer frames showing the cup: НЕТ РЕШЕНИЯ (default 3)
+    burst_min_frames:  3                   # fewer frames showing the cup: НЕТ РЕШЕНИЯ (default 3,
+                                           # never below 3: the median of 3+ frames decides)
     warmth_spread_max: 15.0                # PLACEHOLDER: more spread over the burst: НЕТ РЕШЕНИЯ
     max_speed_px_s:    1200                # PLACEHOLDER: the chain's fastest speed in the picture;
                                            # the zone must be a rim plus burst frames of travel long
