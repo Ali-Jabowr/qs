@@ -157,11 +157,14 @@ class FrameSource(Protocol):
     than event.t0 plus one exposure time — never a buffered frame from before the trigger. It
     raises CaptureError on timeout or on a corrupt frame (wrong shape or dtype, or flat: every
     pixel within 1 grey level), and CameraSettingsDrift when a readable setting no longer
-    matches the config. preview() feeds the live view only; a preview frame is never
-    inspected."""
+    matches the config. capture_burst(event, n) returns the n consecutive frames from that
+    first one on, each later than event.t0 plus one exposure time, and raises like capture();
+    capture_burst(event, 1) is capture(event). A source that cannot burst raises ValueError
+    for n > 1. preview() feeds the live view only; a preview frame is never inspected."""
 
     def open(self) -> None: ...
     def capture(self, event: TriggerEvent) -> Frame: ...
+    def capture_burst(self, event: TriggerEvent, count: int) -> tuple[Frame, ...]: ...
     def preview(self) -> np.ndarray | None: ...
     def health(self) -> Health: ...
     def close(self) -> None: ...
@@ -172,10 +175,15 @@ class Inspector(Protocol):
     inspected twice returns the same score, or the evaluation harness is measuring noise.
 
     Must not do I/O. Must not mutate the frame. Must not read the clock for anything
-    other than its own timing. Owns no state that changes between frames."""
+    other than its own timing. Owns no state that changes between frames.
+
+    inspect_burst(frames) judges one unit from the burst the source returned for its event;
+    a burst of 1 is inspect(frame). An inspector that cannot judge a burst raises ValueError
+    for more than one frame."""
 
     def load(self, config: StationConfig) -> None: ...
     def inspect(self, frame: Frame) -> Verdict: ...
+    def inspect_burst(self, frames: Sequence[Frame]) -> Verdict: ...
     @property
     def model_id(self) -> str: ...
 
@@ -236,6 +244,54 @@ for a unit — the factory's photoelectric sensor.
 | C7 | `Label.NO_VERDICT` is never rendered or recorded as a pass | Invariant I6. This is the one that matters over open food |
 | C8 | For a completed inspection, `Verdict.label` is derived from `checks` alone: DEFECT if any check failed; PASS only if **every configured check** ran and passed. An exception anywhere inside `inspect()` is NO_VERDICT, and any partial results are discarded | A PASS with a check missing behind it is a silent pass |
 | C9 | A `preview()` frame is never inspected or recorded | Its moment is unknown; inspecting it breaks C4 |
+
+### Bursts
+
+After one trigger event a source can return a **burst** of N frames, and the inspector judges the
+unit from the burst. Every frame of the burst is later than `event.t0` plus one exposure (C4), and
+each is later than the one before. All N frames
+carry the same `event`. A burst of 1 is today's single capture, so the bench and today's line
+inspector, which run with a burst of 1, write the same records as before. A burst promises
+"N frames, each later than the last; even spacing is not promised".
+
+**Who bursts.** The pipeline calls `capture_burst` and `inspect_burst` only for a line station
+whose config sets `inspector.line.warmth_min`, with `inspector.line.burst` frames. Every other
+station calls `capture` and `inspect`. A verdict names its evidence frame in `evidence_index`
+(0 for a single frame); the record's image, camera read-back, reference patch and capture time are
+that frame's own.
+
+**Median warmth** (ADR-0029 decision 4). The line inspector measures each burst frame's cup as
+the mean of red minus blue over the inner half of the found rim (its ellipse at half the axes).
+The check's value is the median over the frames that show the cup, its limit is `warmth_min`, and
+its measures are `frames` (how many showed it) and `spread` (largest minus smallest warmth).
+Fewer than `burst_min_frames` (default 3) frames, or a spread above `warmth_spread_max`, is a
+`PlacementFault`. The evidence frame is the one whose warmth is closest to the median.
+
+**Zone rule.** On a line station with `warmth_min` the inspection zone must be at least
+
+    rim + burst * max_speed_px_s / fps
+
+long along the direction of travel, where `rim` is the larger of `rim_axis_px`. The cup keeps
+moving while the burst is taken: this is the conservative travel of one frame period to the first
+frame plus `burst - 1` frame intervals, and one rim size, since the last frame must still show the
+cup wholly in the zone. The check assumes one frame period per frame, so a source that drops
+frames makes it less conservative. `max_speed_px_s` is the fastest the chain moves, in pixels per second. The
+config loader refuses a shorter zone.
+
+**Measured rim and lens mask** (ADR-0029 decisions 2-3). Two optional keys of `inspector.line`; a
+config without them behaves as before.
+
+- `rim_size_px: [minor, major]`: the rim's axes in pixels, as measured on the mount. The finder
+  accepts a rim only when each of its axes, smaller first, is within ±5% of its own value, beside
+  `rim_axis_px`. A camera not straight overhead sees an ellipse, hence a pair. The pair must be in
+  order and lie inside `rim_axis_px`.
+- `lens_mask_px: [x, y, radius]`: a circle in frame pixels, left out of every warmth measurement.
+  Needs `warmth_min` and must lie in the frame. A burst frame whose inner half it covers wholly is
+  skipped as not measured, and `burst_min_frames` decides whether the burst still counts.
+
+Limit, unmeasured on real footage: the inspector re-finds the largest rim in the zone on the
+captured frame, so `rim_size_px` is what keeps a bigger reflection from being judged in place of
+the cup; without it, one can be.
 
 ## 4. Implementations
 

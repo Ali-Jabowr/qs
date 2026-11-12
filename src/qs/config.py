@@ -4,7 +4,8 @@ Nothing here has a default — a missing key is a `ConfigError`, never a silent 
 except `inspector.checks`, which may be left out, `inspector.line`, which only a line inspector
 has, its `direction` and `fps`, which only a cup trigger needs, and `display.pass_expiry_s`,
 `display.ready_line` and `display.placement_line`, which only a line screen sets (#104; left
-out on a line station, the line's own wording fills them) — and every rule of CONTRACTS §3.3
+out on a line station, the line's own wording fills them), and `lighting.own_dc_light`, which
+defaults to false (true only on a line station, ADR-0030) — and every rule of CONTRACTS §3.3
 refuses the config naming the offending key, so a bad config fails at start-up instead of
 quietly ruining a shoot.
 """
@@ -83,6 +84,7 @@ class ReferencePatchConfig:
 class LightingConfig:
     geometry: str
     reference_patch: ReferencePatchConfig | None  # None: no lighting check; a line station only
+    own_dc_light: bool = False  # own PWM-free DC light, line only (ADR-0030)
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,6 +102,18 @@ class LineConfig:
     blob_share_min: float
     direction: str | None = None
     fps: float | None = None
+    # The median-warmth verdict over a burst (ADR-0029 §4); a station without `warmth_min` keeps
+    # `blob_share`. `max_speed_px_s` is the fastest the chain moves, for the zone-length rule.
+    warmth_min: float | None = None
+    burst: int | None = None
+    burst_min_frames: int = 3
+    warmth_spread_max: float | None = None
+    max_speed_px_s: float | None = None
+    # The strict finder (ADR-0029 §2-3). `rim_size_px`: the rim's (minor, major) axes measured on
+    # the mount, each accepted within ±5% of its own value. `lens_mask_px`: (x, y, radius) left
+    # out of every warmth measure.
+    rim_size_px: tuple[int, int] | None = None
+    lens_mask_px: tuple[int, int, int] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -230,6 +244,13 @@ def _int(mapping: Mapping[str, Any], key: str, parent: str) -> int:
     return value
 
 
+def _bool(mapping: Mapping[str, Any], key: str, parent: str) -> bool:
+    value = mapping[key]
+    if not isinstance(value, bool):
+        raise ConfigError(f"{_key(parent, key)}: expected a boolean, got {_kind(value)}")
+    return value
+
+
 def _float(mapping: Mapping[str, Any], key: str, parent: str) -> float:
     value = mapping[key]
     if isinstance(value, bool) or not isinstance(value, (int, float)):
@@ -258,16 +279,30 @@ def _roi(mapping: Mapping[str, Any], key: str, parent: str) -> tuple[int, int, i
     return (value[0], value[1], value[2], value[3])
 
 
-def _pair(mapping: Mapping[str, Any], key: str, parent: str) -> tuple[int, int]:
+def _pair(
+    mapping: Mapping[str, Any], key: str, parent: str, names: str = "[min, max]"
+) -> tuple[int, int]:
     value = mapping[key]
     path = _key(parent, key)
     if not isinstance(value, list) or not all(
         isinstance(x, int) and not isinstance(x, bool) for x in value
     ):
-        raise ConfigError(f"{path}: expected two integers [min, max], got {value!r}")
+        raise ConfigError(f"{path}: expected two integers {names}, got {value!r}")
     if len(value) != 2:
-        raise ConfigError(f"{path}: expected two integers [min, max], got {value!r}")
+        raise ConfigError(f"{path}: expected two integers {names}, got {value!r}")
     return (value[0], value[1])
+
+
+def _circle(mapping: Mapping[str, Any], key: str, parent: str) -> tuple[int, int, int]:
+    value = mapping[key]
+    path = _key(parent, key)
+    if (
+        not isinstance(value, list)
+        or len(value) != 3
+        or not all(isinstance(x, int) and not isinstance(x, bool) for x in value)
+    ):
+        raise ConfigError(f"{path}: expected three integers [x, y, radius], got {value!r}")
+    return (value[0], value[1], value[2])
 
 
 def _parse_trigger(value: object, path: str) -> TriggerConfig:
@@ -325,7 +360,7 @@ def _parse_reference_patch(value: object, path: str) -> ReferencePatchConfig:
 
 def _parse_lighting(value: object, path: str) -> LightingConfig:
     mapping = _mapping(value, path)
-    _check_keys(mapping, ("geometry", "reference_patch"), path)
+    _check_keys(mapping, ("geometry", "reference_patch"), path, optional=("own_dc_light",))
     return LightingConfig(
         geometry=_enum(mapping, "geometry", path, _LIGHTING_GEOMETRIES),
         reference_patch=(
@@ -333,6 +368,7 @@ def _parse_lighting(value: object, path: str) -> LightingConfig:
             if mapping["reference_patch"] is None
             else _parse_reference_patch(mapping["reference_patch"], _key(path, "reference_patch"))
         ),
+        own_dc_light=_bool(mapping, "own_dc_light", path) if "own_dc_light" in mapping else False,
     )
 
 
@@ -365,12 +401,42 @@ def _refuse_malformed_checks(mapping: Mapping[str, Any], parent: str) -> None:
             raise ConfigError(f"{path}: {name!r} is repeated")
 
 
+_STRICT_KEYS = ("rim_size_px", "lens_mask_px")
+_WARMTH_KEYS = ("warmth_min", "burst", "burst_min_frames", "warmth_spread_max", "max_speed_px_s")
+
+
+def _parse_warmth(mapping: Mapping[str, Any], path: str) -> dict[str, Any]:
+    """The warmth keys present, parsed: all or none of them, with `burst_min_frames` optional."""
+    if "warmth_min" not in mapping:
+        extra = [key for key in _WARMTH_KEYS if key in mapping]
+        if extra:
+            raise ConfigError(f"{_key(path, extra[0])}: needs {_key(path, 'warmth_min')} to be set")
+        return {}
+    for key in ("burst", "warmth_spread_max", "max_speed_px_s", "direction", "fps"):
+        if key not in mapping:
+            raise ConfigError(f"{_key(path, key)}: a station with warmth_min needs this key")
+    parsed: dict[str, Any] = {
+        "warmth_min": _float(mapping, "warmth_min", path),
+        "burst": _int(mapping, "burst", path),
+        "warmth_spread_max": _float(mapping, "warmth_spread_max", path),
+        "max_speed_px_s": _float(mapping, "max_speed_px_s", path),
+    }
+    if "burst_min_frames" in mapping:
+        parsed["burst_min_frames"] = _int(mapping, "burst_min_frames", path)
+    return parsed
+
+
 def _parse_line(value: object, path: str) -> LineConfig:
     mapping = _mapping(value, path)
     _check_keys(
-        mapping, ("zone", "rim_axis_px", "blob_share_min"), path, optional=("direction", "fps")
+        mapping,
+        ("zone", "rim_axis_px", "blob_share_min"),
+        path,
+        optional=("direction", "fps", *_WARMTH_KEYS, *_STRICT_KEYS),
     )
+    warmth = _parse_warmth(mapping, path)
     return LineConfig(
+        **warmth,
         zone=_roi(mapping, "zone", path),
         rim_axis_px=_pair(mapping, "rim_axis_px", path),
         blob_share_min=_float(mapping, "blob_share_min", path),
@@ -378,6 +444,11 @@ def _parse_line(value: object, path: str) -> LineConfig:
             _enum(mapping, "direction", path, TRAVEL_DIRECTIONS) if "direction" in mapping else None
         ),
         fps=_float(mapping, "fps", path) if "fps" in mapping else None,
+        rim_size_px=(
+            _pair(mapping, "rim_size_px", path, "[minor, major]")
+            if "rim_size_px" in mapping else None
+        ),
+        lens_mask_px=_circle(mapping, "lens_mask_px", path) if "lens_mask_px" in mapping else None,
     )
 
 
@@ -582,6 +653,62 @@ def _validate_line(line: LineConfig, config: StationConfig) -> None:
         raise ConfigError(f"inspector.line.blob_share_min: {line.blob_share_min} is outside (0, 1)")
     if line.fps is not None and (not math.isfinite(line.fps) or line.fps <= 0):
         raise ConfigError(f"inspector.line.fps: {line.fps} is not a finite number above 0")
+    _validate_strict(line, config)
+    if line.warmth_min is not None:
+        if config.camera.type != "replay":
+            raise ConfigError(
+                "inspector.line.warmth_min: needs camera.type replay: multi-frame capture is "
+                "only available from recorded video for now"
+            )
+        _validate_warmth(line)
+
+
+def _validate_strict(line: LineConfig, config: StationConfig) -> None:
+    """The measured-rim and lens-mask keys: integers that work with the rest of the block."""
+    low, high = line.rim_axis_px
+    size = line.rim_size_px
+    if size is not None and not low <= size[0] <= size[1] <= high:
+        raise ConfigError(
+            f"inspector.line.rim_size_px: [{size[0]}, {size[1]}] is not [minor, major] within "
+            f"rim_axis_px {low}-{high}"
+        )
+    if line.lens_mask_px is not None:
+        x, y, radius = line.lens_mask_px
+        if radius < 1:
+            raise ConfigError(f"inspector.line.lens_mask_px: radius {radius} is below 1")
+        _check_in_frame("inspector.line.lens_mask_px", (x - radius, y - radius, 2 * radius + 1,
+                                                         2 * radius + 1), config)
+        if line.warmth_min is None:
+            raise ConfigError(
+                "inspector.line.lens_mask_px: needs warmth_min: only the warmth measure uses it"
+            )
+
+
+def _validate_warmth(line: LineConfig) -> None:
+    """A warmth station's numbers, and the zone rule of docs/11 "Bursts": the zone is at least one
+    rim plus `burst` frame periods of travel long (one to the first frame, burst - 1 between)."""
+    burst, spread, speed, fps = line.burst, line.warmth_spread_max, line.max_speed_px_s, line.fps
+    if burst is None or spread is None or speed is None or fps is None or line.direction is None:
+        raise ConfigError("inspector.line: the warmth keys are incomplete")  # the parser ensures
+    if burst < 1:
+        raise ConfigError(f"inspector.line.burst: {burst} is below 1")
+    if not 1 <= line.burst_min_frames <= burst:
+        raise ConfigError(
+            f"inspector.line.burst_min_frames: {line.burst_min_frames} is not within 1 and "
+            f"burst ({burst})"
+        )
+    if not math.isfinite(spread) or spread <= 0:
+        raise ConfigError(f"inspector.line.warmth_spread_max: {spread} is not above 0")
+    if not math.isfinite(speed) or speed <= 0:
+        raise ConfigError(f"inspector.line.max_speed_px_s: {speed} is not above 0")
+    needed = line.rim_axis_px[1] + burst * speed / fps
+    zone_w, zone_h = line.zone[2], line.zone[3]
+    available = zone_w if line.direction in ("left", "right") else zone_h
+    if available < needed:
+        raise ConfigError(
+            f"inspector.line.zone: {available} px along the travel is shorter than a rim "
+            f"({line.rim_axis_px[1]} px) plus {burst} frames of travel ({needed:.0f} px in all)"
+        )
 
 
 def _validate_cup_trigger(config: StationConfig) -> None:
@@ -601,7 +728,16 @@ def _validate(config: StationConfig) -> None:
         _validate_cup_trigger(config)
     if config.camera.exposure_us <= 0:
         raise ConfigError(f"camera.exposure_us: {config.camera.exposure_us} is not above 0")
-    if config.camera.power_line_hz == 50 and config.camera.exposure_us % 10000 != 0:
+    if config.lighting.own_dc_light and config.inspector.line is None:
+        raise ConfigError(
+            "lighting.own_dc_light: only a line station may declare its own DC light — "
+            "the bench keeps the flicker rule"
+        )
+    if (
+        config.camera.power_line_hz == 50
+        and config.camera.exposure_us % 10000 != 0
+        and not config.lighting.own_dc_light
+    ):
         raise ConfigError(
             f"camera.exposure_us: {config.camera.exposure_us} is not a multiple of 10000 "
             "(10 ms), required with 50 Hz mains to avoid flicker banding"

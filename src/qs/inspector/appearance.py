@@ -28,14 +28,22 @@ from __future__ import annotations
 
 import math
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 
 from qs.config import StationConfig
-from qs.contracts import CHECK_APPEARANCE, CHECK_GEOMETRY, CheckResult, Frame, Verdict, derive_label
+from qs.contracts import (
+    CHECK_APPEARANCE,
+    CHECK_GEOMETRY,
+    CheckResult,
+    Frame,
+    Verdict,
+    derive_label,
+    only_frame,
+)
 from qs.errors import InferenceError
 from qs.inspector.bundle import Bundle, load_bundle
 from qs.inspector.geometry import check_geometry, measure
@@ -163,6 +171,10 @@ class AppearanceInspector:
             make_scorer=self._make_scorer, cuda_available=self._cuda_available,
         )
         self._loaded = _Loaded(config, model)
+
+    def inspect_burst(self, frames: Sequence[Frame]) -> Verdict:
+        """A burst of 1 is `inspect`; the bench inspector judges no burst longer than 1."""
+        return self.inspect(only_frame(frames))
 
     def inspect(self, frame: Frame) -> Verdict:
         """One `Verdict` carrying the geometry and appearance checks (C8)."""
