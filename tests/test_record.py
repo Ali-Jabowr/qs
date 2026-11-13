@@ -1,9 +1,11 @@
 import argparse
 import json
+import re
 from pathlib import Path
 
 import pytest
 
+from qs import __main__ as qs_main
 from qs.cmd import record
 from qs.sources import v4l2
 
@@ -194,3 +196,176 @@ def test_existing_output_is_never_overwritten(tmp_path: Path, existing: str) -> 
     assert rig.run() == 2
     assert (rig.out / existing).read_text() == "keep"
     assert rig.started == []
+
+
+# ---- review of #165: controls are set, bad input is one line, times in milliseconds ----
+
+
+class HoldingControls(FakeControls):
+    """A camera that keeps what it is given, and remembers what it was given."""
+
+    def __init__(self, values: dict[int, int], deaf: tuple[int, ...] = ()) -> None:
+        super().__init__(values)
+        self.calls: list[tuple[int, int]] = []
+        self.deaf = deaf  # controls the device does not have: setting them does nothing
+
+    def set(self, cid: int, value: int) -> None:
+        self.calls.append((cid, value))
+        if cid not in self.deaf:
+            self.values[cid] = value
+
+
+class HoldingRig(Rig):
+    def __init__(self, tmp_path: Path, start: dict[int, int] | None = None,
+                 **process: object) -> None:
+        super().__init__(tmp_path, **process)
+        self.controls = HoldingControls({**OBEDIENT, **(start or {})})
+        self.hash_fn = lambda path: "fakehash"
+
+    def run(self, seconds: int | None = 60, block: str = "train") -> int:
+        args = argparse.Namespace(camera=str(self.camera), out=str(self.out), clip="T-1",
+                                  block=block, seconds=seconds)
+        return record.main(
+            args,
+            start_process=self.start,
+            make_controls=lambda device: self.controls,
+            clock=lambda: next(self.times),
+            file_hash=self.hash_fn,
+        )
+
+
+def test_controls_are_set_before_recording(tmp_path: Path) -> None:
+    rig = HoldingRig(tmp_path, start={v4l2.CID_GAIN: 80, v4l2.CID_EXPOSURE_ABSOLUTE: 3})
+    assert rig.run() == 0
+    assert rig.sidecar()["drifted"] is False
+    assert (v4l2.CID_EXPOSURE_AUTO, 1) in rig.controls.calls
+    assert (v4l2.CID_EXPOSURE_ABSOLUTE, 20) in rig.controls.calls
+    assert (v4l2.CID_GAIN, 64) in rig.controls.calls
+
+
+@pytest.mark.parametrize("change", [
+    ("exposure_us: 2000", "exposure_us: 150"),
+    ("power_line_hz: 50", "power_line_hz: 55"),
+    ("format: MJPG", "format: YUYV"),
+    ("fps: 30", "fps: 0"),
+    ("fps: 30", "fps: 29.97"),
+    ("gain: 64\n", ""),
+    ("focus: 30", "focus: 30\nzoom: 1"),
+])
+def test_bad_camera_file_is_one_line_and_nothing_starts(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], change: tuple[str, str]
+) -> None:
+    rig = HoldingRig(tmp_path)
+    rig.camera.write_text(CAMERA_YML.replace(*change))
+    assert rig.run() == 2
+    assert rig.started == []
+    assert len(capsys.readouterr().out.strip().splitlines()) == 1
+
+
+def test_missing_camera_file_is_one_line(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    rig = HoldingRig(tmp_path)
+    rig.camera.unlink()
+    assert rig.run() == 2
+    assert len(capsys.readouterr().out.strip().splitlines()) == 1
+
+
+def test_drift_before_recording_is_one_line(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    class Stubborn(HoldingControls):
+        def set(self, cid: int, value: int) -> None:
+            pass
+
+    rig = HoldingRig(tmp_path)
+    rig.controls = Stubborn({**OBEDIENT, v4l2.CID_GAIN: 80})
+    assert rig.run() == 2
+    out = capsys.readouterr().out.strip().splitlines()
+    assert len(out) == 1
+    assert "gain" in out[0]
+
+
+def test_times_have_milliseconds() -> None:
+    assert re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z", record._now())
+
+
+def test_each_unreported_control_gets_a_line(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    rig = HoldingRig(tmp_path)
+    rig.controls = HoldingControls(
+        {k: v for k, v in OBEDIENT.items() if k != v4l2.CID_FOCUS_ABSOLUTE},
+        deaf=(v4l2.CID_FOCUS_ABSOLUTE,),
+    )
+    assert rig.run() == 0
+    out = capsys.readouterr().out.strip().splitlines()
+    assert len(out) == 1
+    assert "focus" in out[0]
+
+
+def test_all_four_main_controls_unreadable_refuses(tmp_path: Path) -> None:
+    four = (v4l2.CID_EXPOSURE_ABSOLUTE, v4l2.CID_GAIN, v4l2.CID_WHITE_BALANCE_TEMPERATURE,
+            v4l2.CID_FOCUS_ABSOLUTE)
+    rig = HoldingRig(tmp_path)
+    rig.controls = HoldingControls(
+        {k: v for k, v in OBEDIENT.items() if k not in four}, deaf=four
+    )
+    assert rig.run() == 2
+    assert rig.started == []
+    assert not (rig.out / "T-1.json").exists()
+
+
+def test_missing_video_after_clean_exit_is_one_line(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    rig = HoldingRig(tmp_path)
+
+    def gone(path: Path) -> str:
+        raise OSError("no such file")
+
+    rig.hash_fn = gone
+    assert rig.run() == 2
+    assert len(capsys.readouterr().out.strip().splitlines()) == 1
+    assert not (rig.out / "T-1.json").exists()
+
+
+def test_second_ctrl_c_is_one_line(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    rig = HoldingRig(tmp_path)
+
+    def start(argv: list[str]) -> FakeProcess:
+        rig.started.append(argv)
+        proc = FakeProcess(rig.controls, Path(argv[-1]))
+
+        def always() -> int:
+            raise KeyboardInterrupt
+
+        proc.wait = always  # type: ignore[method-assign]
+        return proc
+
+    rig.start = start  # type: ignore[method-assign]
+    assert rig.run(seconds=None) == 2
+    assert len(capsys.readouterr().out.strip().splitlines()) == 1
+    assert not (rig.out / "T-1.json").exists()
+
+
+def test_ffmpeg_exit_code_is_named(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    rig = HoldingRig(tmp_path, code=3)
+    assert rig.run() == 2
+    assert "code 3" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("seconds", ["0", "-5"])
+def test_seconds_must_be_above_zero(seconds: str) -> None:
+    with pytest.raises(SystemExit):
+        qs_main.run(["record", "--camera", "c.yml", "--out", "d", "--clip", "T-1",
+                     "--block", "train", "--seconds", seconds])
+
+
+def test_dispatch_reaches_record(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    code = qs_main.run(["record", "--camera", str(tmp_path / "none.yml"), "--out",
+                        str(tmp_path / "d"), "--clip", "T-1", "--block", "train"])
+    assert code == 2
+    assert "none.yml" in capsys.readouterr().out
