@@ -82,11 +82,11 @@ def verdict(run: Run, threshold: float) -> Label:
 
 def pair_runs(
     cups: Sequence[Cup], runs: Sequence[Run], window: int
-) -> tuple[list[tuple[Cup, Run | None]], int]:
+) -> tuple[list[tuple[Cup, Run | None]], list[Run]]:
     """Each labelled pass, by `(frame, order)`, with an unused run, or None; `runs` are taken in
     frame order. The run that holds the pass's frame wins; failing that, the nearest run within
-    `window` frames of it (distance to `[first, last]`), the earlier one on a tie. Also the number
-    of runs left unpaired that overlap the span from the first pass to the last."""
+    `window` frames of it (distance to `[first, last]`), the earlier one on a tie. Also the runs
+    left unpaired that overlap the span from the first pass to the last, in frame order."""
     if len({cup.video for cup in cups}) > 1:
         raise ValueError("cups must all come from one video, as the runs do")
     ordered = sorted(cups, key=lambda cup: (cup.frame, cup.order))
@@ -103,13 +103,13 @@ def pair_runs(
             used.add(match)
         pairs.append((cup, None if match is None else by_frame[match]))
     if not ordered:
-        return pairs, 0
+        return pairs, []
     low, high = ordered[0].frame, ordered[-1].frame
-    unpaired = sum(
-        1
+    unpaired = [
+        run
         for i, run in enumerate(by_frame)
         if i not in used and run.last >= low and run.first <= high
-    )
+    ]
     return pairs, unpaired
 
 

@@ -143,7 +143,7 @@ def run(first: int, last: int, score: float = 0.05) -> Run:
         (
             [cup(1, 100), cup(2, 300)],
             [run(100, 102), run(200, 202), run(300, 302)],
-            [],
+            0,
             [(cup(1, 100), run(100, 102)), (cup(2, 300), run(300, 302))],
             [run(200, 202)],
         ),
