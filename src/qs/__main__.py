@@ -345,9 +345,16 @@ def build_parser() -> argparse.ArgumentParser:
     from qs.cmd import lane_split
 
     lane_split.add_parser(commands)
+
+    from qs.cmd import train_lane
+
+    train_lane.add_parser(commands)
     from qs.cmd import record
 
     record.add_parser(commands)
+    from qs.cmd import train_lane_b
+
+    train_lane_b.add_parser(commands)
     return parser
 
 
@@ -426,10 +433,18 @@ def run(argv: Sequence[str] | None = None) -> int:
         from qs.cmd import lane_split
 
         return lane_split.main(args)
+    if args.command == "train-lane":
+        from qs.cmd import train_lane
+
+        return train_lane.main(args)
     if args.command == "record":
         from qs.cmd import record
 
         return record.main(args)
+    if args.command == "train-lane-b":
+        from qs.cmd import train_lane_b
+
+        return train_lane_b.main(args)
     raise AssertionError(f"unhandled command {args.command!r}")
 
 
