@@ -302,3 +302,24 @@ def test_pair_runs_refuses_cups_of_two_videos():
     cups = [cup(1, 100), Cup(video="b.mp4", order=1, state=CupState.FULL, frame=300)]
     with pytest.raises(ValueError, match="one video"):
         pair_runs(cups, [run(90, 110)], 15)
+
+
+@pytest.mark.parametrize(
+    ("first_state", "second_state"),
+    [(CupState.EMPTY, CupState.FULL), (CupState.FULL, CupState.EMPTY)],
+)
+def test_a_pass_without_a_run_does_not_take_the_run_that_holds_the_next_pass(
+    first_state, second_state
+):
+    early = Cup(video="a.mp4", order=1, state=first_state, frame=100)
+    late = Cup(video="a.mp4", order=2, state=second_state, frame=116)
+    pairs, unpaired = pair_runs([early, late], [run(110, 122, 0.9)], 15)
+    assert (pairs, unpaired) == ([(early, None), (late, run(110, 122, 0.9))], [])
+
+
+def test_a_run_26_frames_from_a_pass_is_not_taken_by_it():
+    pairs, unpaired = pair_runs([cup(1, 100), cup(2, 132)], [run(126, 138, 0.9)], 15)
+    assert (pairs, unpaired) == (
+        [(cup(1, 100), None), (cup(2, 132), run(126, 138, 0.9))],
+        [],
+    )
