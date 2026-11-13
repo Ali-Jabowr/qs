@@ -33,15 +33,19 @@ def add_parser(commands: Any) -> None:
 
 
 def main(args: argparse.Namespace) -> int:
+    out = Path(args.out)
     try:
+        if out.exists():
+            raise ConfigError(f"{out} already exists: delete it to write a new split")
         split = build_split(Path(args.footage), args.train, args.calibrate, args.test,
                             file_sha256, args.allow_drifted)
-        write_split(split, Path(args.out))
     except ConfigError as exc:
         print(f"lane-split: {exc}")
         return 2
+    try:
+        write_split(split, out)
     except OSError as exc:
-        print(f"lane-split: {args.out} cannot be written: {exc}")
+        print(f"lane-split: {out} cannot be written: {exc}")
         return 2
     print(f"lane-split: {len(split.clips)} clips written to {args.out}")
     return 0
