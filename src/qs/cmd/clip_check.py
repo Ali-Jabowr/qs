@@ -3,7 +3,12 @@
     qs clip-check VIDEO [--sharp-min 30.0]
 
 Reads the clip and its sidecar (`<same name>.json`, written by `qs record`) and writes nothing.
-Prints the five numbers and one `WARN` line for each fault.
+Prints the numbers and one `WARN` line for each fault.
+
+Two numbers are built to ignore cups passing through the picture, which real footage always has:
+`shift` compares the per-pixel median of frames sampled over the first and the last 10 s (a cup in
+view for under half of a window drops out of the median), and the frame count warns on gaps between
+frame timestamps, not on the wall-clock total, which includes the recorder's start-up.
 
 Exit codes: 0 clean · 1 at least one WARN · 2 could not run (no sidecar, unreadable clip).
 """
@@ -13,6 +18,7 @@ from __future__ import annotations
 import argparse
 import json
 from collections import deque
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -21,19 +27,27 @@ from typing import Any
 import cv2
 import numpy as np
 
-from qs.labels import FrameReadError, VideoFrames
-
 SAMPLE_EVERY = 15
-EDGE_FRAMES = 30
+EDGE_SAMPLES = 30
+EDGE_SECONDS = 10.0
 SWING_FRAMES = 60
-FRAMES_MIN_SHARE = 0.99
 SATURATED_MAX = 0.02
 SHIFT_MAX_PX = 2.0
 SATURATION_LEVEL = 250
+GAP_FACTOR = 1.5  # a step over 1.5 frame periods means frames are missing
+GAP_MAX_S = 0.2
+MISSING_MAX_SHARE = 0.001
+UNREADABLE_TOLERANCE = 2  # a container's frame count is an estimate; ignore +-2 frames
 
 
 class ClipCheckError(ValueError):
     """The clip or its sidecar could not be read; the check cannot run."""
+
+
+@dataclass(frozen=True, slots=True)
+class GapStats:
+    missing: int
+    longest_s: float
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,6 +57,8 @@ class ClipStats:
     saturated: float
     shift: float
     swing: float
+    gaps: GapStats
+    unreadable_at: int | None
 
 
 def add_parser(commands: Any) -> None:
@@ -66,6 +82,19 @@ def expected_frames(sidecar: dict[str, Any]) -> int:
     return round((stopped - started).total_seconds() * fps)
 
 
+def frame_gaps(timestamps_ms: Sequence[float]) -> GapStats:
+    """Frames missing where a step exceeds 1.5 frame periods (the median step), and the longest
+    step in seconds. `ClipCheckError` if the timestamps do not advance."""
+    if len(timestamps_ms) < 2:
+        return GapStats(missing=0, longest_s=0.0)
+    steps = np.diff(np.asarray(timestamps_ms, dtype=np.float64))
+    period = float(np.median(steps))
+    if period <= 0:
+        raise ClipCheckError("the video's frame timestamps do not advance")
+    missing = sum(round(step / period) - 1 for step in steps if step > GAP_FACTOR * period)
+    return GapStats(missing=missing, longest_s=float(steps.max()) / 1000.0)
+
+
 def sharpness(frame: np.ndarray) -> float:
     """Variance of the Laplacian of the grey picture."""
     grey = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -77,9 +106,15 @@ def saturated_share(frame: np.ndarray) -> float:
     return float((frame.max(axis=2) >= SATURATION_LEVEL).mean())
 
 
-def shift_px(first: np.ndarray, last: np.ndarray) -> float:
-    """Length in pixels of the phase-correlation shift between two float32 grey pictures."""
-    (dx, dy), _response = cv2.phaseCorrelate(first, last)
+def _median_grey(frames: Sequence[np.ndarray]) -> np.ndarray:
+    greys = [cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY).astype(np.float32) for frame in frames]
+    return np.median(greys, axis=0).astype(np.float32)
+
+
+def shift_px(head: Sequence[np.ndarray], tail: Sequence[np.ndarray]) -> float:
+    """Length in pixels of the phase-correlation shift between the per-pixel median grey pictures
+    of two sets of frames."""
+    (dx, dy), _response = cv2.phaseCorrelate(_median_grey(head), _median_grey(tail))
     return float(np.hypot(dx, dy))
 
 
@@ -89,49 +124,52 @@ def swing(brightness: list[float]) -> float:
     return float(values.std() / values.mean()) if values.mean() > 0 else 0.0
 
 
-def _grey32(frame: np.ndarray) -> np.ndarray:
-    return cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY).astype(np.float32)
-
-
-def measure(video: Path) -> ClipStats:
+def measure(video: Path, fps: float) -> ClipStats:
     """Decode the clip once, in order, and take every number.
     `ClipCheckError` if it cannot be read."""
+    capture = cv2.VideoCapture(str(video))
     try:
-        frames = VideoFrames(video)
-    except FrameReadError as exc:
-        raise ClipCheckError(str(exc)) from exc
-    sharp: list[float] = []
-    sat: list[float] = []
-    brightness: list[float] = []
-    head: list[np.ndarray] = []
-    tail: deque[np.ndarray] = deque(maxlen=EDGE_FRAMES)
-    decoded = 0
-    try:
-        for position in range(len(frames.ids)):
-            try:
-                frame = frames.read(position)
-            except FrameReadError:
-                break  # the rest is not decodable; the frame count shows it
+        if not capture.isOpened():
+            raise ClipCheckError(f"cannot open the video {video}")
+        count = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
+        if count <= 0:
+            raise ClipCheckError(f"the video {video} reports no frames")
+        window = max(1, min(round(EDGE_SECONDS * fps), count // 3))
+        every = max(1, window // EDGE_SAMPLES)
+        sharp: list[float] = []
+        sat: list[float] = []
+        brightness: list[float] = []
+        stamps: list[float] = []
+        head: list[np.ndarray] = []
+        tail: deque[np.ndarray] = deque(maxlen=EDGE_SAMPLES)
+        decoded = 0
+        while True:
+            ok, frame = capture.read()
+            if not ok:
+                break
+            stamps.append(float(capture.get(cv2.CAP_PROP_POS_MSEC)))
             if decoded % SAMPLE_EVERY == 0:
                 sharp.append(sharpness(frame))
                 sat.append(saturated_share(frame))
-            grey = _grey32(frame)
             if decoded < SWING_FRAMES:
                 brightness.append(float(frame.mean()))
-            if decoded < EDGE_FRAMES:
-                head.append(grey)
-            tail.append(grey)
+            if decoded % every == 0:
+                if decoded < window and len(head) < EDGE_SAMPLES:
+                    head.append(frame)
+                tail.append(frame)
             decoded += 1
     finally:
-        frames.close()
+        capture.release()
     if decoded == 0:
         raise ClipCheckError(f"no frame of {video} could be decoded")
     return ClipStats(
         decoded=decoded,
         sharpness=float(np.median(sharp)),
         saturated=float(np.mean(sat)),
-        shift=shift_px(np.mean(head, axis=0), np.mean(tail, axis=0)),
+        shift=shift_px(head, list(tail)),
         swing=swing(brightness),
+        gaps=frame_gaps(stamps),
+        unreadable_at=decoded if decoded < count - UNREADABLE_TOLERANCE else None,
     )
 
 
@@ -152,31 +190,43 @@ def _sidecar(video: Path) -> dict[str, Any]:
     return data
 
 
-def report(stats: ClipStats, expected: int, sharp_min: float) -> list[str]:
+def report(
+    stats: ClipStats, expected: int, sharp_min: float, drifted: bool = False
+) -> list[str]:
     """The number lines, then one WARN line per fault."""
     lines = [
         f"frames {stats.decoded} of {expected}",
+        f"gaps {stats.gaps.missing} missing, longest {stats.gaps.longest_s:.3f} s",
         f"sharpness {stats.sharpness:.1f}",
-        f"saturated {stats.saturated:.2f}",
+        f"saturated {stats.saturated:.3f}",
         f"shift {stats.shift:.1f}",
         f"swing {stats.swing:.3f}",
     ]
-    if stats.decoded < FRAMES_MIN_SHARE * expected:
-        lines.append(f"WARN frames {stats.decoded} of {expected}: frames were dropped")
+    total = stats.decoded + stats.gaps.missing
+    if stats.gaps.longest_s > GAP_MAX_S or stats.gaps.missing > MISSING_MAX_SHARE * total:
+        lines.append(
+            f"WARN gaps {stats.gaps.missing} frames missing, longest {stats.gaps.longest_s:.3f} s"
+        )
+    if stats.unreadable_at is not None:
+        lines.append(f"WARN unreadable at frame {stats.unreadable_at}")
     if stats.sharpness < sharp_min:
         lines.append(f"WARN sharpness {stats.sharpness:.1f} below {sharp_min}: blurred")
     if stats.saturated > SATURATED_MAX:
-        lines.append(f"WARN saturated {stats.saturated:.2f} above {SATURATED_MAX}: glare")
+        lines.append(f"WARN saturated {stats.saturated:.3f} above {SATURATED_MAX}: glare")
     if stats.shift > SHIFT_MAX_PX:
         lines.append(f"WARN shift {stats.shift:.1f} px above {SHIFT_MAX_PX}: scene moved")
+    if drifted:
+        lines.append("WARN drifted: a camera setting changed during the recording")
     return lines
 
 
 def main(args: argparse.Namespace) -> int:
     video = Path(args.video)
     try:
-        expected = expected_frames(_sidecar(video))
-        lines = report(measure(video), expected, args.sharp_min)
+        sidecar = _sidecar(video)
+        expected = expected_frames(sidecar)
+        stats = measure(video, float(sidecar["fps"]))
+        lines = report(stats, expected, args.sharp_min, sidecar.get("drifted") is True)
     except ClipCheckError as exc:
         print(f"clip-check: {exc}")
         return 2
