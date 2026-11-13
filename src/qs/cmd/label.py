@@ -56,13 +56,17 @@ class _LabelScreen(Screen):
 
 
 def parse_window(text: str) -> tuple[int, int, int, int]:
-    """argparse type: `X,Y,W,H`, four whole numbers, the lane window in pixels."""
+    """argparse type: `X,Y,W,H`, the lane window in pixels: a corner from 0 and a size above 0."""
+    refusal = argparse.ArgumentTypeError(
+        f"{text!r} is not X,Y,W,H: whole numbers separated by commas, X and Y from 0, W and H "
+        "above 0"
+    )
     try:
         x, y, w, h = (int(part) for part in text.split(","))
     except ValueError:
-        raise argparse.ArgumentTypeError(
-            f"{text!r} is not X,Y,W,H: four whole numbers separated by commas"
-        ) from None
+        raise refusal from None
+    if x < 0 or y < 0 or w <= 0 or h <= 0:
+        raise refusal
     return (x, y, w, h)
 
 
@@ -144,7 +148,7 @@ def main(
         return 2
     window = getattr(args, "window", None)  # callers that predate --window omit it
     if window is not None and args.mode != "cups":
-        print("source: --window only applies to --mode cups")
+        print("window: --window only applies to --mode cups")
         return 2
     try:
         frames = _open_source(source, args.mode, args.every)
