@@ -13,7 +13,7 @@ import numpy as np
 import pytest
 
 from qs.__main__ import run
-from qs.cmd.clip_check import ClipStats, GapStats, frame_gaps, report
+from qs.cmd.clip_check import ClipStats, GapStats, frame_gaps, frame_rate, report
 
 CLEAN = GapStats(missing=0, longest_s=0.034)
 GONE = -100  # a disc centre off the picture
@@ -138,6 +138,74 @@ def test_the_whole_scene_moving_still_warns_with_cups_in_view(tmp_path, capsys):
     value = float(out.split("WARN shift ")[1].split()[0])
     assert code == 1
     assert 5.0 <= value <= 7.0
+
+
+def test_a_chain_standing_still_in_both_windows_is_a_shift_without_a_static_region(
+    tmp_path, capsys
+):
+    video = draw(tmp_path, disc_frames([100] * 30 + [GONE] * 30 + [220] * 30))
+    code, out = check([str(video), "--sharp-min", "0"], capsys)
+    assert code == 1
+    assert "(whole picture: a cup standing in view can cause this; use --static)" in out
+
+
+def test_a_static_region_away_from_a_standing_cup_gives_no_shift_warning(tmp_path, capsys):
+    video = draw(tmp_path, disc_frames([100] * 30 + [GONE] * 30 + [220] * 30))
+    code, out = check([str(video), "--sharp-min", "0", "--static", "0,160,320,80"], capsys)
+    assert code == 0
+    assert "WARN" not in out
+
+
+def test_the_whole_scene_moving_still_warns_inside_the_static_region(tmp_path, capsys):
+    frames = disc_frames([100] * 30 + [GONE] * 30 + [220] * 30)
+    moved = frames[:60] + [np.roll(frame, 6, axis=1) for frame in frames[60:]]
+    video = draw(tmp_path, moved)
+    code, out = check([str(video), "--sharp-min", "0", "--static", "0,160,320,80"], capsys)
+    value = float(out.split("WARN shift ")[1].split()[0])
+    assert code == 1
+    assert 5.0 <= value <= 7.0
+    assert "whole picture" not in out
+
+
+@pytest.mark.parametrize("region", ["0,160,320", "a,b,c,d", "0,160,320,900", "-5,0,10,10"])
+def test_a_static_region_that_does_not_fit_the_picture_is_refused(tmp_path, capsys, region):
+    video = draw(tmp_path, [textured()] * 90)
+    code, out = check([str(video), "--static", region], capsys)
+    assert code == 2
+    assert out.startswith("clip-check:")
+
+
+@pytest.mark.parametrize(
+    ("stamps_ms", "fps"),
+    [
+        ([0.0, 33.3, 66.6, 99.9, 133.2], 30.0),
+        ([0.0, 66.7, 133.4, 200.1], 15.0),
+    ],
+)
+def test_frame_rate_is_the_median_step_inverted(stamps_ms, fps):
+    assert frame_rate(stamps_ms) == pytest.approx(fps, abs=0.1)
+
+
+@pytest.mark.parametrize(
+    ("rate", "warns"),
+    [(15.0, True), (28.0, True), (28.6, False), (30.0, False), (31.4, False), (32.0, True)],
+)
+def test_a_rate_more_than_five_percent_off_the_sidecar_warns(rate, warns):
+    measured = ClipStats(
+        decoded=90, sharpness=100.0, saturated=0.0, shift=0.0, swing=0.0,
+        gaps=CLEAN, unreadable_at=None, rate_fps=rate,
+    )
+    lines = report(measured, expected=90, sharp_min=30.0, fps=30.0)
+    assert any(line.startswith("WARN rate") for line in lines) is warns
+
+
+def test_the_rate_warning_names_both_rates():
+    measured = ClipStats(
+        decoded=90, sharpness=100.0, saturated=0.0, shift=0.0, swing=0.0,
+        gaps=CLEAN, unreadable_at=None, rate_fps=15.0,
+    )
+    lines = report(measured, expected=90, sharp_min=30.0, fps=30.0)
+    assert "WARN rate 15.0 fps, sidecar says 30" in lines
 
 
 def test_flicker_is_printed_never_warned(tmp_path, capsys):
