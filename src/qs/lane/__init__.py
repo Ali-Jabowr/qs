@@ -1,1 +1,1 @@
-"""The line station's lane: turning per-frame cup probabilities into one verdict per pass."""
+"""The lane classifier's data and tools: clips, passes, splits and bundles."""

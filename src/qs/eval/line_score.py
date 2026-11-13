@@ -37,7 +37,8 @@ class Tally:
 @dataclass(frozen=True, slots=True)
 class CupScore:
     """Empty and full cups; white and pink are full cups whose flavour was labelled. `unpaired`
-    counts records inside the labelled span that no cup was paired with."""
+    counts records inside the labelled span that no cup was paired with. `gap` is the chain
+    positions with no cup, never part of `full`."""
 
     empty: Tally
     full: Tally
@@ -45,6 +46,7 @@ class CupScore:
     pink: Tally
     unpaired: int
     offsets: tuple[int, ...]
+    gap: Tally = Tally()
 
 
 def _tally(pairs: Sequence[tuple[Cup, Judged | None]]) -> Tally:
@@ -86,9 +88,10 @@ def score_cups(cups: Sequence[Cup], judged: Sequence[Judged], window: int) -> Cu
     paired = {id(j) for _, j in pairs if j is not None}
     return CupScore(
         empty=_tally([p for p in pairs if p[0].state == CupState.EMPTY]),
-        full=_tally([p for p in pairs if p[0].state != CupState.EMPTY]),
+        full=_tally([p for p in pairs if p[0].state not in (CupState.EMPTY, CupState.GAP)]),
         white=_tally([p for p in pairs if p[0].state == CupState.FULL_WHITE]),
         pink=_tally([p for p in pairs if p[0].state == CupState.FULL_PINK]),
+        gap=_tally([p for p in pairs if p[0].state == CupState.GAP]),
         unpaired=sum(id(j) not in paired and first <= j.frame <= last for j in judged),
         offsets=tuple(j.frame - c.frame for c, j in pairs if j is not None),
     )
@@ -105,6 +108,7 @@ def combined(scores: Sequence[CupScore]) -> CupScore:
         full=total([s.full for s in scores]),
         white=total([s.white for s in scores]),
         pink=total([s.pink for s in scores]),
+        gap=total([s.gap for s in scores]),
         unpaired=sum(s.unpaired for s in scores),
         offsets=tuple(o for s in scores for o in s.offsets),
     )
@@ -136,6 +140,9 @@ def _offset_lines(offsets: Sequence[int], window: int) -> list[str]:
 def position_lines(score: CupScore, window: int) -> list[str]:
     """One camera position's numbers."""
     empty, full = score.empty, score.full
+    gap_lines = [] if score.gap.total == 0 else [
+        _rate("gaps given a record", score.gap.total - score.gap.unseen, score.gap.total,
+              good=False)]
     return [
         _rate("empty cups caught", empty.defect, empty.total, good=True),
         _rate("false БРАК on full cups", full.defect, full.total, good=False),
@@ -145,6 +152,7 @@ def position_lines(score: CupScore, window: int) -> list[str]:
         _rate("full cups seen but not judged", full.no_verdict, full.total, good=False),
         _rate("false БРАК on white cups", score.white.defect, score.white.total, good=False),
         _rate("false БРАК on pink cups", score.pink.defect, score.pink.total, good=False),
+        *gap_lines,
         f"- records paired with no cup: {score.unpaired}",
         *_offset_lines(score.offsets, window),
     ]
