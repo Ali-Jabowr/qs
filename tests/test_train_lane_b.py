@@ -16,10 +16,10 @@ import pytest
 import yaml
 
 from conftest import FakePatchCore
-from qs.__main__ import build_parser
+from qs.__main__ import build_parser, run
 from qs.cmd import train_lane_b
 from qs.errors import InferenceError
-from qs.inspector.bundle import load_bundle
+from qs.inspector.bundle import load_bundle, pixels_sha256
 from qs.inspector.model import Scored
 from qs.lane.lanefile import Lane
 from qs.lane.split import Split, file_sha256, write_split
@@ -161,6 +161,117 @@ def test_lane_b_score_refuses_a_non_finite_score(value: float) -> None:
     pixels = np.full((48, 64, 3), 128, dtype=np.uint8)
     with pytest.raises(InferenceError, match="pred_score"):
         train_lane_b.lane_b_score(pixels, LANE, _Scorer(value), 32)
+
+
+def _run_flags(
+    root: Path, paths: dict[str, Path], *flags: str, cuda: bool = True
+) -> int:
+    args = build_parser().parse_args([
+        "train-lane-b", "--lane", str(paths["lane"]), "--labels", str(paths["labels"]),
+        "--footage", str(paths["footage"]), "--split", str(paths["split"]),
+        "--product", "mochi-lane", "--input-px", "32", "--models", str(root / "models"), *flags,
+    ])
+    return train_lane_b.main(args, make_patchcore=lambda device: FakePatchCore(),
+                             cuda_available=lambda: cuda)
+
+
+TEN = [("full", 10 * k) for k in range(1, 11)]
+
+
+def _files(root: Path) -> list[object]:
+    return [i["file"] for i in _bundle(root)["images"]]  # type: ignore[attr-defined]
+
+
+def test_more_passes_than_max_passes_are_thinned_evenly_and_the_count_is_printed(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert _run_flags(tmp_path, _setup(tmp_path, TEN), "--max-passes", "4") == 0
+    assert _files(tmp_path) == ["T-1.mkv#10", "T-1.mkv#40", "T-1.mkv#70", "T-1.mkv#100"]
+    assert "used 4 of 10 full passes\n" in capsys.readouterr().out
+
+
+def test_fewer_passes_than_max_passes_are_all_fitted(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert _run_flags(tmp_path, _setup(tmp_path, TEN[:3]), "--max-passes", "4") == 0
+    assert _files(tmp_path) == ["T-1.mkv#10", "T-1.mkv#20", "T-1.mkv#30"]
+    assert "used" not in capsys.readouterr().out
+
+
+def test_the_default_max_passes_is_150() -> None:
+    args = build_parser().parse_args([
+        "train-lane-b", "--lane", "l", "--labels", "b", "--footage", "f", "--split", "s",
+        "--product", "mochi-lane"])
+    assert args.max_passes == 150
+
+
+def test_the_fitted_image_is_the_labelled_frame_of_the_video(tmp_path: Path) -> None:
+    assert _run(tmp_path, _setup(tmp_path), FakePatchCore()) == 0
+    expected = np.full((48, 64, 3), 128, dtype=np.uint8)
+    expected[10:20, 10:20] = 50
+    first = _bundle(tmp_path)["images"][0]  # type: ignore[index]
+    assert first["sha256"] == pixels_sha256(expected)
+
+
+def test_each_train_clip_prints_how_many_full_passes_it_gave(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert _run(tmp_path, _setup(tmp_path), FakePatchCore()) == 0
+    assert "T-1.mkv: 2 full passes\n" in capsys.readouterr().out
+
+
+def test_a_train_clip_the_labels_do_not_name_prints_zero_passes(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    paths = _setup(tmp_path)
+    labels = json.loads(paths["labels"].read_text())
+    labels["cups"] += [{"video": "other.mkv", "order": 1, "state": "full", "frame": 1}]
+    labels["cups"] = [c for c in labels["cups"] if c["video"] != "T-1.mkv"] + [
+        {"video": "T-1.mkv", "order": 1, "state": "full", "frame": 50}]
+    paths["labels"].write_text(json.dumps(labels))
+    (paths["footage"] / "T-2.mkv").write_bytes(b"second")
+    split = yaml.safe_load(paths["split"].read_text())
+    split["clips"]["T-2.mkv"] = {"role": "train", "sha256": file_sha256(paths["footage"] / "T-2.mkv")}
+    paths["split"].write_text(yaml.safe_dump(split))
+    assert _run(tmp_path, paths, FakePatchCore()) == 0
+    assert "T-2.mkv: 0 full passes\n" in capsys.readouterr().out
+
+
+def test_cuda_without_cuda_is_refused_with_no_fallback(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert _run_flags(tmp_path, _setup(tmp_path), cuda=False) == 2
+    assert "CUDA is not available" in capsys.readouterr().out
+    assert not (tmp_path / "models").exists()
+
+
+def test_a_labelled_frame_past_the_end_of_the_clip_exits_2(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert _run_flags(tmp_path, _setup(tmp_path, [("full", 400)])) == 2
+    assert capsys.readouterr().out.startswith("footage: cannot ")
+
+
+def test_a_lane_window_outside_the_frame_exits_2(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    paths = _setup(tmp_path)
+    paths["lane"].write_text(yaml.safe_dump({"version": 1, "window": [60, 4, 32, 32], "fps": 10}))
+    assert _run_flags(tmp_path, paths) == 2
+    assert "reaches outside the frame of 64x48" in capsys.readouterr().out
+
+
+def test_a_missing_labels_file_exits_2(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    paths = _setup(tmp_path)
+    paths["labels"].unlink()
+    assert _run_flags(tmp_path, paths) == 2
+    assert "not found" in capsys.readouterr().out
+
+
+def test_qs_run_dispatches_train_lane_b(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(train_lane_b, "main", lambda args: 7)
+    assert run(["train-lane-b", "--lane", "l", "--labels", "b", "--footage", "f",
+                "--split", "s", "--product", "mochi-lane"]) == 7
 
 
 @pytest.mark.env
