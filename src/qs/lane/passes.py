@@ -16,8 +16,10 @@ import numpy as np
 import torch
 
 from qs.contracts import Label
-from qs.labels import Cup
-from qs.lane.lanefile import Lane
+from qs.inspector.window import to_input
+from qs.labels import Cup, VideoFrames
+from qs.lane.lanefile import Lane, crop
+from qs.lane.model import predict
 
 # A frame is a cup frame when P(none) is strictly below this.
 _NONE_LIMIT = 0.5
@@ -149,4 +151,20 @@ def _distance(run: Run, frame: int) -> int:
 def frame_probs(
     video: Path, lane: Lane, model: torch.nn.Module, device: str, *, input_px: int, batch: int = 64
 ) -> np.ndarray:
-    raise NotImplementedError
+    """`(frames, 3)` probabilities `(P(full), P(empty), P(none))`, one row per frame of `video`,
+    frame 0 first, each from `to_input(crop(frame, lane), input_px)`. Frames are scored `batch`
+    at a time, so memory does not grow with the clip."""
+    if batch < 1:
+        raise ValueError(f"batch must be at least 1, got {batch}")
+    frames = VideoFrames(video)
+    try:
+        rows: list[np.ndarray] = []
+        for start in range(0, len(frames.ids), batch):
+            stop = min(start + batch, len(frames.ids))
+            inputs = np.stack(
+                [to_input(crop(frames.read(i), lane), input_px) for i in range(start, stop)]
+            )
+            rows.append(predict(model, inputs, device))
+    finally:
+        frames.close()
+    return np.concatenate(rows)
