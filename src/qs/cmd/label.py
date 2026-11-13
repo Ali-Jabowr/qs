@@ -55,6 +55,21 @@ class _LabelScreen(Screen):
         self._keys.append(KeyPress(name, int(event.time), self._last_pump_end))
 
 
+def parse_window(text: str) -> tuple[int, int, int, int]:
+    """argparse type: `X,Y,W,H`, the lane window in pixels: a corner from 0 and a size above 0."""
+    refusal = argparse.ArgumentTypeError(
+        f"{text!r} is not X,Y,W,H: whole numbers separated by commas, X and Y from 0, W and H "
+        "above 0"
+    )
+    try:
+        x, y, w, h = (int(part) for part in text.split(","))
+    except ValueError:
+        raise refusal from None
+    if x < 0 or y < 0 or w <= 0 or h <= 0:
+        raise refusal
+    return (x, y, w, h)
+
+
 def add_parser(commands: Any) -> None:
     """Register `label` on the `qs` subcommands."""
     parser = commands.add_parser(
@@ -77,6 +92,11 @@ def add_parser(commands: Any) -> None:
         "--labels", default=None, metavar="PATH",
         help="the labels file (default data/labels/<source name>.json)",
     )
+    parser.add_argument(
+        "--window", type=parse_window, default=None, metavar="X,Y,W,H",
+        help="with --mode cups: draw this lane window on the shown frame (a copy; nothing is "
+        "written), so the key is pressed when the cup is inside it",
+    )
 
 
 def _open_source(source: Path, mode: str, every: int | None) -> ImageFolder | VideoFrames:
@@ -97,10 +117,13 @@ def _open_source(source: Path, mode: str, every: int | None) -> ImageFolder | Vi
 
 
 def _session(
-    labels: Labels, frames: ImageFolder | VideoFrames, mode: str
+    labels: Labels,
+    frames: ImageFolder | VideoFrames,
+    mode: str,
+    window: tuple[int, int, int, int] | None = None,
 ) -> FrameSession | CupSession:
     if isinstance(frames, VideoFrames) and mode == "cups":
-        return CupSession(labels, frames)
+        return CupSession(labels, frames, window)
     return FrameSession(labels, frames)
 
 
@@ -123,6 +146,10 @@ def main(
     except LabelsError as exc:
         print(f"labels: {exc}")
         return 2
+    window = getattr(args, "window", None)  # callers that predate --window omit it
+    if window is not None and args.mode != "cups":
+        print("window: --window only applies to --mode cups")
+        return 2
     try:
         frames = _open_source(source, args.mode, args.every)
     except FrameReadError as exc:
@@ -130,7 +157,7 @@ def main(
         return 2
 
     screen: Screen | None = None
-    session = _session(labels, frames, args.mode)
+    session = _session(labels, frames, args.mode, window)
     try:
         try:
             screen = make_screen(config.display, f"QS — label {source.name}")

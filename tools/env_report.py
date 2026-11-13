@@ -80,7 +80,8 @@ def cache_inventory(cache_dir: Path) -> list[tuple[str, str, int]]:
     if not cache_dir.is_dir():
         return inventory
     for path in sorted(cache_dir.rglob("*")):
-        if path.is_file() and not path.is_symlink():
+        # The lane classifier's ResNet18 file is not part of the PatchCore backbone (R17).
+        if path.is_file() and not path.is_symlink() and path.name != "resnet18-f37072fd.pth":
             inventory.append(
                 (str(path.relative_to(ROOT)), sha256_of(path), path.stat().st_size)
             )
