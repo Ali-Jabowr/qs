@@ -56,6 +56,7 @@ class CupState(StrEnum):
     FULL_WHITE = "full_white"
     FULL_PINK = "full_pink"
     EMPTY = "empty"
+    GAP = "gap"  # a chain position with no cup
 
 
 
@@ -68,8 +69,10 @@ _ANSWERS = {
     "h": ("hand", None),
 }
 _CUP_STATES = {
-    "f": CupState.FULL, "w": CupState.FULL_WHITE, "p": CupState.FULL_PINK, "e": CupState.EMPTY
+    "f": CupState.FULL, "w": CupState.FULL_WHITE, "p": CupState.FULL_PINK,
+    "e": CupState.EMPTY, "g": CupState.GAP,
 }
+_WINDOW_COLOUR = (0, 255, 255)  # BGR yellow
 _CUP_STEPS = {"Left": -1, "Right": 1, "Shift-Left": -25, "Shift-Right": 25}
 
 
@@ -367,14 +370,28 @@ class FrameSession(_Session):
 class CupSession(_Session):
     """Counting whole cups through one video. It opens at the frame of the video's last cup."""
 
-    def __init__(self, labels: Labels, video: VideoFrames) -> None:
+    def __init__(
+        self, labels: Labels, video: VideoFrames, window: tuple[int, int, int, int] | None = None
+    ) -> None:
         self.video = video.name
+        self._window = window
         self._changed_nothing = False
         cups = labels.cups_of(video.name)
         super().__init__(labels, video, cups[-1].frame if cups else 0)
 
+    def image(self) -> np.ndarray:
+        """The frame, with the lane window drawn on a copy when there is one; the frame read
+        from the video is never drawn on."""
+        pixels = super().image()
+        if self._window is None:
+            return pixels
+        x, y, w, h = self._window
+        shown = pixels.copy()
+        cv2.rectangle(shown, (x, y), (x + w, y + h), _WINDOW_COLOUR, 2)
+        return shown
+
     def press(self, keysym: str) -> None:
-        """One key: f, w, p or e answers at this frame (`Labels.answer_cup`), BackSpace removes
+        """One key: f, w, p, e or g answers at this frame (`Labels.answer_cup`), BackSpace removes
         this video's last cup, an arrow steps. Other keys are ignored. An answer that changed
         nothing is said on the screen until the next key."""
         self._changed_nothing = False
@@ -391,7 +408,9 @@ class CupSession(_Session):
         white, pink = states.count(CupState.FULL_WHITE), states.count(CupState.FULL_PINK)
         full = states.count(CupState.FULL) + white + pink
         flavours = f" ({white} white, {pink} pink)" if white or pink else ""
-        return f"{full} full{flavours}, {states.count(CupState.EMPTY)} empty"
+        gaps = states.count(CupState.GAP)
+        gap = f", {gaps} gap" if gaps else ""
+        return f"{full} full{flavours}, {states.count(CupState.EMPTY)} empty{gap}"
 
     def summary(self) -> str:
         count = len(self.labels.cups_of(self.video))

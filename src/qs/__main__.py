@@ -342,6 +342,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     line_alarms.add_parser(commands)
 
+    from qs.cmd import lane_split
+
+    lane_split.add_parser(commands)
     from qs.cmd import record
 
     record.add_parser(commands)
@@ -419,6 +422,10 @@ def run(argv: Sequence[str] | None = None) -> int:
         from qs.cmd import line_alarms
 
         return line_alarms.main(args)
+    if args.command == "lane-split":
+        from qs.cmd import lane_split
+
+        return lane_split.main(args)
     if args.command == "record":
         from qs.cmd import record
 
