@@ -65,7 +65,7 @@ def crop(pixels: np.ndarray, lane: Lane) -> np.ndarray:
     """The lane's rectangle of `pixels`, as a copy; a window reaching outside the frame raises."""
     x, y, w, h = lane.window
     height, width = pixels.shape[:2]
-    if x + w > width or y + h > height:
+    if x < 0 or y < 0 or x + w > width or y + h > height:
         raise ConfigError(
             f"lane window {lane.window} reaches outside the frame of {width}x{height}"
         )
