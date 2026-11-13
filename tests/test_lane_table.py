@@ -11,8 +11,10 @@ import pytest
 from qs.eval.line_score import CupScore, Tally
 from qs.lane.table import MethodResult, render_table
 
+NONE = Tally()
 
-def _score(empty: Tally = Tally(), full: Tally = Tally(), gap: Tally = Tally()) -> CupScore:
+
+def _score(empty: Tally = NONE, full: Tally = NONE, gap: Tally = NONE) -> CupScore:
     return CupScore(empty=empty, full=full, white=Tally(), pink=Tally(), unpaired=0,
                     offsets=(), gap=gap)
 
