@@ -10,9 +10,14 @@ import math
 import statistics
 from collections.abc import Sequence
 from dataclasses import dataclass
+from pathlib import Path
+
+import numpy as np
+import torch
 
 from qs.contracts import Label
 from qs.labels import Cup
+from qs.lane.lanefile import Lane
 
 # A frame is a cup frame when P(none) is strictly below this.
 _NONE_LIMIT = 0.5
@@ -139,3 +144,9 @@ def pair_runs(
 def _distance(run: Run, frame: int) -> int:
     """Frames from `frame` to the nearest end of `run`; 0 inside it."""
     return max(run.first - frame, frame - run.last, 0)
+
+
+def frame_probs(
+    video: Path, lane: Lane, model: torch.nn.Module, device: str, *, input_px: int, batch: int = 64
+) -> np.ndarray:
+    raise NotImplementedError
