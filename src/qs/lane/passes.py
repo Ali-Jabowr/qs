@@ -84,24 +84,47 @@ def pair_runs(
     cups: Sequence[Cup], runs: Sequence[Run], window: int
 ) -> tuple[list[tuple[Cup, Run | None]], list[Run]]:
     """Each labelled pass, by `(frame, order)`, with an unused run, or None; `runs` are taken in
-    frame order. The run that holds the pass's frame wins; failing that, the nearest run within
-    `window` frames of it (distance to `[first, last]`), the earlier one on a tie. Also the runs
+    frame order. In round one every pass takes the run that holds its frame; in round two each
+    pass still without a run takes the nearest free run within `window` frames of it (distance
+    to `[first, last]`), the earlier one on a tie. Also the runs
     left unpaired that overlap the span from the first pass to the last, in frame order."""
     if len({cup.video for cup in cups}) > 1:
         raise ValueError("cups must all come from one video, as the runs do")
     ordered = sorted(cups, key=lambda cup: (cup.frame, cup.order))
     by_frame = sorted(runs, key=lambda run: run.first)
     used: set[int] = set()
-    pairs: list[tuple[Cup, Run | None]] = []
-    for cup in ordered:
-        free = [i for i in range(len(by_frame)) if i not in used]
-        holding = [i for i in free if by_frame[i].first <= cup.frame <= by_frame[i].last]
-        near = [(_distance(by_frame[i], cup.frame), i) for i in free]
-        within = [pair for pair in near if pair[0] <= window]
-        match = holding[0] if holding else min(within)[1] if within else None
-        if match is not None:
-            used.add(match)
-        pairs.append((cup, None if match is None else by_frame[match]))
+    matched: dict[int, int] = {}  # position in `ordered` -> position in `by_frame`
+    # Round one: every pass takes a free run that holds its frame, so that a pass without a run
+    # of its own cannot take the run of the next pass.
+    for position, cup in enumerate(ordered):
+        holding = next(
+            (
+                i
+                for i, run in enumerate(by_frame)
+                if i not in used and run.first <= cup.frame <= run.last
+            ),
+            None,
+        )
+        if holding is not None:
+            used.add(holding)
+            matched[position] = holding
+    # Round two: a pass still without a run takes the nearest free run within the window.
+    for position, cup in enumerate(ordered):
+        if position in matched:
+            continue
+        within = [
+            (_distance(run, cup.frame), i)
+            for i, run in enumerate(by_frame)
+            if i not in used and _distance(run, cup.frame) <= window
+        ]
+        if within:
+            nearest = min(within)[1]
+            used.add(nearest)
+            matched[position] = nearest
+    pairs: list[tuple[Cup, Run | None]] = [
+        (cup, by_frame[matched[position]] if position in matched else None)
+        for position, cup in enumerate(ordered)
+    ]
     if not ordered:
         return pairs, []
     low, high = ordered[0].frame, ordered[-1].frame
