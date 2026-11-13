@@ -44,6 +44,7 @@ ROOT = Path(__file__).resolve().parents[3]
 SHIFT_PX = 8
 BRIGHTNESS = (0.9, 1.1)
 BATCH = 32
+BETWEEN = [16, 48]
 LEARNING_RATE = 1e-4
 
 
@@ -62,6 +63,10 @@ def add_parser(commands: Any) -> None:
     parser.add_argument("--seed", type=seed, default=42)
     parser.add_argument("--epochs", type=positive_int, default=8)
     parser.add_argument("--input-px", type=positive_int, default=224)
+    parser.add_argument("--between", type=positive_int, nargs=2, default=BETWEEN,
+                        metavar=("MIN", "MAX"),
+                        help="frames between two passes that count as the chain moving on, "
+                        "whose space gives `none` samples (default 16 48)")
     parser.add_argument("--models", default="models", metavar="DIR")
     parser.add_argument("--device", choices=("cuda", "cpu"), default="cuda",
                         help="cuda never falls back to the CPU")
@@ -190,6 +195,8 @@ def _validate(
 def _run(args: argparse.Namespace, weights: Callable[[], Path | None]) -> int:
     footage = Path(args.footage)
     lane_path, labels_path, split_path = Path(args.lane), Path(args.labels), Path(args.split)
+    lane_sha = file_sha256(lane_path)  # hashed when read, not after minutes of training
+    split_sha = file_sha256(split_path)
     lane = load_lane(lane_path)
     split = load_split(split_path)
     train_videos = list(split.videos("train"))
@@ -199,6 +206,7 @@ def _run(args: argparse.Namespace, weights: Callable[[], Path | None]) -> int:
     verify(Split(train_clips), footage, file_sha256)
     if not labels_path.is_file():
         raise ConfigError(f"labels file {labels_path} not found")
+    labels_sha = file_sha256(labels_path)
     try:
         labelled = load_labels(labels_path, labels_path.stem).cups
     except LabelsError as exc:
@@ -210,13 +218,21 @@ def _run(args: argparse.Namespace, weights: Callable[[], Path | None]) -> int:
     if len(validation) == len(cups):
         raise _Refused("at least two labelled passes are needed, one to validate on")
     counts = _frame_counts(footage, train_videos)
-    every = samples(cups, counts)
+    if args.between[0] > args.between[1]:
+        raise ConfigError(f"--between {args.between[0]} {args.between[1]}: MIN is above MAX")
+    try:
+        every = samples(cups, counts, between=(args.between[0], args.between[1]))
+    except ValueError as exc:
+        raise _Refused(str(exc)) from exc
     trained = [s for s in every if (s.video, s.order) not in validation]
     held = [s for s in every if (s.video, s.order) in validation]
     per_class = Counter(s.cls for s in trained)
     for cls in ("empty", "full"):
         if not per_class[cls]:
             raise _Refused(f"no {cls} pass to train on")
+    if not per_class["none"]:
+        raise _Refused("no none sample to train on: label a gap, or widen --between")
+    held_per_class = Counter(s.cls for s in held)
     if args.device == "cuda" and not torch.cuda.is_available():
         raise ConfigError("device: --device cuda, but torch sees no CUDA device")
 
@@ -227,10 +243,14 @@ def _run(args: argparse.Namespace, weights: Callable[[], Path | None]) -> int:
     model = build(pretrained)
     if args.device == "cuda":
         torch.cuda.reset_peak_memory_stats()
-    _train_model(
-        model, [crops[(s.video, s.frame)] for s in trained],
-        [CLASSES.index(s.cls) for s in trained], lane, args,
-    )
+    try:
+        _train_model(
+            model, [crops[(s.video, s.frame)] for s in trained],
+            [CLASSES.index(s.cls) for s in trained], lane, args,
+        )
+    except RuntimeError as exc:
+        first = str(exc).strip().splitlines()
+        raise ConfigError(f"training failed: {first[0] if first else type(exc).__name__}") from exc
     predicted, confusion = _validate(
         model, [crops[(s.video, s.frame)] for s in held],
         [CLASSES.index(s.cls) for s in held], lane, args,
@@ -247,11 +267,17 @@ def _run(args: argparse.Namespace, weights: Callable[[], Path | None]) -> int:
         "seed": args.seed,
         "epochs": args.epochs,
         "pretrained_sha256": file_sha256(pretrained) if pretrained is not None else None,
-        "lane_sha256": file_sha256(lane_path),
-        "labels_sha256": file_sha256(labels_path),
-        "split_sha256": file_sha256(split_path),
+        "lane_sha256": lane_sha,
+        "labels_sha256": labels_sha,
+        "split_sha256": split_sha,
+        "batch_size": BATCH,
+        "learning_rate": LEARNING_RATE,
+        "shift_px": SHIFT_PX,
+        "brightness": list(BRIGHTNESS),
+        "between": list(args.between),
         "train_clips": {video: sha for video, (_, sha) in train_clips.items()},
         "samples_per_class": {c: per_class[c] for c in CLASSES},
+        "validation_per_class": {c: held_per_class[c] for c in CLASSES},
         "validation_passes": [list(key) for key in sorted(validation)],
         "validation_predicted": predicted,
         "validation_confusion": confusion,
@@ -262,6 +288,10 @@ def _run(args: argparse.Namespace, weights: Callable[[], Path | None]) -> int:
     print(f"{len(cups)} passes: {len(cups) - len(validation)} train, {len(validation)} validation; "
           f"{len(labelled) - len(cups)} passes outside the train clips not read")
     print("samples per class: " + ", ".join(f"{c} {per_class[c]}" for c in CLASSES))
+    print("validation samples per class: " + ", ".join(f"{c} {held_per_class[c]}" for c in CLASSES))
+    for cls in CLASSES:
+        if not held_per_class[cls]:
+            print(f"WARN: no {cls} sample in validation; its row of the table is blind")
     print(f"validation confusion (rows true, columns predicted; {' '.join(CLASSES)}): "
           f"{yaml.safe_dump(confusion, default_flow_style=True).strip()}")
     if peak is not None:

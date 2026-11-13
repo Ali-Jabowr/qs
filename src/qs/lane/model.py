@@ -123,6 +123,13 @@ def load_lane_bundle(models_root: Path, model_id: str) -> LaneBundle:
             f"bundle {model_id}: {MODEL_FILE} has SHA-256 {actual[:8]}…, "
             f"not the recorded {record['model_sha256'][:8]}…"
         )
+    input_px = record.get("input_px")
+    if record.get("classes") != list(CLASSES):
+        raise ConfigError(f"bundle {model_id}: classes must be {list(CLASSES)}, "
+                          f"not {record.get('classes')!r}")
+    if not isinstance(input_px, int) or isinstance(input_px, bool) or input_px <= 0:
+        raise ConfigError(f"bundle {model_id}: input_px must be a positive whole number, "
+                          f"not {input_px!r}")
     model = build(None)
     try:
         model.load_state_dict(torch.load(io.BytesIO(data), map_location="cpu", weights_only=True))

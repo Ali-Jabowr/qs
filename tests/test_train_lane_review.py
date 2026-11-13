@@ -9,7 +9,6 @@ from typing import Any
 import numpy as np
 import pytest
 import torch
-from test_train_lane import E, F, G, WINDOW, _states, _world
 
 from qs.__main__ import run
 from qs.cmd import train_lane
@@ -18,6 +17,7 @@ from qs.inspector.window import to_input
 from qs.labels import load_labels
 from qs.lane.lanefile import Lane, crop
 from qs.lane.model import build, load_lane_bundle, write_lane_bundle
+from test_train_lane import WINDOW, E, F, G, _states, _world
 
 
 def _sha(path: Path) -> str:
