@@ -1,4 +1,4 @@
-"""`qs train-lane-b`: PatchCore fitted on the lane crop of every full pass of the train clips (#159).
+"""`qs train-lane-b`: PatchCore fitted on lane crops of the train clips' full passes (#159).
 
     qs train-lane-b --lane lane.yml --labels L.json --footage DIR --split split.yml --product P
                     [--seed 42] [--coreset 0.1] [--input-px 256] [--models models]
@@ -48,7 +48,8 @@ def add_parser(commands: Any) -> None:
         "train-lane-b", help="PatchCore on the lane crop of every full pass of the train clips"
     )
     parser.add_argument("--lane", required=True, metavar="PATH", help="the lane file")
-    parser.add_argument("--labels", required=True, metavar="PATH", help="the labels file (qs label)")
+    parser.add_argument("--labels", required=True, metavar="PATH",
+                        help="the labels file (qs label)")
     parser.add_argument("--footage", required=True, metavar="DIR", help="the folder of clips")
     parser.add_argument("--split", required=True, metavar="PATH", help="the split file")
     parser.add_argument("--product", required=True, type=product, metavar="P",
@@ -65,7 +66,118 @@ def add_parser(commands: Any) -> None:
 
 
 def lane_b_score(pixels: np.ndarray, lane: Lane, scorer: Scorer, input_px: int) -> float:
-    return 0.0  # stub
+    """Method B's score of one frame: PatchCore's `pred_score` of the lane crop."""
+    score = float(scorer.score(to_input(crop(pixels, lane), input_px)).pred_score)
+    if not math.isfinite(score):
+        raise InferenceError(f"pred_score is not finite: {score}")
+    return score
+
+
+def _train_videos(split: Split, footage: Path) -> tuple[str, ...]:
+    """The train clips, after checking only their bytes against the split file."""
+    train = split.videos("train")
+    verify(Split({video: split.clips[video] for video in train}), footage, file_sha256)
+    return train
+
+
+def _inputs(
+    args: argparse.Namespace, lane: Lane
+) -> tuple[list[np.ndarray], list[ImageRecord]]:
+    labels_path = Path(args.labels)
+    if not labels_path.is_file():
+        raise _CannotRun(f"labels file {labels_path} not found")
+    try:
+        labels = load_labels(labels_path, labels_path.stem)
+        split = load_split(Path(args.split))
+        footage = Path(args.footage)
+        train = _train_videos(split, footage)
+    except (LabelsError, ConfigError) as exc:
+        raise _CannotRun(str(exc)) from None
+    inputs: list[np.ndarray] = []
+    images: list[ImageRecord] = []
+    for video in train:
+        frames = [cup.frame for cup in labels.cups_of(video) if cup.state in _FULL]
+        if not frames:
+            continue
+        try:
+            reader = VideoFrames(footage / video)
+        except FrameReadError as exc:
+            raise _CannotRun(f"footage: {exc}") from None
+        try:
+            for frame in frames:
+                pixels = reader.read(frame)
+                inputs.append(to_input(crop(pixels, lane), args.input_px))
+                images.append(ImageRecord(f"{video}#{frame}", video, pixels_sha256(pixels)))
+        except FrameReadError as exc:
+            raise _CannotRun(f"footage: {exc}") from None
+        except ConfigError as exc:
+            raise _CannotRun(str(exc)) from None
+        finally:
+            reader.close()
+    if not inputs:
+        raise _Refused("no full pass in the train clips")
+    return inputs, images
+
+
+def _train(
+    args: argparse.Namespace,
+    make_patchcore: Callable[[str], PatchCore],
+    cuda_available: Callable[[], bool],
+) -> int:
+    try:
+        device = device_for(
+            "torch-cuda" if args.device == "cuda" else "torch-cpu",
+            cuda_available=cuda_available(),
+        )
+        lane = load_lane(Path(args.lane))
+    except ConfigError as exc:
+        print(exc)
+        return 2
+    try:
+        inputs, images = _inputs(args, lane)
+    except _Refused as exc:
+        print(f"refused: {exc}")
+        return 1
+    except _CannotRun as exc:
+        print(exc)
+        return 2
+    try:
+        model = make_patchcore(device)
+    except ConfigError as exc:
+        print(exc)
+        return 2
+    try:
+        fitted = model.fit(inputs, FitSettings(args.coreset, args.seed, device))
+    except (RuntimeError, ValueError) as exc:
+        print(f"fit: {_first_line(exc)}")
+        return 2
+    info = BundleInfo(
+        input_px=args.input_px,
+        window_px=lane.window[2],
+        coreset_ratio=args.coreset,
+        seed=args.seed,
+        device=device,
+        data_source="own",
+        images=tuple(images),
+        line=None,
+        line_fps=None,
+    )
+    models = Path(args.models)
+    try:
+        model_id = write_bundle(models, args.product, fitted.bank, info)
+    except (ConfigError, OSError) as exc:
+        print(f"bundle: {_first_line(exc)}")
+        return 2
+    rows, features = fitted.bank.shape
+    print(f"trained on {len(images)} full passes of {len({i.unit for i in images})} clips: "
+          f"lane crop {lane.window[2]}x{lane.window[3]} → input {args.input_px} px, "
+          f"device {device}")
+    print(f"memory bank: {rows} rows × {features} · coreset {args.coreset:g} · seed {args.seed}")
+    if fitted.peak_gpu_bytes is not None:
+        print(f"peak GPU memory: {fitted.peak_gpu_bytes / 2**20:.0f} MiB")
+    print(f"bundle: {models / model_id}")
+    print(f"model_id: {model_id}")
+    return 0
 
 
 def main(
@@ -74,4 +186,9 @@ def main(
     make_patchcore: Callable[[str], PatchCore] = _real_patchcore,
     cuda_available: Callable[[], bool] = real_cuda_available,
 ) -> int:
-    return 99  # stub
+    """Train one bundle; 0 written, 1 refused, 2 could not run."""
+    try:
+        return _train(args, make_patchcore, cuda_available)
+    except KeyboardInterrupt:
+        print("stopped by the operator — no bundle written")
+        return 2
