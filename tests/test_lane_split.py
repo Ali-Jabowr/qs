@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
 import pytest
 
-from qs.__main__ import build_parser
+from qs.__main__ import build_parser, run
 from qs.cmd import lane_split
 from qs.errors import ConfigError
 from qs.lane.split import Split, file_sha256, load_split, require_roles, verify
@@ -123,3 +124,90 @@ def test_verify_names_a_clip_whose_bytes_changed(tmp_path: Path) -> None:
     (footage / "C-1.mkv").write_bytes(b"changed")
     with pytest.raises(ConfigError, match=r"C-1\.mkv"):
         verify(split, footage, file_sha256)
+
+
+# Review of PR #162: literal hashes, strict sidecars, load_split refusals, the real entry point.
+
+TRAIN_SHA = "f37203b993fa504d44b6983b7271a90db8e9ea194b415be36abc765aff9c8a1b"
+
+
+def test_the_pinned_hash_is_the_sha256_of_the_bytes(tmp_path: Path) -> None:
+    footage = tmp_path / "footage"
+    footage.mkdir()
+    for name, data in CLIPS.items():
+        (footage / f"{name}.mkv").write_bytes(data)
+        sidecar = {"version": 1, "clip": name, "drifted": False,
+                   "sha256": TRAIN_SHA if name == "T-1" else hashlib.sha256(data).hexdigest()}
+        (footage / f"{name}.json").write_text(json.dumps(sidecar))
+    out = tmp_path / "split.yml"
+    assert _run(footage, out, *GOOD) == 0
+    assert load_split(out).clips["T-1.mkv"] == ("train", TRAIN_SHA)
+
+
+@pytest.mark.parametrize("drifted", [{}, {"drifted": "no"}, {"drifted": 0}])
+def test_a_sidecar_without_a_boolean_drifted_is_refused(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str], drifted: dict[str, object]) -> None:
+    footage = _footage(tmp_path)
+    sidecar = {"version": 1, "clip": "E-1", "sha256": file_sha256(footage / "E-1.mkv"), **drifted}
+    (footage / "E-1.json").write_text(json.dumps(sidecar))
+    assert _run(footage, tmp_path / "split.yml", *GOOD) == 2
+    out = capsys.readouterr().out.strip().splitlines()
+    assert len(out) == 1
+    assert "E-1.json" in out[0]
+
+
+@pytest.mark.parametrize("text, word", [
+    ("{version: 1, clips: {T-1.mkv: {role: boss, sha256: abc}}}", "boss"),
+    ("{version: 2, clips: {}}", "version"),
+    ("- a\n- b\n", "not a split file"),
+])
+def test_load_split_refuses_a_bad_file(tmp_path: Path, text: str, word: str) -> None:
+    path = tmp_path / "split.yml"
+    path.write_text(text)
+    with pytest.raises(ConfigError, match=word):
+        load_split(path)
+
+
+def test_the_real_entry_point_runs_lane_split(tmp_path: Path) -> None:
+    footage = _footage(tmp_path)
+    out = tmp_path / "split.yml"
+    code = run(["lane-split", "--footage", str(footage), *GOOD, "--out", str(out)])
+    assert code == 0
+    assert load_split(out).videos("test") == ("E-1.mkv",)
+
+
+def test_the_same_clip_twice_in_one_role_is_refused(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    footage = _footage(tmp_path)
+    code = _run(footage, tmp_path / "split.yml", "--train", "T-1", "T-1", "--calibrate", "C-1",
+                "--test", "E-1")
+    assert code == 2
+    assert capsys.readouterr().out.strip().splitlines() == [
+        "lane-split: T-1 is listed twice under train"]
+
+
+def test_an_unreadable_sidecar_is_not_blamed_on_out(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    footage = _footage(tmp_path)
+    (footage / "C-1.json").chmod(0)
+    assert _run(footage, tmp_path / "split.yml", *GOOD) == 2
+    out = capsys.readouterr().out
+    assert "C-1.json" in out
+    assert "cannot be written" not in out
+
+
+def test_an_unwritable_out_is_reported_as_such(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    footage = _footage(tmp_path)
+    assert _run(footage, tmp_path / "missing-dir" / "split.yml", *GOOD) == 2
+    assert "cannot be written" in capsys.readouterr().out
+
+
+def test_an_existing_out_is_not_overwritten(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    footage = _footage(tmp_path)
+    out = tmp_path / "split.yml"
+    out.write_text("keep me")
+    assert _run(footage, out, *GOOD) == 2
+    assert "already exists" in capsys.readouterr().out
+    assert out.read_text() == "keep me"
