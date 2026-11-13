@@ -178,3 +178,127 @@ def run(first: int, last: int, score: float = 0.05) -> Run:
 )
 def test_pair_runs(cups, runs, window, expected_pairs, expected_unpaired):
     assert pair_runs(cups, runs, window) == (expected_pairs, expected_unpaired)
+
+
+# Review findings on PR #167, each reproduced before its fix.
+
+NAN = float("nan")
+INF = float("inf")
+
+
+@pytest.mark.parametrize(
+    "row",
+    [
+        (NAN, NAN, NAN),
+        (0.9, NAN, 0.05),
+        (0.9, 0.05, NAN),
+        (INF, 0.05, 0.05),
+        (0.9, -INF, 0.05),
+        (0.9, 0.05, -0.01),
+        (0.9, 1.01, 0.05),
+        (0.9, 0.05, 2.0),
+    ],
+)
+def test_a_probability_that_is_not_finite_or_not_in_0_to_1_is_an_error(row):
+    with pytest.raises(ValueError, match="frame 2"):
+        runs_from_probs([F, F, row, F])
+
+
+@pytest.mark.parametrize(
+    ("run", "threshold"),
+    [
+        (Run(0, 2, 3, NAN), 0.5),
+        (Run(0, 2, 3, INF), 0.5),
+        (Run(0, 2, 3, 0.9), NAN),
+        (Run(0, 2, 3, 0.9), INF),
+        (Run(0, 2, 3, 0.9), -INF),
+    ],
+)
+def test_verdict_refuses_a_non_finite_score_or_threshold(run, threshold):
+    with pytest.raises(ValueError, match="finite"):
+        verdict(run, threshold)
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        ({"min_frames": 0}, "min_frames"),
+        ({"min_frames": -1}, "min_frames"),
+        ({"max_gap": -1}, "max_gap"),
+    ],
+)
+def test_runs_from_probs_refuses_nonsense_parameters(kwargs, message):
+    with pytest.raises(ValueError, match=message):
+        runs_from_probs([F, F, F], **kwargs)
+
+
+@pytest.mark.parametrize(
+    ("cups", "runs", "expected_pairs", "expected_unpaired"),
+    [
+        # the run that holds the pass's frame wins over an earlier run that is merely in reach
+        (
+            [cup(1, 500)],
+            [run(480, 486, 0.05), run(495, 510, 0.9)],
+            [(cup(1, 500), run(495, 510, 0.9))],
+            0,
+        ),
+        (
+            [cup(1, 500)],
+            [run(480, 486, 0.9), run(495, 510, 0.05)],
+            [(cup(1, 500), run(495, 510, 0.05))],
+            0,
+        ),
+        # no run holds the frame: the nearest by distance to [first, last]
+        (
+            [cup(1, 100)],
+            [run(80, 90, 0.9), run(105, 108, 0.05)],
+            [(cup(1, 100), run(105, 108, 0.05))],
+            0,
+        ),
+        # a tie in distance goes to the earlier run
+        (
+            [cup(1, 100)],
+            [run(90, 95, 0.9), run(105, 110, 0.05)],
+            [(cup(1, 100), run(90, 95, 0.9))],
+            0,
+        ),
+        # farther than the window: none
+        ([cup(1, 100)], [run(70, 80)], [(cup(1, 100), None)], 0),
+        # a used run is skipped, even when it is the nearest
+        (
+            [cup(1, 100), cup(2, 101)],
+            [run(95, 105, 0.9), run(106, 110, 0.05)],
+            [(cup(1, 100), run(95, 105, 0.9)), (cup(2, 101), run(106, 110, 0.05))],
+            0,
+        ),
+        # runs given out of frame order are taken in frame order
+        (
+            [cup(1, 100)],
+            [run(95, 105, 0.9), run(90, 110, 0.05)],
+            [(cup(1, 100), run(90, 110, 0.05))],
+            1,
+        ),
+        # an unpaired run that starts before the first pass but reaches into the span is counted
+        (
+            [cup(1, 100)],
+            [run(90, 110, 0.05), run(95, 105, 0.9)],
+            [(cup(1, 100), run(90, 110, 0.05))],
+            1,
+        ),
+        # two cups at one frame: the lower order takes the run
+        (
+            [cup(2, 100), cup(1, 100)],
+            [run(90, 110)],
+            [(cup(1, 100), run(90, 110)), (cup(2, 100), None)],
+            0,
+        ),
+    ],
+)
+def test_pair_runs_review(cups, runs, expected_pairs, expected_unpaired):
+    assert pair_runs(cups, runs, 15) == (expected_pairs, expected_unpaired)
+
+
+def test_pair_runs_refuses_cups_of_two_videos():
+    cups = [cup(1, 100), Cup(video="b.mp4", order=1, state=CupState.FULL, frame=300)]
+    with pytest.raises(ValueError, match="one video"):
+        pair_runs(cups, [run(90, 110)], 15)
