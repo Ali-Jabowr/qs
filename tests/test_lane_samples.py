@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from qs.labels import Cup, CupState
 from qs.lane.samples import Sample, samples
 
@@ -55,3 +57,56 @@ def test_the_between_rule_never_spans_two_videos() -> None:
 def test_a_short_interval_gives_no_between_sample() -> None:
     cups = [cup("a.mkv", 1, CupState.FULL, 100), cup("a.mkv", 2, CupState.FULL, 110)]
     assert [s.cls for s in samples(cups, {"a.mkv": 1000})] == ["full"] * 10
+
+
+@pytest.mark.parametrize(("interval", "count"), [(15, 0), (16, 3), (48, 3), (49, 0)])
+def test_the_edges_of_the_interval_rule(interval: int, count: int) -> None:
+    cups = [cup("a.mkv", 1, CupState.FULL, 100), cup("a.mkv", 2, CupState.FULL, 100 + interval)]
+    assert len([s for s in samples(cups, {"a.mkv": 1000}) if s.cls == "none"]) == count
+
+
+@pytest.mark.parametrize(
+    ("cups", "kwargs", "match"),
+    [
+        (
+            [cup("a.mkv", 1, CupState.EMPTY, 100), cup("a.mkv", 2, CupState.FULL, 100)],
+            {},
+            r"a\.mkv.*pass 1.*pass 2.*frame 98",
+        ),
+        (
+            [cup("a.mkv", 1, CupState.FULL, 100), cup("a.mkv", 2, CupState.EMPTY, 103)],
+            {},
+            r"a\.mkv.*pass 1.*pass 2.*frame 101",
+        ),
+        (
+            [cup("a.mkv", 1, CupState.FULL, 100), cup("a.mkv", 2, CupState.FULL, 120)],
+            {"half": 8},
+            r"a\.mkv.*pass 1.*pass 2.*frame 106",
+        ),
+    ],
+)
+def test_a_frame_with_two_classes_raises(
+    cups: list[Cup], kwargs: dict[str, int], match: str
+) -> None:
+    with pytest.raises(ValueError, match=match):
+        samples(cups, {"a.mkv": 1000}, **kwargs)
+
+
+def test_a_pass_in_an_unknown_video_raises_with_context() -> None:
+    with pytest.raises(ValueError, match=r"b\.mkv.*frame_counts"):
+        samples([cup("b.mkv", 1, CupState.FULL, 10)], {"a.mkv": 1000})
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "match"),
+    [
+        ({"half": -1}, "half"),
+        ({"fractions": (0.3, 1.2)}, "fractions"),
+        ({"fractions": (-0.1,)}, "fractions"),
+        ({"between": (48, 16)}, "between"),
+    ],
+)
+def test_bad_parameters_raise(kwargs: dict[str, object], match: str) -> None:
+    one = [cup("a.mkv", 1, CupState.FULL, 100)]
+    with pytest.raises(ValueError, match=match):
+        samples(one, {"a.mkv": 1000}, **kwargs)  # type: ignore[arg-type]

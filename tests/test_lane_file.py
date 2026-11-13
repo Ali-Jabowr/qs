@@ -62,3 +62,23 @@ def test_crop_is_a_copy() -> None:
 def test_crop_outside_the_frame_names_window_and_frame_size() -> None:
     with pytest.raises(ConfigError, match=r"\(1200, 240, 276, 230\).*1280x720"):
         crop(frame(), Lane((1200, 240, 276, 230), 30.0))
+
+
+@pytest.mark.parametrize("window", [(-3, 0, 276, 230), (0, -8, 276, 230)])
+def test_crop_refuses_a_negative_corner(window: tuple[int, int, int, int]) -> None:
+    with pytest.raises(ConfigError, match=r"reaches outside the frame of 1280x720"):
+        crop(frame(), Lane(window, 30.0))
+
+
+@pytest.mark.parametrize(
+    ("text", "key"),
+    [
+        ("version: 1\nwindow: [-1, 240, 276, 230]\nfps: 30.0\n", "window"),
+        ("version: 2\nwindow: [500, 240, 276, 230]\nfps: 30.0\n", "version"),
+        ("- 1\n- 2\n", "mapping"),
+        ("version: 1\nwindow: [500, 240, 276, 230]\nfps: true\n", "fps"),
+    ],
+)
+def test_load_refuses_more_bad_files(tmp_path: Path, text: str, key: str) -> None:
+    with pytest.raises(ConfigError, match=key):
+        load_lane(write(tmp_path, text))
