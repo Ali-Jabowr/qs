@@ -15,7 +15,6 @@ Exit codes: 0 recorded, controls held · 1 recorded, a control drifted · 2 refu
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import signal
 import subprocess
@@ -27,8 +26,10 @@ from typing import Any, Protocol
 
 import yaml
 
+from qs.cmd.train import positive_int
 from qs.config import CameraConfig
-from qs.errors import CameraLost
+from qs.errors import CameraLost, CameraSettingsDrift
+from qs.inspector.model import sha256_of
 from qs.sources.v4l2 import (
     ControlReading,
     Controls,
@@ -75,15 +76,9 @@ def _start_process(argv: list[str]) -> Process:
 
 
 def _now() -> str:
-    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1 << 20), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    """UTC to the millisecond: `qs clip-check` counts expected frames from the two times."""
+    now = datetime.now(UTC)
+    return now.strftime("%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond // 1000:03d}Z"
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,7 +94,7 @@ def add_parser(commands: Any) -> None:
     parser.add_argument("--out", required=True, metavar="DIR", help="where the clip goes")
     parser.add_argument("--clip", required=True, metavar="NAME", help="the clip's name, e.g. T-1")
     parser.add_argument("--block", required=True, choices=BLOCKS, help="the clip's role")
-    parser.add_argument("--seconds", type=int, default=None, metavar="N",
+    parser.add_argument("--seconds", type=positive_int, default=None, metavar="N",
                         help="stop after N seconds (default: until Ctrl-C)")
 
 
@@ -157,13 +152,33 @@ def _ffmpeg_argv(record: _Record, video: Path, seconds: int | None) -> list[str]
     return argv + [str(video)]
 
 
+def _require_locked(readings: tuple[ControlReading, ...]) -> None:
+    """Refuse a device that reports none of the four controls that matter: it is not locked."""
+    main_four = {"exposure_us", "gain", "wb_kelvin", "focus"}
+    if all(r.reported is None for r in readings if r.name in main_four):
+        raise _Refused(
+            "exposure, gain, white balance and focus are all unreadable on "
+            "this device (a second device node of the camera?); nothing recorded"
+        )
+
+
+def _hash(file_hash: Callable[[Path], str], video: Path) -> str:
+    try:
+        return file_hash(video)
+    except OSError as exc:
+        raise _Refused(f"{video}: cannot hash the recorded video: {exc}") from exc
+
+
 def _wait(process: Process) -> tuple[int, bool]:
     """Wait for ffmpeg; on Ctrl-C send it SIGINT and wait again. Returns (code, interrupted)."""
     try:
         return process.wait(), False
     except KeyboardInterrupt:
         process.interrupt()
+    try:
         return process.wait(), True
+    except KeyboardInterrupt:
+        raise _Refused("stopped twice; the clip may be incomplete, no sidecar written") from None
 
 
 def main(
@@ -172,12 +187,12 @@ def main(
     start_process: Callable[[list[str]], Process] = _start_process,
     make_controls: Callable[[str], Controls] = V4L2Controls,
     clock: Callable[[], str] = _now,
-    file_hash: Callable[[Path], str] = _sha256,
+    file_hash: Callable[[Path], str] = sha256_of,
 ) -> int:
     """Record one clip; 0 held, 1 drifted, 2 refused or failed."""
     try:
         return _record(args, start_process, make_controls, clock, file_hash)
-    except _Refused as exc:
+    except (_Refused, CameraSettingsDrift) as exc:
         print(str(exc))
         return 2
 
@@ -208,6 +223,7 @@ def _record(
                 f"{first.name}: set {first.wanted}, camera reports {first.reported} "
                 "before recording; nothing recorded"
             )
+        _require_locked(before)
         out.mkdir(parents=True, exist_ok=True)
         started = clock()
         process = start_process(_ffmpeg_argv(record, video, args.seconds))
@@ -219,6 +235,9 @@ def _record(
     if code != 0 and not (interrupted and code == _SIGINT_EXIT):
         raise _Refused(f"ffmpeg exited with code {code}; no sidecar written")
     drifted = _drift(after)
+    for reading in after:
+        if reading.reported is None:
+            print(f"{reading.name}: the camera does not report it; not checked")
     body = {
         "version": 1,
         "clip": args.clip,
@@ -234,7 +253,7 @@ def _record(
         "controls_before": _readings(before),
         "controls_after": _readings(after),
         "drifted": bool(drifted),
-        "sha256": file_hash(video),
+        "sha256": _hash(file_hash, video),
     }
     try:
         sidecar.write_text(json.dumps(body, indent=2) + "\n")
