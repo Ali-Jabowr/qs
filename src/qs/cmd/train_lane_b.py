@@ -59,6 +59,9 @@ def add_parser(commands: Any) -> None:
                         help="coreset share (0.1)")
     parser.add_argument("--input-px", type=positive_int, default=256, metavar="N",
                         help="the model input (256)")
+    parser.add_argument("--max-passes", type=positive_int, default=150, metavar="N",
+                        help="fit at most N full passes, evenly spaced in time (150, about "
+                        "0.9 GiB of embeddings at 256 px)")
     parser.add_argument("--models", default="models", metavar="DIR",
                         help="where bundles are written (models)")
     parser.add_argument("--device", choices=("cuda", "cpu"), default="cuda",
@@ -80,9 +83,19 @@ def _train_videos(split: Split, footage: Path) -> tuple[str, ...]:
     return train
 
 
+def _evenly(items: list[tuple[str, int]], count: int) -> list[tuple[str, int]]:
+    """`count` of `items`, the first and last included and the rest evenly spaced."""
+    if len(items) <= count:
+        return items
+    if count == 1:
+        return items[:1]
+    return [items[i * (len(items) - 1) // (count - 1)] for i in range(count)]
+
+
 def _inputs(
     args: argparse.Namespace, lane: Lane
-) -> tuple[list[np.ndarray], list[ImageRecord]]:
+) -> tuple[list[np.ndarray], list[ImageRecord], dict[str, int], int]:
+    """The model inputs and records, each train clip's full-pass count, and the passes found."""
     labels_path = Path(args.labels)
     if not labels_path.is_file():
         raise _CannotRun(f"labels file {labels_path} not found")
@@ -93,18 +106,21 @@ def _inputs(
         train = _train_videos(split, footage)
     except (LabelsError, ConfigError) as exc:
         raise _CannotRun(str(exc)) from None
+    passes = {video: [cup.frame for cup in labels.cups_of(video) if cup.state in _FULL]
+              for video in train}
+    found = [(video, frame) for video, frames in passes.items() for frame in frames]
+    if not found:
+        raise _Refused("no full pass in the train clips")
     inputs: list[np.ndarray] = []
     images: list[ImageRecord] = []
-    for video in train:
-        frames = [cup.frame for cup in labels.cups_of(video) if cup.state in _FULL]
-        if not frames:
-            continue
+    chosen = _evenly(found, args.max_passes)
+    for video in dict.fromkeys(v for v, _ in chosen):
         try:
             reader = VideoFrames(footage / video)
         except FrameReadError as exc:
             raise _CannotRun(f"footage: {exc}") from None
         try:
-            for frame in frames:
+            for _, frame in (c for c in chosen if c[0] == video):
                 pixels = reader.read(frame)
                 inputs.append(to_input(crop(pixels, lane), args.input_px))
                 images.append(ImageRecord(f"{video}#{frame}", video, pixels_sha256(pixels)))
@@ -114,9 +130,7 @@ def _inputs(
             raise _CannotRun(str(exc)) from None
         finally:
             reader.close()
-    if not inputs:
-        raise _Refused("no full pass in the train clips")
-    return inputs, images
+    return inputs, images, {v: len(f) for v, f in passes.items()}, len(found)
 
 
 def _train(
@@ -134,13 +148,17 @@ def _train(
         print(exc)
         return 2
     try:
-        inputs, images = _inputs(args, lane)
+        inputs, images, per_clip, found = _inputs(args, lane)
     except _Refused as exc:
         print(f"refused: {exc}")
         return 1
     except _CannotRun as exc:
         print(exc)
         return 2
+    for video, count in per_clip.items():
+        print(f"{video}: {count} full passes")
+    if len(images) < found:
+        print(f"used {len(images)} of {found} full passes")
     try:
         model = make_patchcore(device)
     except ConfigError as exc:

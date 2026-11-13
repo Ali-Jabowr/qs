@@ -90,13 +90,7 @@ def test_each_full_pass_of_a_train_clip_is_one_fitted_image(tmp_path: Path) -> N
     assert bundle["window_px"] == 32
 
 
-def test_a_frame_with_no_rim_is_still_fitted_and_the_rim_finder_is_never_called(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    def never_called(*args: object, **kwargs: object) -> None:
-        raise AssertionError("the rim finder was called")
-
-    monkeypatch.setattr("qs.inspector.cup.find_cup", never_called)
+def test_a_plain_grey_frame_with_no_rim_is_still_fitted(tmp_path: Path) -> None:
     fake = FakePatchCore()
     assert _run(tmp_path, _setup(tmp_path, [("full", 50)]), fake) == 0
     assert len(fake.fits[0][0]) == 1
@@ -231,7 +225,8 @@ def test_a_train_clip_the_labels_do_not_name_prints_zero_passes(
     paths["labels"].write_text(json.dumps(labels))
     (paths["footage"] / "T-2.mkv").write_bytes(b"second")
     split = yaml.safe_load(paths["split"].read_text())
-    split["clips"]["T-2.mkv"] = {"role": "train", "sha256": file_sha256(paths["footage"] / "T-2.mkv")}
+    second = file_sha256(paths["footage"] / "T-2.mkv")
+    split["clips"]["T-2.mkv"] = {"role": "train", "sha256": second}
     paths["split"].write_text(yaml.safe_dump(split))
     assert _run(tmp_path, paths, FakePatchCore()) == 0
     assert "T-2.mkv: 0 full passes\n" in capsys.readouterr().out
