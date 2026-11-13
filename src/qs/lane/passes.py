@@ -6,6 +6,7 @@ pure functions over plain values, with no model and no video.
 
 from __future__ import annotations
 
+import math
 import statistics
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -36,6 +37,10 @@ def runs_from_probs(
     Up to `max_gap` non-cup frames in a row inside a run are bridged; more split it. A run with
     fewer than `min_frames` cup frames is kept but has no score.
     """
+    if min_frames < 1:
+        raise ValueError(f"min_frames must be at least 1, got {min_frames}")
+    if max_gap < 0:
+        raise ValueError(f"max_gap must not be negative, got {max_gap}")
     runs: list[Run] = []
     first = last = -1
     empties: list[float] = []
@@ -48,6 +53,8 @@ def runs_from_probs(
     for index, row in enumerate(probs):
         if len(row) != 3:
             raise ValueError(f"frame {index}: expected 3 probabilities, got {len(row)}")
+        if not all(math.isfinite(p) and 0.0 <= p <= 1.0 for p in row):
+            raise ValueError(f"frame {index}: probabilities must be finite, in 0..1: {tuple(row)}")
         if row[2] >= _NONE_LIMIT:
             continue
         if empties and index - last - 1 > max_gap:
@@ -64,34 +71,48 @@ def runs_from_probs(
 def verdict(run: Run, threshold: float) -> Label:
     """DEFECT when the score is above `threshold` (not at it), PASS otherwise; NO_VERDICT when the
     run has no score."""
+    if not math.isfinite(threshold):
+        raise ValueError(f"threshold must be finite, got {threshold}")
     if run.score is None:
         return Label.NO_VERDICT
+    if not math.isfinite(run.score):
+        raise ValueError(f"run {run.first}-{run.last}: score must be finite, got {run.score}")
     return Label.DEFECT if run.score > threshold else Label.PASS
 
 
 def pair_runs(
     cups: Sequence[Cup], runs: Sequence[Run], window: int
 ) -> tuple[list[tuple[Cup, Run | None]], int]:
-    """Each labelled pass, in frame order, with the first unused run lying within `window` frames
-    of it (`first - window <= frame <= last + window`), or None. Also the number of runs left
-    unpaired that start between the first and the last pass, frames included."""
-    ordered = sorted(cups, key=lambda cup: cup.frame)
+    """Each labelled pass, by `(frame, order)`, with an unused run, or None; `runs` are taken in
+    frame order. The run that holds the pass's frame wins; failing that, the nearest run within
+    `window` frames of it (distance to `[first, last]`), the earlier one on a tie. Also the number
+    of runs left unpaired that overlap the span from the first pass to the last."""
+    if len({cup.video for cup in cups}) > 1:
+        raise ValueError("cups must all come from one video, as the runs do")
+    ordered = sorted(cups, key=lambda cup: (cup.frame, cup.order))
+    by_frame = sorted(runs, key=lambda run: run.first)
     used: set[int] = set()
     pairs: list[tuple[Cup, Run | None]] = []
     for cup in ordered:
-        match = next(
-            (
-                i
-                for i, run in enumerate(runs)
-                if i not in used and run.first - window <= cup.frame <= run.last + window
-            ),
-            None,
-        )
+        free = [i for i in range(len(by_frame)) if i not in used]
+        holding = [i for i in free if by_frame[i].first <= cup.frame <= by_frame[i].last]
+        near = [(_distance(by_frame[i], cup.frame), i) for i in free]
+        within = [pair for pair in near if pair[0] <= window]
+        match = holding[0] if holding else min(within)[1] if within else None
         if match is not None:
             used.add(match)
-        pairs.append((cup, None if match is None else runs[match]))
+        pairs.append((cup, None if match is None else by_frame[match]))
     if not ordered:
         return pairs, 0
     low, high = ordered[0].frame, ordered[-1].frame
-    unpaired = sum(1 for i, run in enumerate(runs) if i not in used and low <= run.first <= high)
+    unpaired = sum(
+        1
+        for i, run in enumerate(by_frame)
+        if i not in used and run.last >= low and run.first <= high
+    )
     return pairs, unpaired
+
+
+def _distance(run: Run, frame: int) -> int:
+    """Frames from `frame` to the nearest end of `run`; 0 inside it."""
+    return max(run.first - frame, frame - run.last, 0)
