@@ -1,1 +1,1 @@
-"""The lane: the lane file and the training samples of a labelled pass."""
+"""The lane classifier's data and tools: clips, passes, splits and bundles."""
