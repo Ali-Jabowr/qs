@@ -36,6 +36,7 @@ os.environ["TORCH_HOME"] = str(TORCH_DIR)
 
 import torch  # noqa: E402
 from anomalib.models.image.patchcore.torch_model import PatchcoreModel  # noqa: E402
+from torchvision.models import ResNet18_Weights  # noqa: E402
 
 BACKBONE = "wide_resnet50_2"
 LAYERS = ["layer2", "layer3"]
@@ -85,6 +86,10 @@ def main() -> int:
         return 1
     for name, tensor in features.items():
         print(f"  {name}: {tuple(tensor.shape)}")
+
+    # The lane classifier's starting weights; the file name carries the hash prefix.
+    ResNet18_Weights.IMAGENET1K_V1.get_state_dict(progress=True, check_hash=True)
+    print("fetched resnet18-f37072fd.pth (lane classifier)")
 
     manifest = {
         "date": date.today().isoformat(),
