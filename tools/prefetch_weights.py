@@ -40,6 +40,7 @@ from torchvision.models import ResNet18_Weights  # noqa: E402
 
 BACKBONE = "wide_resnet50_2"
 LAYERS = ["layer2", "layer3"]
+LANE_FILE = "resnet18-f37072fd.pth"
 
 
 def sha256_of(path: Path) -> str:
@@ -53,7 +54,8 @@ def sha256_of(path: Path) -> str:
 def walk_cache(cache_dir: Path) -> list[dict[str, object]]:
     files: list[dict[str, object]] = []
     for path in sorted(cache_dir.rglob("*")) if cache_dir.is_dir() else []:
-        if path.is_file() and not path.is_symlink():
+        # The lane classifier's file is listed under its own manifest key, not in R17's count.
+        if path.is_file() and not path.is_symlink() and path.name != LANE_FILE:
             files.append(
                 {
                     "path": str(path.relative_to(ROOT)),
@@ -91,7 +93,13 @@ def main() -> int:
     ResNet18_Weights.IMAGENET1K_V1.get_state_dict(progress=True, check_hash=True)
     print("fetched resnet18-f37072fd.pth (lane classifier)")
 
+    lane_path = TORCH_DIR / "hub" / "checkpoints" / LANE_FILE
     manifest = {
+        "lane_weights": {
+            "path": str(lane_path.relative_to(ROOT)),
+            "sha256": sha256_of(lane_path),
+            "bytes": lane_path.stat().st_size,
+        },
         "date": date.today().isoformat(),
         "model": "PatchcoreModel",
         "backbone": BACKBONE,
