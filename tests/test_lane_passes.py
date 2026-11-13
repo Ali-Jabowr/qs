@@ -102,34 +102,34 @@ def run(first: int, last: int, score: float = 0.05) -> Run:
             [run(90, 110), run(200, 1700, 0.9)],
             15,
             [(cup(1, 100), run(90, 110)), (cup(2, 900), run(200, 1700, 0.9))],
-            0,
+            [],
         ),
         (
             [cup(1, 100), cup(2, 500)],
             [run(90, 110), run(300, 320, 0.9)],
             15,
             [(cup(1, 100), run(90, 110)), (cup(2, 500), None)],
-            1,
+            [run(300, 320, 0.9)],
         ),
         (
             [cup(1, 100), cup(2, 104)],
             [run(90, 110)],
             15,
             [(cup(1, 100), run(90, 110)), (cup(2, 104), None)],
-            0,
+            [],
         ),
         # the window is inclusive on both sides
-        ([cup(1, 75)], [run(90, 110)], 15, [(cup(1, 75), run(90, 110))], 0),
-        ([cup(1, 125)], [run(90, 110)], 15, [(cup(1, 125), run(90, 110))], 0),
-        ([cup(1, 74)], [run(90, 110)], 15, [(cup(1, 74), None)], 0),
-        ([cup(1, 126)], [run(90, 110)], 15, [(cup(1, 126), None)], 0),
+        ([cup(1, 75)], [run(90, 110)], 15, [(cup(1, 75), run(90, 110))], []),
+        ([cup(1, 125)], [run(90, 110)], 15, [(cup(1, 125), run(90, 110))], []),
+        ([cup(1, 74)], [run(90, 110)], 15, [(cup(1, 74), None)], []),
+        ([cup(1, 126)], [run(90, 110)], 15, [(cup(1, 126), None)], []),
         # cups given out of frame order are paired and returned in frame order
         (
             [cup(2, 900), cup(1, 100)],
             [run(90, 110), run(890, 910, 0.9)],
             15,
             [(cup(1, 100), run(90, 110)), (cup(2, 900), run(890, 910, 0.9))],
-            0,
+            [],
         ),
         # an unpaired run that starts before the first pass or after the last is not counted
         (
@@ -137,15 +137,15 @@ def run(first: int, last: int, score: float = 0.05) -> Run:
             [run(10, 20), run(95, 105), run(195, 205), run(900, 910)],
             15,
             [(cup(1, 100), run(95, 105)), (cup(2, 200), run(195, 205))],
-            0,
+            [],
         ),
         # one starting exactly on the first or last pass frame is counted
         (
             [cup(1, 100), cup(2, 300)],
             [run(100, 102), run(200, 202), run(300, 302)],
-            0,
+            [],
             [(cup(1, 100), run(100, 102)), (cup(2, 300), run(300, 302))],
-            1,
+            [run(200, 202)],
         ),
         # one run covering two passes serves the first only
         (
@@ -153,7 +153,7 @@ def run(first: int, last: int, score: float = 0.05) -> Run:
             [run(50, 250)],
             15,
             [(cup(1, 100), run(50, 250)), (cup(2, 200), None)],
-            0,
+            [],
         ),
         # a run within reach of two passes goes to the earlier; the later takes the next run
         (
@@ -161,18 +161,18 @@ def run(first: int, last: int, score: float = 0.05) -> Run:
             [run(95, 105), run(108, 115, 0.9)],
             15,
             [(cup(1, 100), run(95, 105)), (cup(2, 110), run(108, 115, 0.9))],
-            0,
+            [],
         ),
-        ([cup(1, 100)], [], 15, [(cup(1, 100), None)], 0),
+        ([cup(1, 100)], [], 15, [(cup(1, 100), None)], []),
         # no passes: nothing to pair and no span to count unpaired runs in
-        ([], [run(90, 110)], 15, [], 0),
-        ([], [], 15, [], 0),
+        ([], [run(90, 110)], 15, [], []),
+        ([], [], 15, [], []),
         (
             [cup(1, 100), cup(2, 900)],
             [run(90, 110), run(300, 320, 0.9), run(500, 520, 0.9), run(890, 910)],
             15,
             [(cup(1, 100), run(90, 110)), (cup(2, 900), run(890, 910))],
-            2,
+            [run(300, 320, 0.9), run(500, 520, 0.9)],
         ),
     ],
 )
@@ -240,57 +240,57 @@ def test_runs_from_probs_refuses_nonsense_parameters(kwargs, message):
             [cup(1, 500)],
             [run(480, 486, 0.05), run(495, 510, 0.9)],
             [(cup(1, 500), run(495, 510, 0.9))],
-            0,
+            [],
         ),
         (
             [cup(1, 500)],
             [run(480, 486, 0.9), run(495, 510, 0.05)],
             [(cup(1, 500), run(495, 510, 0.05))],
-            0,
+            [],
         ),
         # no run holds the frame: the nearest by distance to [first, last]
         (
             [cup(1, 100)],
             [run(80, 90, 0.9), run(105, 108, 0.05)],
             [(cup(1, 100), run(105, 108, 0.05))],
-            0,
+            [],
         ),
         # a tie in distance goes to the earlier run
         (
             [cup(1, 100)],
             [run(90, 95, 0.9), run(105, 110, 0.05)],
             [(cup(1, 100), run(90, 95, 0.9))],
-            0,
+            [],
         ),
         # farther than the window: none
-        ([cup(1, 100)], [run(70, 80)], [(cup(1, 100), None)], 0),
+        ([cup(1, 100)], [run(70, 80)], [(cup(1, 100), None)], []),
         # a used run is skipped, even when it is the nearest
         (
             [cup(1, 100), cup(2, 101)],
             [run(95, 105, 0.9), run(106, 110, 0.05)],
             [(cup(1, 100), run(95, 105, 0.9)), (cup(2, 101), run(106, 110, 0.05))],
-            0,
+            [],
         ),
         # runs given out of frame order are taken in frame order
         (
             [cup(1, 100)],
             [run(95, 105, 0.9), run(90, 110, 0.05)],
             [(cup(1, 100), run(90, 110, 0.05))],
-            1,
+            [run(95, 105, 0.9)],
         ),
         # an unpaired run that starts before the first pass but reaches into the span is counted
         (
             [cup(1, 100)],
             [run(90, 110, 0.05), run(95, 105, 0.9)],
             [(cup(1, 100), run(90, 110, 0.05))],
-            1,
+            [run(95, 105, 0.9)],
         ),
         # two cups at one frame: the lower order takes the run
         (
             [cup(2, 100), cup(1, 100)],
             [run(90, 110)],
             [(cup(1, 100), run(90, 110)), (cup(2, 100), None)],
-            0,
+            [],
         ),
     ],
 )
