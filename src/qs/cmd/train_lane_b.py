@@ -62,11 +62,29 @@ def add_parser(commands: Any) -> None:
     parser.add_argument("--max-passes", type=positive_int, default=150, metavar="N",
                         help="fit at most N full passes, evenly spaced in time (150, about "
                         "0.9 GiB of embeddings at 256 px)")
-    parser.add_argument("--states", default="stub")
+    parser.add_argument("--states", type=states, default=_FULL, metavar="S,S",
+                        help="fit only on passes of these states, comma-separated "
+                        "(full,full_white,full_pink): a bank for pink units then holds no white "
+                        "unit, whose surface a pale patch can resemble")
     parser.add_argument("--models", default="models", metavar="DIR",
                         help="where bundles are written (models)")
     parser.add_argument("--device", choices=("cuda", "cpu"), default="cuda",
                         help="the torch device (cuda; never a silent fallback to cpu)")
+
+
+def states(text: str) -> tuple[CupState, ...]:
+    """argparse type: a comma-separated list of full-pass states."""
+    chosen = []
+    for name in text.split(","):
+        try:
+            state = CupState(name)
+        except ValueError:
+            state = None
+        if state not in _FULL:
+            raise argparse.ArgumentTypeError(
+                f"{name!r} is not one of {', '.join(s.value for s in _FULL)}")
+        chosen.append(state)
+    return tuple(chosen)
 
 
 def lane_b_score(pixels: np.ndarray, lane: Lane, scorer: Scorer, input_px: int) -> float:
@@ -107,7 +125,7 @@ def _inputs(
         train = _train_videos(split, footage)
     except (LabelsError, ConfigError) as exc:
         raise _CannotRun(str(exc)) from None
-    passes = {video: [cup.frame for cup in labels.cups_of(video) if cup.state in _FULL]
+    passes = {video: [cup.frame for cup in labels.cups_of(video) if cup.state in args.states]
               for video in train}
     found = [(video, frame) for video, frames in passes.items() for frame in frames]
     if not found:
