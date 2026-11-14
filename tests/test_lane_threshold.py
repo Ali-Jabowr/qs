@@ -22,7 +22,7 @@ from qs.__main__ import build_parser
 from qs.cmd import threshold_lane
 from qs.lane.lanefile import Lane
 from qs.lane.model import build, write_lane_bundle
-from qs.lane.split import Split, file_sha256, write_split
+from qs.lane.split import Split, file_sha256, load_split, write_split
 from qs.lane.threshold import Threshold, lane_threshold, load_threshold, write_threshold
 
 FRAMES = 120
@@ -204,3 +204,52 @@ def test_a_calibrate_clip_changed_since_the_split_is_refused(
         clip.write(b"x")
     assert _run(tmp_path, paths, _bundle(tmp_path), _probs({20: 0.1})) == 2
     assert "C-1.mkv changed since the split" in capsys.readouterr().out
+
+
+def test_an_empty_pass_keeps_its_own_run_so_a_full_pass_without_one_stays_unseen(
+    tmp_path: Path,
+) -> None:
+    # The full pass at 68 is 6 frames from the empty pass's run (60), inside the window of 15.
+    # Pairing only the full passes would hand it that run and make the threshold 0.9.
+    paths = _setup(tmp_path, calibrate=(("empty", 60), ("full", 68), ("full", 100)))
+    assert _run(tmp_path, paths, _bundle(tmp_path), _probs({60: 0.9, 100: 0.1})) == 0
+    saved = load_threshold(tmp_path / "threshold.yml")
+    assert (saved.n_full, saved.n_above_half, saved.n_unseen, saved.value) == (1, 0, 1, 0.5)
+
+
+def test_a_test_clip_that_is_not_on_disk_is_left_alone_when_a_calibrate_clip_exists(
+    tmp_path: Path,
+) -> None:
+    paths = _setup(tmp_path, test=(("full", 7), ("full", 9)))
+    assert _run(tmp_path, paths, _bundle(tmp_path), _probs({20: 0.1, 60: 0.1, 100: 0.1})) == 0
+    assert load_threshold(tmp_path / "threshold.yml").n_full == 3
+
+
+def test_the_window_is_printed(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    paths = _setup(tmp_path)
+    assert _run(tmp_path, paths, _bundle(tmp_path), _probs({20: 0.1, 60: 0.1, 100: 0.1})) == 0
+    assert "window 15" in capsys.readouterr().out
+
+
+def test_a_calibrate_clip_without_a_labelled_pass_is_named_as_skipped(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    paths = _setup(tmp_path)
+    _write_clip(paths["footage"] / "C-2.mkv")
+    split = load_split(paths["split"])
+    clips = {**split.clips, "C-2.mkv": ("calibrate", file_sha256(paths["footage"] / "C-2.mkv"))}
+    write_split(Split(clips), paths["split"])
+    assert _run(tmp_path, paths, _bundle(tmp_path), _probs({20: 0.1, 60: 0.1, 100: 0.1})) == 0
+    assert "C-2.mkv: no labelled pass, skipped" in capsys.readouterr().out
+
+
+def test_a_non_finite_probability_is_an_exit_2_line_not_a_traceback(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    paths = _setup(tmp_path)
+
+    def nan_probs(*_: object, **__: object) -> np.ndarray:
+        return np.full((FRAMES, 3), np.nan)
+
+    assert _run(tmp_path, paths, _bundle(tmp_path), nan_probs) == 2
+    assert capsys.readouterr().out.startswith("threshold-lane: ")
