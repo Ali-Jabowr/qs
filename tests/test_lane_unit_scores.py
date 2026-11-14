@@ -53,10 +53,10 @@ def _lab_crop(colour: tuple[int, int, int] = BASE) -> np.ndarray:
 
 
 def _with_patch(crop: np.ndarray, lab_colour: tuple[int, int, int]) -> np.ndarray:
-    """A centred disc of radius 22 (30.25% of the radius-40 disc) in another Lab colour."""
+    """A centred disc of radius 20 (29.2% of the eroded unit) in another Lab colour."""
     patch = _lab_crop(lab_colour)
     inside = np.zeros((HEIGHT, WIDTH), dtype=np.uint8)
-    cv2.circle(inside, (138, 115), 22, 1, -1)
+    cv2.circle(inside, (138, 115), 20, 1, -1)
     out = crop.copy()
     out[inside > 0] = patch[inside > 0]
     return out
@@ -232,7 +232,7 @@ def test_a_block_gives_one_row_per_full_pass_and_a_fault_row_for_a_failed_cut(
     assert [(r.state, r.frame, r.order) for r in rows] == [
         ("full_pink", 50, 1), ("full_white", 114, 3), ("full", 146, 4)]
     assert [r.used_frame for r in rows] == [50, 114, None]
-    assert [r.fault for r in rows] == ["", "", "no unit"]
+    assert [r.fault for r in rows] == ["", "", "unit size out of range"]
     last = rows[2]
     assert (last.colour_spread, last.median_l, last.median_a, last.median_b, last.patch_score) == (
         None, None, None, None, None)
@@ -258,7 +258,7 @@ def test_the_scores_are_written_to_a_csv_with_empty_cells_for_no_answer(
     table = list(csv.reader(out.open(encoding="utf-8")))
     assert table[0] == ["video", "frame", "order", "state", "used_frame", "fault",
                         "colour_spread", "median_l", "median_a", "median_b", "patch_score"]
-    assert table[3][:6] == ["C-1.mkv", "146", "4", "full", "", "no unit"]
+    assert table[3][:6] == ["C-1.mkv", "146", "4", "full", "", "unit size out of range"]
     assert table[3][6:] == ["", "", "", "", ""]
     assert table[1][10] == "7.5"
     assert table[2][10] == ""

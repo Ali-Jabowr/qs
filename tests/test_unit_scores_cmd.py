@@ -19,7 +19,8 @@ from test_lane_unit_scores import CentreScorer, make_rig
 
 
 def _bundle(models: Path) -> str:
-    info = BundleInfo(32, 276, 0.1, 42, "cpu", "own", (ImageRecord("T-1.mkv#5", "T-1.mkv", "0" * 64),))
+    image = ImageRecord("T-1.mkv#5", "T-1.mkv", "0" * 64)
+    info = BundleInfo(32, 276, 0.1, 42, "cpu", "own", (image,))
     return write_bundle(models, "mochi-lane", np.zeros((2, 3), dtype=np.float32), info)
 
 
@@ -46,8 +47,9 @@ def test_the_calibrate_block_is_scored_into_the_csv(
     table = list(csv.DictReader((tmp_path / "scores.csv").open(encoding="utf-8")))
     assert [(r["state"], r["frame"], r["patch_score"]) for r in table] == [
         ("full_pink", "50", "7.5"), ("full_white", "114", ""), ("full", "146", "")]
-    assert table[2]["fault"] == "no unit"
-    assert capsys.readouterr().out == "scored 3 passes of 1 clips; 1 without a cut-out\nno unit: 1\n"
+    assert table[2]["fault"] == "unit size out of range"
+    assert capsys.readouterr().out == (
+        "scored 3 passes of 1 clips; 1 without a cut-out\nunit size out of range: 1\n")
 
 
 def test_the_test_block_cannot_be_asked_for(tmp_path: Path) -> None:
@@ -63,7 +65,10 @@ def test_the_test_clips_are_not_read(tmp_path: Path) -> None:
     assert _run(tmp_path, paths) == 0
 
 
-@pytest.mark.parametrize("entry", ["empty=x", "full_pink", "full_pink=patchcore-mochi-lane-v1-000000000000"])
+BAD_ENTRIES = ["empty=x", "full_pink", "full_pink=patchcore-mochi-lane-v1-000000000000"]
+
+
+@pytest.mark.parametrize("entry", BAD_ENTRIES)
 def test_a_bad_patchcore_entry_exits_2(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], entry: str
 ) -> None:
