@@ -5,7 +5,8 @@
 
 For each full pass (`full`, `full_white`, `full_pink`) of a clip the split puts in the block, the
 crops of frames f-2 ... f+2 are cut and the one whose unit is nearest the crop centre is drawn
-with its outline and written as `<video>-<frame>.png`. For the eye check of `unit.yml`. The test
+with its outline and written as `<video>-<frame>.png`; a pass with no cut gets its plain crop as
+`<video>-<frame>-fault-<reason>.png`. For the eye check of `unit.yml`. The test
 block is not offered, and only the block's clips are hashed and read.
 
 Exit codes: 0 done · 1 refused (no full pass) · 2 could not run.
@@ -19,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 import cv2
+import numpy as np
 
 from qs.cmd.train import positive_int
 from qs.cmd.train_lane_b import _FULL, _evenly
@@ -38,7 +40,10 @@ def add_parser(commands: Any) -> None:
         "unit-cut", help="cut the unit out of its cup and draw the outline for an eye check"
     )
     parser.add_argument("--lane", required=True, metavar="PATH", help="the lane file")
-    parser.add_argument("--unit", required=True, metavar="PATH", help="the unit settings file")
+    parser.add_argument("--unit", required=True, metavar="PATH",
+                        help="the unit settings file: reach_px just inside "
+                        "the cup rim, seed_px about a third of the unit's radius, area_px max "
+                        "well under the area inside the rim")
     parser.add_argument("--labels", required=True, metavar="PATH",
                         help="the labels file (qs label)")
     parser.add_argument("--footage", required=True, metavar="DIR", help="the folder of clips")
@@ -57,22 +62,28 @@ def _block_videos(split: Split, block: str, footage: Path) -> tuple[str, ...]:
     return videos
 
 
+def _write(target: Path, picture: np.ndarray) -> None:
+    if not cv2.imwrite(str(target), picture):
+        raise OSError(f"cannot write {target}")
+
+
 def _draw_pass(
     reader: VideoFrames, frame: int, lane: Lane, unit: UnitSettings, out: Path, video: str
 ) -> PlacementFault | None:
-    """Cut the pass at `frame`, write its overlay; the fault if there was no cut."""
+    """Cut the pass at `frame`, write its overlay; with no cut, write the middle crop plain
+    as `<video>-<frame>-fault-<reason>.png` and return the fault."""
     last = len(reader.ids) - 1
     positions = range(max(0, frame - _NEIGHBOURS), min(last, frame + _NEIGHBOURS) + 1)
     crops = [crop(reader.read(position), lane) for position in positions]
     try:
         index, cut = best_cut(crops, unit)
     except PlacementFault as fault:
+        reason = fault.detail.replace(" ", "-")
+        _write(out / f"{video}-{frame}-fault-{reason}.png", crops[len(crops) // 2])
         return fault
     picture = crops[index].copy()
     cv2.drawContours(picture, [cut.contour], -1, _OUTLINE, 2)
-    target = out / f"{video}-{frame}.png"
-    if not cv2.imwrite(str(target), picture):
-        raise OSError(f"cannot write {target}")
+    _write(out / f"{video}-{frame}.png", picture)
     return None
 
 

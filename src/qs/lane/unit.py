@@ -2,8 +2,13 @@
 
 The unit is not found by colour likeness: a pale patch on a pink unit would be cut away by a
 colour rule. GrabCut is seeded by geometry only — a disc at the crop's centre is surely unit,
-nothing beyond `reach_px` is, an edge band is surely background — so a patch of any colour
-inside the outline stays inside the cut-out.
+nothing beyond `reach_px` is (sure background, so the cut can never leak past it), an edge band
+is surely background — so a patch of any colour inside the outline stays inside the cut-out.
+
+Choosing the values: put `reach_px` just inside the cup rim (a unit that reaches the reach circle
+is "not wholly in view", never a clipped outline); `seed_px` about a third of the unit's radius;
+`area_px` max well under the area inside the rim, so a leak up to the rim is refused as "unit
+size out of range".
 """
 
 from __future__ import annotations
@@ -26,8 +31,9 @@ _GRABCUT_ITERATIONS = 5
 @dataclass(frozen=True, slots=True)
 class UnitSettings:
     """`seed_px`: radius of the centre disc that is surely unit; `reach_px`: radius beyond which
-    nothing is unit; `border_px`: edge band that is surely background; `area_px`: the range of a
-    unit's area in crop pixels; `scale`: the factor the crop is shrunk by for the cut."""
+    nothing is unit (a unit that reaches it faults); `border_px`: edge band that is surely
+    background; `area_px`: the range of a unit's area in crop pixels; `scale`: the factor the crop
+    is shrunk by for the cut."""
 
     seed_px: int
     reach_px: int
@@ -114,8 +120,11 @@ def cut_unit(crop: np.ndarray, settings: UnitSettings) -> Silhouette:
     small_h, small_w = small.shape[:2]
     centre = (small_w // 2, small_h // 2)
     band = max(1, round(settings.border_px * settings.scale))
-    grab = np.full((small_h, small_w), cv2.GC_PR_BGD, dtype=np.uint8)
-    cv2.circle(grab, centre, round(settings.reach_px * settings.scale), cv2.GC_PR_FGD, -1)
+    grab = np.full((small_h, small_w), cv2.GC_BGD, dtype=np.uint8)
+    reach = round(settings.reach_px * settings.scale)
+    cv2.circle(grab, centre, reach, cv2.GC_PR_FGD, -1)
+    disc = (grab != cv2.GC_BGD).astype(np.uint8)
+    rim = disc - cv2.erode(disc, np.ones((3, 3), np.uint8))
     cv2.circle(grab, centre, max(1, round(settings.seed_px * settings.scale)), cv2.GC_FGD, -1)
     grab[:band] = grab[-band:] = cv2.GC_BGD
     grab[:, :band] = grab[:, -band:] = cv2.GC_BGD
@@ -127,6 +136,8 @@ def cut_unit(crop: np.ndarray, settings: UnitSettings) -> Silhouette:
         raise PlacementFault("no unit")
     _, labels = cv2.connectedComponents(foreground, connectivity=4)
     part = (labels == labels[centre[1], centre[0]]).astype(np.uint8)
+    if (part & rim).any():
+        raise PlacementFault("not wholly in view")
     inner = part[band : small_h - band, band : small_w - band]
     if inner[0].any() or inner[-1].any() or inner[:, 0].any() or inner[:, -1].any():
         raise PlacementFault("not wholly in view")
