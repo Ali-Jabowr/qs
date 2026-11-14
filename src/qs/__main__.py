@@ -363,6 +363,15 @@ def build_parser() -> argparse.ArgumentParser:
     from qs.cmd import train_lane_b
 
     train_lane_b.add_parser(commands)
+    from qs.cmd import threshold_lane
+
+    threshold_lane.add_parser(commands)
+    from qs.cmd import freeze
+
+    freeze.add_parser(commands)
+    from qs.cmd import compare
+
+    compare.add_parser(commands)
     return parser
 
 
@@ -461,6 +470,18 @@ def run(argv: Sequence[str] | None = None) -> int:
         from qs.cmd import train_lane_b
 
         return train_lane_b.main(args)
+    if args.command == "threshold-lane":
+        from qs.cmd import threshold_lane
+
+        return threshold_lane.main(args)
+    if args.command == "freeze":
+        from qs.cmd import freeze
+
+        return freeze.main(args)
+    if args.command == "compare":
+        from qs.cmd import compare
+
+        return compare.main(args)
     raise AssertionError(f"unhandled command {args.command!r}")
 
 
