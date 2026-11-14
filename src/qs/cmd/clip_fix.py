@@ -21,10 +21,9 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-import cv2
-
-from qs.cmd.clip_check import ClipCheckError, _sidecar, frame_gaps
+from qs.cmd.clip_check import ClipCheckError, _sidecar
 from qs.inspector.model import sha256_of
+from qs.lane.split import ClipCounts, count_clip
 
 
 def add_parser(commands: Any) -> None:
@@ -40,20 +39,6 @@ def _run_ffmpeg(argv: list[str]) -> int:
         raise ClipCheckError(f"cannot start ffmpeg: {exc}") from exc
 
 
-def missing_frames(video: Path) -> int:
-    """Frames missing between the timestamps of the clip, read in order."""
-    capture = cv2.VideoCapture(str(video))
-    try:
-        if not capture.isOpened():
-            raise ClipCheckError(f"cannot open the video {video}")
-        stamps: list[float] = []
-        while capture.read()[0]:
-            stamps.append(float(capture.get(cv2.CAP_PROP_POS_MSEC)))
-    finally:
-        capture.release()
-    return frame_gaps(stamps).missing
-
-
 def _fps(sidecar: dict[str, Any], path: Path) -> int:
     fps = sidecar.get("fps")
     if isinstance(fps, bool) or not isinstance(fps, int) or fps <= 0:
@@ -65,7 +50,7 @@ def main(
     args: argparse.Namespace,
     *,
     run_ffmpeg: Callable[[list[str]], int] = _run_ffmpeg,
-    count_missing: Callable[[Path], int] = missing_frames,
+    count: Callable[[Path], ClipCounts | None] = count_clip,
     file_hash: Callable[[Path], str] = sha256_of,
 ) -> int:
     video = Path(args.video)
@@ -77,7 +62,10 @@ def main(
                 raise ClipCheckError(f"{path} already exists; nothing overwritten")
         sidecar = _sidecar(video)
         fps = _fps(sidecar, video.with_suffix(".json"))
-        missing = count_missing(video)
+        counts = count(video)
+        if counts is None:
+            raise ClipCheckError(f"cannot open the video {video}")
+        missing = counts.missing
         if missing == 0:
             raise ClipCheckError(f"{video} has no missing frames; nothing to fix")
         code = run_ffmpeg([

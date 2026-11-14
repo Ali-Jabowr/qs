@@ -11,10 +11,12 @@ import json
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import NamedTuple
 
 import cv2
 import yaml
 
+from qs.cmd.clip_check import frame_gaps
 from qs.errors import ConfigError
 from qs.inspector.model import sha256_of
 
@@ -48,9 +50,18 @@ def _hash(hasher: Hasher, video: Path) -> str:
         raise ConfigError(f"{video.name} cannot be read: {exc}") from exc
 
 
-def count_frames(video: Path) -> tuple[int, int] | None:
-    """(decoded, the container's count) of a video; None if it cannot be opened or reports no
-    frames (an unreadable clip is not this check's to name)."""
+class ClipCounts(NamedTuple):
+    """What a clip says about its frames: decoded in order, the container's count, and the
+    frames missing between timestamps."""
+
+    decoded: int
+    container: int
+    missing: int
+
+
+def count_clip(video: Path) -> ClipCounts | None:
+    """Read a clip once, in order; None if it cannot be opened or reports no frames (an
+    unreadable clip is not this check's to name)."""
     capture = cv2.VideoCapture(str(video))
     try:
         if not capture.isOpened():
@@ -58,12 +69,12 @@ def count_frames(video: Path) -> tuple[int, int] | None:
         container = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
         if container <= 0:
             return None
-        decoded = 0
-        while capture.grab():
-            decoded += 1
-        return decoded, container
+        stamps: list[float] = []
+        while capture.read()[0]:
+            stamps.append(float(capture.get(cv2.CAP_PROP_POS_MSEC)))
     finally:
         capture.release()
+    return ClipCounts(len(stamps), container, frame_gaps(stamps).missing)
 
 
 def _sidecar(footage: Path, clip: str) -> tuple[str, bool]:
@@ -110,10 +121,10 @@ def build_split(footage: Path, train: list[str], calibrate: list[str], test: lis
             if actual != recorded:
                 raise ConfigError(f"{video} differs from its sidecar: "
                                   f"{actual[:8]} now, {recorded[:8]} recorded")
-            counts = count_frames(footage / video)
-            if counts is not None and counts[0] != counts[1]:
-                raise ConfigError(f"{video} decodes {counts[0]} frames but its container says "
-                                  f"{counts[1]}: frame numbers are not reliable; "
+            counts = count_clip(footage / video)
+            if counts is not None and counts.decoded != counts.container:
+                raise ConfigError(f"{video} decodes {counts.decoded} frames but its container "
+                                  f"says {counts.container}: frame numbers are not reliable; "
                                   f"run qs clip-fix")
             clips[video] = (role, actual)
     return Split(clips)

@@ -13,6 +13,7 @@ import pytest
 from gapped_clip import make_gapped_clip
 from qs.__main__ import run
 from qs.cmd import clip_fix
+from qs.lane.split import ClipCounts
 
 SIDECAR = {
     "version": 1,
@@ -47,7 +48,7 @@ class Rig:
         return clip_fix.main(
             argparse_namespace(self.video),
             run_ffmpeg=self.ffmpeg,
-            count_missing=lambda video: self.missing,
+            count=lambda video: ClipCounts(110, 120, self.missing),
             file_hash=lambda path: "bbbb",
         )
 
@@ -117,7 +118,7 @@ def test_a_failing_ffmpeg_writes_nothing(tmp_path, capsys):
     code = clip_fix.main(
         argparse_namespace(rig.video),
         run_ffmpeg=lambda argv: 1,
-        count_missing=lambda video: 10,
+        count=lambda video: ClipCounts(110, 120, 10),
         file_hash=lambda path: "bbbb",
     )
     assert code == 2
