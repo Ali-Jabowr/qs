@@ -98,6 +98,7 @@ def test_the_table_of_the_test_clip_is_printed_and_written(
 ) -> None:
     paths = make_rig(tmp_path)
     thresholds = _thresholds(tmp_path, paths)[1]
+    capsys.readouterr()  # what `qs unit-thresholds` printed is not part of the table
     scoring = Scoring()
     assert _report(tmp_path, paths, thresholds, scoring, "--out", str(tmp_path / "t.md")) == 0
     out = capsys.readouterr().out
