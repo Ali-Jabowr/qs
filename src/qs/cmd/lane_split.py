@@ -48,5 +48,7 @@ def main(args: argparse.Namespace) -> int:
     except OSError as exc:
         print(f"lane-split: {out} cannot be written: {exc}")
         return 2
+    for video in split.unchecked:
+        print(f"lane-split: {video}: cannot be opened, frame count not checked")
     print(f"lane-split: {len(split.clips)} clips written to {args.out}")
     return 0

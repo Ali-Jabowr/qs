@@ -2,12 +2,15 @@
 
     qs clip-fix VIDEO
 
-When frames are missing, the container's count and the frames that decode disagree, and a frame
-read in order is not the frame read by seeking. This writes `<name>-fixed.mkv` beside the clip
-with `ffmpeg -c copy -bsf:v setts=ts=N/(FPS*TB)`: every picture is kept, nothing is re-encoded,
-and the timestamps become evenly spaced. The sidecar is copied to `<name>-fixed.json` with the new
+When frames are missing, or the container's count disagrees with the frames that decode (a true
+frame rate off the nominal one does it too), a frame read in order is not the frame read by
+seeking. It fixes a clip with either fault and refuses one with neither. This writes
+`<name>-fixed.mkv` beside the clip with `ffmpeg -c copy -bsf:v setts=ts=N/(FPS*TB)`: every
+picture is kept, nothing is re-encoded, and the timestamps become evenly spaced. The sidecar is copied to `<name>-fixed.json` with the new
 `sha256`, `fixed_from` (the original's `sha256`) and `missing_frames`. The original is never
-changed and an existing output is never overwritten.
+changed and an existing output is never overwritten. The output is counted; if its decoded count
+still differs from its container's it is deleted and the exit code is 2. `missing_frames` is the
+count from timestamps, so a rate mismatch reads 0.
 
 Exit codes: 0 written · 2 refused or failed.
 """
@@ -66,8 +69,10 @@ def main(
         if counts is None:
             raise ClipCheckError(f"cannot open the video {video}")
         missing = counts.missing
-        if missing == 0:
-            raise ClipCheckError(f"{video} has no missing frames; nothing to fix")
+        if missing == 0 and counts.decoded == counts.container:
+            raise ClipCheckError(
+                f"{video} has no missing frames and its counts agree; nothing to fix"
+            )
         code = run_ffmpeg([
             "ffmpeg", "-hide_banner", "-loglevel", "error", "-i", str(video),
             "-c", "copy", "-bsf:v", f"setts=ts=N/({fps}*TB)", str(out),
@@ -75,6 +80,13 @@ def main(
         if code != 0:
             out.unlink(missing_ok=True)
             raise ClipCheckError(f"ffmpeg exited with code {code}")
+        after = count(out)
+        if after is None or after.decoded != after.container:
+            out.unlink(missing_ok=True)
+            seen = "cannot be opened" if after is None else (
+                f"decodes {after.decoded} frames but its container says {after.container}"
+            )
+            raise ClipCheckError(f"{out} {seen} after the fix; output deleted")
         body = {
             **sidecar,
             "sha256": file_hash(out),

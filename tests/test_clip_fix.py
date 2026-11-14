@@ -44,11 +44,16 @@ class Rig:
         Path(argv[-1]).write_bytes(b"fixed")
         return 0
 
+    def counts(self, video: Path) -> ClipCounts:
+        if video.name.endswith("-fixed.mkv"):
+            return ClipCounts(110, 110, 0)
+        return ClipCounts(110, 120 if self.missing else 110, self.missing)
+
     def run(self) -> int:
         return clip_fix.main(
             argparse_namespace(self.video),
             run_ffmpeg=self.ffmpeg,
-            count=lambda video: ClipCounts(110, 120, self.missing),
+            count=self.counts,
             file_hash=lambda path: "bbbb",
         )
 
@@ -99,7 +104,8 @@ def test_a_clip_without_missing_frames_is_refused(tmp_path, capsys):
     rig = Rig(tmp_path, missing=0)
     assert rig.run() == 2
     assert capsys.readouterr().out.strip().splitlines() == [
-        f"clip-fix: {tmp_path / 'T-1.mkv'} has no missing frames; nothing to fix"
+        f"clip-fix: {tmp_path / 'T-1.mkv'} has no missing frames and its counts agree; "
+        "nothing to fix"
     ]
     assert rig.argv == []
 

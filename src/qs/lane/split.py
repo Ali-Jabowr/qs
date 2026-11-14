@@ -33,6 +33,7 @@ class Split:
     """Each clip's file name mapped to its role and the SHA-256 of its bytes."""
 
     clips: dict[str, tuple[str, str]]
+    unchecked: tuple[str, ...] = ()  # videos whose frame count could not be checked
 
     def videos(self, role: str) -> tuple[str, ...]:
         return tuple(video for video, (r, _) in self.clips.items() if r == role)
@@ -103,6 +104,7 @@ def build_split(footage: Path, train: list[str], calibrate: list[str], test: lis
         if not given[role]:
             raise ConfigError(f"every role needs at least one clip: none given for {role}")
     clips: dict[str, tuple[str, str]] = {}
+    unchecked: list[str] = []
     for role in ROLES:
         for clip in dict.fromkeys(given[role]):
             if given[role].count(clip) > 1:
@@ -126,8 +128,10 @@ def build_split(footage: Path, train: list[str], calibrate: list[str], test: lis
                 raise ConfigError(f"{video} decodes {counts.decoded} frames but its container "
                                   f"says {counts.container}: frame numbers are not reliable; "
                                   f"run qs clip-fix")
+            if counts is None:
+                unchecked.append(video)
             clips[video] = (role, actual)
-    return Split(clips)
+    return Split(clips, tuple(unchecked))
 
 
 def write_split(split: Split, path: Path) -> None:
