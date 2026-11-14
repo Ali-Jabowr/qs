@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 from pathlib import Path
 
 import pytest
 
+from gapped_clip import make_gapped_clip
 from qs.__main__ import build_parser, run
 from qs.cmd import lane_split
 from qs.errors import ConfigError
@@ -211,3 +213,33 @@ def test_an_existing_out_is_not_overwritten(
     assert _run(footage, out, *GOOD) == 2
     assert "already exists" in capsys.readouterr().out
     assert out.read_text() == "keep me"
+
+
+def test_a_clip_with_frames_missing_is_refused_naming_the_fix(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    footage = _footage(tmp_path)
+    video = make_gapped_clip(footage, "T-1-gapped")
+    shutil.move(str(video), footage / "T-1.mkv")
+    sidecar = json.loads((footage / "T-1.json").read_text())
+    (footage / "T-1.json").write_text(
+        json.dumps({**sidecar, "sha256": file_sha256(footage / "T-1.mkv")}))
+    out = tmp_path / "split.yml"
+    assert _run(footage, out, *GOOD) == 2
+    assert capsys.readouterr().out.strip().splitlines() == [
+        "lane-split: T-1.mkv decodes 110 frames but its container says 120: "
+        "frame numbers are not reliable; run qs clip-fix"]
+    assert not out.exists()
+
+
+def test_a_clip_that_cannot_be_opened_is_named_as_not_checked(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    footage = _footage(tmp_path)
+    assert _run(footage, tmp_path / "split.yml", *GOOD) == 0
+    assert capsys.readouterr().out.strip().splitlines() == [
+        "lane-split: T-1.mkv: cannot be opened, frame count not checked",
+        "lane-split: C-1.mkv: cannot be opened, frame count not checked",
+        "lane-split: E-1.mkv: cannot be opened, frame count not checked",
+        f"lane-split: 3 clips written to {tmp_path / 'split.yml'}",
+    ]

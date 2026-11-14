@@ -342,6 +342,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     clip_check.add_parser(commands)
 
+    from qs.cmd import clip_fix
+
+    clip_fix.add_parser(commands)
+
     from qs.cmd import line_alarms
 
     line_alarms.add_parser(commands)
@@ -441,6 +445,10 @@ def run(argv: Sequence[str] | None = None) -> int:
         from qs.cmd import clip_check
 
         return clip_check.main(args)
+    if args.command == "clip-fix":
+        from qs.cmd import clip_fix
+
+        return clip_fix.main(args)
     if args.command == "score-line":
         from qs.cmd import score_line
 

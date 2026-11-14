@@ -11,9 +11,12 @@ import json
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import NamedTuple
 
+import cv2
 import yaml
 
+from qs.cmd.clip_check import frame_gaps
 from qs.errors import ConfigError
 from qs.inspector.model import sha256_of
 
@@ -30,6 +33,7 @@ class Split:
     """Each clip's file name mapped to its role and the SHA-256 of its bytes."""
 
     clips: dict[str, tuple[str, str]]
+    unchecked: tuple[str, ...] = ()  # videos whose frame count could not be checked
 
     def videos(self, role: str) -> tuple[str, ...]:
         return tuple(video for video, (r, _) in self.clips.items() if r == role)
@@ -45,6 +49,33 @@ def _hash(hasher: Hasher, video: Path) -> str:
         return hasher(video)
     except OSError as exc:
         raise ConfigError(f"{video.name} cannot be read: {exc}") from exc
+
+
+class ClipCounts(NamedTuple):
+    """What a clip says about its frames: decoded in order, the container's count, and the
+    frames missing between timestamps."""
+
+    decoded: int
+    container: int
+    missing: int
+
+
+def count_clip(video: Path) -> ClipCounts | None:
+    """Read a clip once, in order; None if it cannot be opened or reports no frames (an
+    unreadable clip is not this check's to name)."""
+    capture = cv2.VideoCapture(str(video))
+    try:
+        if not capture.isOpened():
+            return None
+        container = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
+        if container <= 0:
+            return None
+        stamps: list[float] = []
+        while capture.read()[0]:
+            stamps.append(float(capture.get(cv2.CAP_PROP_POS_MSEC)))
+    finally:
+        capture.release()
+    return ClipCounts(len(stamps), container, frame_gaps(stamps).missing)
 
 
 def _sidecar(footage: Path, clip: str) -> tuple[str, bool]:
@@ -73,6 +104,7 @@ def build_split(footage: Path, train: list[str], calibrate: list[str], test: lis
         if not given[role]:
             raise ConfigError(f"every role needs at least one clip: none given for {role}")
     clips: dict[str, tuple[str, str]] = {}
+    unchecked: list[str] = []
     for role in ROLES:
         for clip in dict.fromkeys(given[role]):
             if given[role].count(clip) > 1:
@@ -91,8 +123,15 @@ def build_split(footage: Path, train: list[str], calibrate: list[str], test: lis
             if actual != recorded:
                 raise ConfigError(f"{video} differs from its sidecar: "
                                   f"{actual[:8]} now, {recorded[:8]} recorded")
+            counts = count_clip(footage / video)
+            if counts is not None and counts.decoded != counts.container:
+                raise ConfigError(f"{video} decodes {counts.decoded} frames but its container "
+                                  f"says {counts.container}: frame numbers are not reliable; "
+                                  f"run qs clip-fix")
+            if counts is None:
+                unchecked.append(video)
             clips[video] = (role, actual)
-    return Split(clips)
+    return Split(clips, tuple(unchecked))
 
 
 def write_split(split: Split, path: Path) -> None:
