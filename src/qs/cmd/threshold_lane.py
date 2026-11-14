@@ -73,6 +73,7 @@ def _run(args: argparse.Namespace, probs: Probs) -> int:
     for video in calibrate:
         cups = labels.cups_of(video)
         if not cups:
+            print(f"{video}: no labelled pass, skipped")
             continue
         rows = probs(footage / video, lane, bundle.model, args.device, input_px=input_px)
         pairs, _ = pair_runs(cups, runs_from_probs(rows.tolist()), args.window)
@@ -97,7 +98,7 @@ def _run(args: argparse.Namespace, probs: Probs) -> int:
           f"{len(calibrate)} calibrate clips")
     print(f"above {HALF}: {above}")
     print(f"n_unseen {unseen}")
-    print(f"threshold {value:g} (far {args.far}%)")
+    print(f"threshold {value:g} (far {args.far}%, window {args.window})")
     print(f"threshold file: {out}")
     return 0
 
@@ -109,7 +110,7 @@ def main(args: argparse.Namespace, *, probs: Probs = frame_probs) -> int:
     except _Refused as exc:
         print(f"threshold-lane: refused: {exc}")
         return 1
-    except (ConfigError, FrameReadError, OSError) as exc:
+    except (ConfigError, FrameReadError, OSError, ValueError) as exc:
         print(f"threshold-lane: {exc}")
         return 2
     except KeyboardInterrupt:
