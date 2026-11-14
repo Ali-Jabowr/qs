@@ -117,6 +117,6 @@ def test_a_bad_unit_file_stops_the_run_naming_the_key(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     paths = _setup(tmp_path)
-    paths["unit"].write_text(GOOD.replace("reach_px: 70\n", ""))
+    paths["unit"].write_text(GOOD.replace("reach_px: 60\n", ""))
     assert run(_argv(tmp_path, paths)) == 2
     assert "reach_px" in capsys.readouterr().out

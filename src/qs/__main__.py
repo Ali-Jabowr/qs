@@ -355,6 +355,9 @@ def build_parser() -> argparse.ArgumentParser:
     from qs.cmd import train_lane_b
 
     train_lane_b.add_parser(commands)
+    from qs.cmd import unit_cut
+
+    unit_cut.add_parser(commands)
     return parser
 
 
@@ -445,6 +448,10 @@ def run(argv: Sequence[str] | None = None) -> int:
         from qs.cmd import train_lane_b
 
         return train_lane_b.main(args)
+    if args.command == "unit-cut":
+        from qs.cmd import unit_cut
+
+        return unit_cut.main(args)
     raise AssertionError(f"unhandled command {args.command!r}")
 
 

@@ -19,8 +19,8 @@ PINK = (180, 150, 235)
 CREAM = (190, 225, 235)
 WHITE = (232, 232, 236)
 TRUE_AREA = 7515
-SETTINGS = UnitSettings(seed_px=20, reach_px=70, border_px=30, area_px=(3000, 12000), scale=0.5)
-GOOD = "version: 1\nseed_px: 20\nreach_px: 70\nborder_px: 30\narea_px: [3000, 12000]\nscale: 0.5\n"
+SETTINGS = UnitSettings(seed_px=20, reach_px=60, border_px=30, area_px=(3000, 12000), scale=0.5)
+GOOD = "version: 1\nseed_px: 20\nreach_px: 60\nborder_px: 30\narea_px: [3000, 12000]\nscale: 0.5\n"
 
 
 def draw_crop(
@@ -96,7 +96,7 @@ def test_a_crop_without_a_unit_is_a_placement_fault() -> None:
 
 
 def test_a_unit_touching_the_border_band_is_not_wholly_in_view() -> None:
-    wide_band = UnitSettings(seed_px=20, reach_px=70, border_px=60, area_px=(3000, 12000),
+    wide_band = UnitSettings(seed_px=20, reach_px=60, border_px=60, area_px=(3000, 12000),
                              scale=0.5)
     with pytest.raises(PlacementFault) as caught:
         cut_unit(draw_crop(PINK, dx=30), wide_band)
@@ -104,7 +104,7 @@ def test_a_unit_touching_the_border_band_is_not_wholly_in_view() -> None:
 
 
 def test_a_unit_outside_the_area_range_is_a_size_fault() -> None:
-    small = UnitSettings(seed_px=20, reach_px=70, border_px=30, area_px=(100, 2000), scale=0.5)
+    small = UnitSettings(seed_px=20, reach_px=60, border_px=30, area_px=(100, 2000), scale=0.5)
     with pytest.raises(PlacementFault) as caught:
         cut_unit(draw_crop(PINK), small)
     assert caught.value.detail == "unit size out of range"
@@ -137,7 +137,7 @@ def test_load_unit_reads_the_file(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     ("text", "key"),
     [
-        (GOOD.replace("reach_px: 70\n", ""), "reach_px"),
+        (GOOD.replace("reach_px: 60\n", ""), "reach_px"),
         (GOOD.replace("seed_px: 20\n", ""), "seed_px"),
         (GOOD + "extra: 1\n", "extra"),
         (GOOD.replace("scale: 0.5", "scale: 1.5"), "scale"),
