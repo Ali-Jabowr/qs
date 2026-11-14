@@ -10,18 +10,25 @@ gap: 1 ГОДЕН, 1 no verdict. Bounds worked out with scipy's beta quantiles.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import Sequence
 from pathlib import Path
 
+import cv2
+import numpy as np
 import pytest
+import torch
+import yaml
 
 from lane_rig import HEAD, Rig, clock, fake_git, make_rig, run_freeze
 from qs.__main__ import build_parser
-from qs.cmd import compare
+from qs.cmd import compare, freeze
 from qs.contracts import Label
 from qs.eval.line_score import Judged
 from qs.labels import Cup
+from qs.lane.model import build, write_lane_bundle
+from qs.lane.split import Split, file_sha256, write_split
 
 Row = tuple[float, float, float]
 F: Row = (0.9, 0.05, 0.05)
@@ -48,19 +55,22 @@ B_SCORES = {100: 0.1, 200: 0.35, 300: 0.9, 400: 0.2, 500: 0.41, 700: 0.45}
 class Reader:
     """The frame-probability reader; it records which clips it was asked to read."""
 
-    def __init__(self) -> None:
+    def __init__(self, probs: list[Row] | None = None) -> None:
         self.read: list[str] = []
+        self.probs = E1_PROBS if probs is None else probs
 
     def __call__(self, video: Path) -> list[Row]:
         self.read.append(video.name)
-        return E1_PROBS
+        return self.probs
 
 
-def _run(rig: Rig, reader: Reader, *extra: str, head: str = HEAD, **inject: object) -> int:
+def _run(
+    rig: Rig, reader: Reader, *extra: str, head: str = HEAD, dirty: str = "", **inject: object
+) -> int:
     args = build_parser().parse_args(
         ["compare", "--freeze", str(rig.freeze), "--labels", str(rig.labels),
          "--footage", str(rig.footage), "--models", str(rig.models), *extra])
-    return compare.main(args, git=fake_git(head), clock=clock, probs_of=reader,
+    return compare.main(args, git=fake_git(head, dirty), clock=clock, probs_of=reader,
                         **inject)  # type: ignore[arg-type]
 
 
@@ -160,7 +170,8 @@ def test_each_scoring_is_recorded_beside_the_freeze_file(tmp_path: Path) -> None
     _run(rig, Reader())
     _run(rig, Reader())
     record = json.loads((tmp_path / "freeze.yml.scored.json").read_text())
-    assert [sorted(r) for r in record["runs"]] == [["scored_utc", "table_sha256"]] * 2
+    assert [sorted(r) for r in record["runs"]] == [
+        ["labels_sha256", "scored_utc", "table_sha256"]] * 2
     assert record["runs"][0]["scored_utc"] == "2026-11-16T12:00:00+00:00"
     assert record["runs"][0]["table_sha256"] == record["runs"][1]["table_sha256"]
 
@@ -233,3 +244,122 @@ def test_method_b_judges_the_labelled_full_and_empty_passes_at_its_frozen_thresh
     # above 0.4: empty@300 and @700 -> 2 of 3 caught; full@500 -> 1 of 3 flagged
     assert "| B (judge only) | 2 of 3 | 0.1354 | 1 of 3 | 0.8646 | 0 of 3 | 0.6316 |" in out
     assert "gaps not scored" in out
+
+
+def test_a_dirty_tree_is_refused_in_one_line_before_any_clip_is_opened(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    rig = _frozen(tmp_path)
+    reader = Reader()
+    assert _run(rig, reader, dirty=" M src/qs/lane/passes.py\n") == 2
+    out = capsys.readouterr().out
+    assert reader.read == []
+    assert len(out.splitlines()) == 1
+    assert "uncommitted" in out
+    assert not (tmp_path / "freeze.yml.scored.json").exists()
+
+
+def test_runs_with_no_pass_are_counted_under_method_c(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    rig = _frozen(tmp_path)
+    extra = _probs(1200, {(98, 102): F, (198, 202): E, (298, 300): M, (399, 400): F,
+                          (498, 502): E, (650, 654): F, (799, 803): F})
+    assert _run(rig, Reader(extra)) == 0
+    assert "unpaired runs: 1" in capsys.readouterr().out
+
+
+def test_no_unpaired_run_is_said_as_zero(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    rig = _frozen(tmp_path)
+    assert _run(rig, Reader()) == 0
+    assert "unpaired runs: 0" in capsys.readouterr().out
+
+
+def test_two_passes_on_one_frame_of_a_clip_are_refused_naming_clip_and_frame(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    rig = _frozen(tmp_path)
+    rig.labels.write_text(json.dumps({"version": 1, "source": "L", "frames": {}, "cups": [
+        {"video": "E-1.mkv", "order": 1, "state": "full", "frame": 100},
+        {"video": "E-1.mkv", "order": 2, "state": "empty", "frame": 100},
+        {"video": "E-1.mkv", "order": 3, "state": "full", "frame": 400}]}))
+    reader = Reader()
+    assert _run(rig, reader) == 2
+    out = capsys.readouterr().out
+    assert reader.read == []
+    assert out == "compare: E-1.mkv: two passes are labelled at frame 100\n"
+
+
+def test_a_bad_probability_is_refused_in_one_line_not_a_traceback(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    rig = _frozen(tmp_path)
+    bad = _probs(1200, {(98, 102): (float("nan"), 0.05, 0.05)})
+    assert _run(rig, Reader(bad)) == 2
+    out = capsys.readouterr().out
+    assert out.startswith("compare: ")
+    assert len(out.splitlines()) == 1
+
+
+def test_each_scoring_records_the_hash_of_the_labels_file(tmp_path: Path) -> None:
+    rig = _frozen(tmp_path)
+    _run(rig, Reader())
+    data = json.loads(rig.labels.read_text())
+    data["cups"][-1]["frame"] = 801  # the last gap, moved a frame: still the same table
+    rig.labels.write_text(json.dumps(data))
+    _run(rig, Reader())
+    runs = json.loads((tmp_path / "freeze.yml.scored.json").read_text())["runs"]
+    first = hashlib.sha256(
+        json.dumps({"version": 1, "source": "L", "frames": {}, "cups": [
+            {"video": "T-1.mkv", "order": 1, "state": "full", "frame": 50},
+            {"video": "C-1.mkv", "order": 1, "state": "empty", "frame": 60},
+            *[{"video": "E-1.mkv", "order": i + 1, "state": s, "frame": f}
+              for i, (s, f) in enumerate([("full", 100), ("empty", 200), ("empty", 300),
+                                          ("full", 400), ("full", 500), ("gap", 600),
+                                          ("empty", 700), ("gap", 800)])]]}).encode()
+    ).hexdigest()
+    assert runs[0]["labels_sha256"] == first
+    assert runs[1]["labels_sha256"] != first
+
+
+def test_the_default_path_scores_a_real_lane_bundle_and_a_drawn_clip(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """No injected reader: the real bundle is loaded on the CPU and `frame_probs` runs."""
+    torch.manual_seed(0)
+    footage = tmp_path / "footage"
+    footage.mkdir()
+    clip = footage / "E-1.avi"
+    writer = cv2.VideoWriter(str(clip), cv2.VideoWriter.fourcc(*"FFV1"), 30.0, (64, 48))
+    for i in range(6):
+        writer.write(np.full((48, 64, 3), 40 * i, dtype=np.uint8))
+    writer.release()
+    models = tmp_path / "models"
+    model_id = write_lane_bundle(
+        models, "mochi", build(None),
+        {"classes": ["full", "empty", "none"], "input_px": 16, "seed": 0})
+    lane = tmp_path / "lane.yml"
+    lane.write_text(yaml.safe_dump({"version": 1, "window": [16, 8, 32, 24], "fps": 30}))
+    split = tmp_path / "split.yml"
+    write_split(Split({"E-1.avi": ("test", file_sha256(clip))}), split)
+    threshold = tmp_path / "threshold.yml"
+    threshold.write_text(yaml.safe_dump({
+        "version": 1, "model_id": model_id, "far_pct": 1, "value": 0.5, "n_full": 300,
+        "n_above_half": 2, "n_unseen": 0, "labels_sha256": "0" * 64}))
+    labels = tmp_path / "L.json"
+    labels.write_text(json.dumps({"version": 1, "source": "L", "frames": {}, "cups": [
+        {"video": "E-1.avi", "order": 1, "state": "full", "frame": 2}]}))
+    freeze_file = tmp_path / "freeze.yml"
+    frozen = build_parser().parse_args(
+        ["freeze", "--lane-bundle", model_id, "--threshold", str(threshold), "--lane", str(lane),
+         "--split", str(split), "--out", str(freeze_file), "--models", str(models)])
+    assert freeze.main(frozen, git=fake_git(), clock=clock) == 0
+    args = build_parser().parse_args(
+        ["compare", "--freeze", str(freeze_file), "--labels", str(labels), "--footage",
+         str(footage), "--models", str(models), "--device", "cpu"])
+    assert compare.main(args, git=fake_git(), clock=clock) == 0
+    out = capsys.readouterr().out
+    assert "| C |" in out
+    assert "unpaired runs:" in out
