@@ -75,7 +75,7 @@ def _run(args: argparse.Namespace, probs: Probs) -> int:
         if not cups:
             continue
         rows = probs(footage / video, lane, bundle.model, args.device, input_px=input_px)
-        pairs, _ = pair_runs(cups, runs_from_probs(rows), args.window)
+        pairs, _ = pair_runs(cups, runs_from_probs(rows.tolist()), args.window)
         for cup, run in pairs:
             if cup.state not in _FULL:
                 continue
