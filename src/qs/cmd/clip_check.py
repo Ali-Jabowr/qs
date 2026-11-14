@@ -65,6 +65,7 @@ class ClipStats:
     gaps: GapStats
     unreadable_at: int | None
     rate_fps: float | None = None
+    container_frames: int | None = None
     whole_picture: bool = True
 
 

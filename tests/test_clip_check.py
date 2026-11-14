@@ -12,6 +12,8 @@ import cv2
 import numpy as np
 import pytest
 
+from gapped_clip import make_gapped_clip
+
 from qs.__main__ import run
 from qs.cmd.clip_check import ClipStats, GapStats, frame_gaps, frame_rate, report
 
@@ -252,11 +254,11 @@ def stats(decoded: int, gaps: GapStats, unreadable_at: int | None = None) -> Cli
     [
         (1000, GapStats(missing=0, longest_s=0.034), False),
         (1000, GapStats(missing=1, longest_s=0.25), True),
-        (100000, GapStats(missing=3, longest_s=0.1), False),
+        (100000, GapStats(missing=3, longest_s=0.1), True),
         (50000, GapStats(missing=100, longest_s=0.1), True),
     ],
 )
-def test_gaps_warn_on_a_long_gap_or_a_tenth_of_a_percent_missing(decoded, gaps, warns):
+def test_gaps_warn_on_any_missing_frame(decoded, gaps, warns):
     lines = report(stats(decoded, gaps), expected=decoded, sharp_min=30.0)
     assert any(line.startswith("WARN gaps") for line in lines) is warns
 
@@ -320,3 +322,36 @@ def test_a_clip_cut_short_warns_where_decoding_stopped(tmp_path, capsys):
     code, out = check([str(video)], capsys)
     assert code == 1
     assert "WARN unreadable at frame" in out
+
+
+def test_one_step_of_two_periods_warns_and_names_the_fix():
+    lines = report(stats(1000, GapStats(missing=1, longest_s=0.066)), expected=1000, sharp_min=30.0)
+    assert (
+        "WARN gaps 1 frames missing, longest 0.066 s: "
+        "frame numbers are not reliable: run qs clip-fix"
+    ) in lines
+
+
+def test_a_decoded_count_that_differs_from_the_containers_warns():
+    clip = ClipStats(
+        decoded=110, sharpness=100.0, saturated=0.0, shift=0.0, swing=0.0, gaps=CLEAN,
+        unreadable_at=None, container_frames=120,
+    )
+    lines = report(clip, expected=110, sharp_min=30.0)
+    assert (
+        "WARN gaps decoded 110 frames, the container says 120: "
+        "frame numbers are not reliable: run qs clip-fix"
+    ) in lines
+
+
+def test_a_clip_with_ten_frames_removed_exits_one_with_the_warning(tmp_path, capsys):
+    video = make_gapped_clip(tmp_path)
+    body = {"version": 1, "fps": 30, "started_utc": "2026-11-16T10:00:00.000Z",
+            "stopped_utc": "2026-11-16T10:00:04.000Z", "drifted": False}
+    (tmp_path / "clip.json").write_text(json.dumps(body), encoding="utf-8")
+    code, out = check([str(video)], capsys)
+    assert code == 1
+    assert (
+        "WARN gaps 10 frames missing, longest 0.366 s: "
+        "frame numbers are not reliable: run qs clip-fix"
+    ) in out
