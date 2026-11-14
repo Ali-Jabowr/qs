@@ -7,8 +7,9 @@ Prints the numbers and one `WARN` line for each fault.
 
 Two numbers are built to ignore cups passing through the picture, which real footage always has:
 `shift` compares the per-pixel median of frames sampled over the first and the last 10 s (a cup in
-view for under half of a window drops out of the median), and the frame count warns on gaps between
-frame timestamps, not on the wall-clock total, which includes the recorder's start-up.
+view for under half of a window drops out of the median), and the frame count warns on any gap
+between frame timestamps and on a decoded count that differs from the container's, not on the
+wall-clock total, which includes the recorder's start-up.
 
 With `--static X,Y,W,H`, both medians are cut to that region (a place where nothing moves, such
 as the channel wall) before the phase correlation. Without it a cup standing in view at both ends
@@ -40,8 +41,7 @@ SHIFT_MAX_PX = 2.0
 SATURATION_LEVEL = 250
 RATE_TOLERANCE = 0.05  # measured against the sidecar's fps
 GAP_FACTOR = 1.5  # a step over 1.5 frame periods means frames are missing
-GAP_MAX_S = 0.2
-MISSING_MAX_SHARE = 0.001
+UNRELIABLE = "frame numbers are not reliable: run qs clip-fix"
 UNREADABLE_TOLERANCE = 2  # a container's frame count is an estimate; ignore +-2 frames
 
 
@@ -215,6 +215,7 @@ def measure(video: Path, fps: float, region: Region | None = None) -> ClipStats:
         swing=swing(brightness),
         gaps=frame_gaps(stamps),
         unreadable_at=decoded if decoded < count - UNREADABLE_TOLERANCE else None,
+        container_frames=count,
         rate_fps=frame_rate(stamps),
         whole_picture=region is None,
     )
@@ -252,10 +253,15 @@ def report(
     ]
     if stats.rate_fps is not None:
         lines.insert(2, f"rate {stats.rate_fps:.1f} fps")
-    total = stats.decoded + stats.gaps.missing
-    if stats.gaps.longest_s > GAP_MAX_S or stats.gaps.missing > MISSING_MAX_SHARE * total:
+    if stats.gaps.missing > 0:
         lines.append(
-            f"WARN gaps {stats.gaps.missing} frames missing, longest {stats.gaps.longest_s:.3f} s"
+            f"WARN gaps {stats.gaps.missing} frames missing, longest "
+            f"{stats.gaps.longest_s:.3f} s: {UNRELIABLE}"
+        )
+    if stats.container_frames is not None and stats.decoded != stats.container_frames:
+        lines.append(
+            f"WARN gaps decoded {stats.decoded} frames, the container says "
+            f"{stats.container_frames}: {UNRELIABLE}"
         )
     if (
         fps is not None

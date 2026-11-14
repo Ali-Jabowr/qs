@@ -13,7 +13,6 @@ import numpy as np
 import pytest
 
 from gapped_clip import make_gapped_clip
-
 from qs.__main__ import run
 from qs.cmd.clip_check import ClipStats, GapStats, frame_gaps, frame_rate, report
 

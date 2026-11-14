@@ -9,8 +9,8 @@ from pathlib import Path
 import cv2
 import numpy as np
 import pytest
-from gapped_clip import make_gapped_clip
 
+from gapped_clip import make_gapped_clip
 from qs.__main__ import run
 from qs.cmd import clip_fix
 

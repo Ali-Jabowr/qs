@@ -12,6 +12,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
+import cv2
 import yaml
 
 from qs.errors import ConfigError
@@ -45,6 +46,24 @@ def _hash(hasher: Hasher, video: Path) -> str:
         return hasher(video)
     except OSError as exc:
         raise ConfigError(f"{video.name} cannot be read: {exc}") from exc
+
+
+def count_frames(video: Path) -> tuple[int, int] | None:
+    """(decoded, the container's count) of a video; None if it cannot be opened or reports no
+    frames (an unreadable clip is not this check's to name)."""
+    capture = cv2.VideoCapture(str(video))
+    try:
+        if not capture.isOpened():
+            return None
+        container = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
+        if container <= 0:
+            return None
+        decoded = 0
+        while capture.grab():
+            decoded += 1
+        return decoded, container
+    finally:
+        capture.release()
 
 
 def _sidecar(footage: Path, clip: str) -> tuple[str, bool]:
@@ -91,6 +110,11 @@ def build_split(footage: Path, train: list[str], calibrate: list[str], test: lis
             if actual != recorded:
                 raise ConfigError(f"{video} differs from its sidecar: "
                                   f"{actual[:8]} now, {recorded[:8]} recorded")
+            counts = count_frames(footage / video)
+            if counts is not None and counts[0] != counts[1]:
+                raise ConfigError(f"{video} decodes {counts[0]} frames but its container says "
+                                  f"{counts[1]}: frame numbers are not reliable; "
+                                  f"run qs clip-fix")
             clips[video] = (role, actual)
     return Split(clips)
 

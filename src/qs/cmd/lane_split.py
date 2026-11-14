@@ -4,7 +4,8 @@
 
 Each clip's sidecar (`DIR/<clip>.json`) is read and `DIR/<clip>.mkv` is hashed; a clip in two
 roles, a missing sidecar, a changed hash or a drifted clip is refused (`--allow-drifted` keeps
-the last). Every role needs at least one clip.
+a drifted clip). So is a clip whose decoded frame count differs from its container's: run
+`qs clip-fix`. Every role needs at least one clip.
 
 Exit codes: 0 written · 2 refused.
 """

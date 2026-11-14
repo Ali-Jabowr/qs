@@ -8,8 +8,8 @@ import shutil
 from pathlib import Path
 
 import pytest
-from gapped_clip import make_gapped_clip
 
+from gapped_clip import make_gapped_clip
 from qs.__main__ import build_parser, run
 from qs.cmd import lane_split
 from qs.errors import ConfigError
