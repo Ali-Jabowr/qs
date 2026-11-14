@@ -13,7 +13,12 @@ Method C is the lane classifier (`qs.lane.passes`) at the frozen threshold. Meth
 `--a-config`, is the line station's own records scored by `qs.eval.line_score`. Method B, only if
 the freeze names it, is PatchCore at the labelled frames, judge only. One Markdown table is
 printed (and written to `--out`); no image is written. Each scoring is appended to
-`<freeze>.scored.json`; from the second on, the table's first line says `RESCORED (run N)`.
+`<freeze>.scored.json` with the hash of the labels file; from the second on, the table's first
+line says `RESCORED (run N)`.
+
+A dirty tracked tree is refused, as in `qs freeze`.
+Under the table, `unpaired runs: N` counts
+method C's runs that no labelled pass took.
 
 Exit codes: 0 scored · 2 refused (freeze, labels, footage or models).
 """
@@ -22,7 +27,6 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import importlib
 import json
 import statistics
 from collections.abc import Callable, Sequence
@@ -37,9 +41,16 @@ from qs.errors import ConfigError, InferenceError
 from qs.eval.line_score import CupScore, Judged, Tally, _tally, combined, score_cups
 from qs.eval.scoring import utc_now
 from qs.labels import Cup, CupState, FrameReadError, Labels, LabelsError, VideoFrames, load_labels
-from qs.lane.freeze import Freeze, check_freeze, load_freeze, run_git, threshold_of
+from qs.lane.freeze import (
+    Freeze,
+    check_freeze,
+    load_freeze,
+    require_clean_tree,
+    run_git,
+    threshold_of,
+)
 from qs.lane.lanefile import Lane, load_lane
-from qs.lane.passes import pair_runs, runs_from_probs, verdict
+from qs.lane.passes import frame_probs, pair_runs, runs_from_probs, verdict
 from qs.lane.split import Split, file_sha256, load_split, verify
 from qs.lane.table import MethodResult, render_table
 
@@ -81,15 +92,14 @@ def _device(args: argparse.Namespace) -> str:
 def _default_probs(args: argparse.Namespace, lane: Lane, frozen: Freeze) -> ProbsOf:
     from qs.lane.model import load_lane_bundle
 
-    # `frame_probs` is ticket #157's; looked up by name so this module imports without it.
-    frame_probs = getattr(importlib.import_module("qs.lane.passes"), "frame_probs", None)
-    if frame_probs is None:
-        raise ConfigError("qs.lane.passes.frame_probs is missing from this build (#157)")
     device = _device(args)
-    model = load_lane_bundle(Path(args.models), frozen.model_id).model
+    bundle = load_lane_bundle(Path(args.models), frozen.model_id)
+    model, input_px = bundle.model, bundle.record["input_px"]
 
     def probs(video: Path) -> Sequence[Sequence[float]]:
-        return np.asarray(frame_probs(video, lane, model, device)).tolist()  # type: ignore[no-any-return]
+        rows: list[list[float]] = np.asarray(
+            frame_probs(video, lane, model, device, input_px=input_px)).tolist()
+        return rows
 
     return probs
 
@@ -141,16 +151,19 @@ def _score_of(pairs: Sequence[tuple[Cup, Judged | None]]) -> CupScore:
 def _method_c(
     cups: dict[str, tuple[Cup, ...]], footage: Path, probs_of: ProbsOf, threshold: float,
     window: int,
-) -> CupScore:
+) -> tuple[CupScore, int]:
+    """The score, and how many runs (between the first and last labelled pass) had no pass."""
     scores: list[CupScore] = []
+    unpaired = 0
     for video, video_cups in cups.items():
         runs = runs_from_probs(probs_of(footage / video))
-        pairs, _ = pair_runs(video_cups, runs, window)
+        pairs, left = pair_runs(video_cups, runs, window)
+        unpaired += len(left)
         scores.append(_score_of([
             (cup, None if run is None else Judged(run.first, verdict(run, threshold)))
             for cup, run in pairs
         ]))
-    return combined(scores)
+    return combined(scores), unpaired
 
 
 def _method_a(
@@ -194,6 +207,10 @@ def _prior_runs(record: Path) -> list[dict[str, str]]:
 def _test_cups(split: Split, labels: Labels) -> dict[str, tuple[Cup, ...]]:
     cups = {video: labels.cups_of(video) for video in split.videos("test")}
     cups = {video: found for video, found in cups.items() if found}
+    for video, found in cups.items():
+        frames = [cup.frame for cup in found]
+        for frame in sorted({f for f in frames if frames.count(f) > 1}):
+            raise LabelsError(f"{video}: two passes are labelled at frame {frame}")
     if not cups:
         raise ConfigError("no labelled pass in any test clip of the split file")
     return cups
@@ -208,6 +225,7 @@ def _compare(
     score_b: ScoreB | None,
 ) -> None:
     freeze_path = Path(args.freeze)
+    require_clean_tree(git)
     if not freeze_path.is_file():
         raise ConfigError(f"{freeze_path}: no freeze file; run `qs freeze` first")
     frozen = load_freeze(freeze_path)
@@ -233,8 +251,9 @@ def _compare(
     record = freeze_path.with_name(freeze_path.name + ".scored.json")
     earlier = _prior_runs(record)
 
-    results = [MethodResult("C", _method_c(
-        cups, footage, probs_of or _default_probs(args, lane, frozen), threshold, args.window))]
+    score_c, unpaired = _method_c(
+        cups, footage, probs_of or _default_probs(args, lane, frozen), threshold, args.window)
+    results = [MethodResult("C", score_c)]
     if args.a_config:
         results.append(MethodResult("A", _method_a(
             cups, footage, Path(args.a_config), judge_a or _default_judge_a, args.window)))
@@ -247,7 +266,9 @@ def _compare(
     run_number = len(earlier) + 1
     plain = render_table(results)
     stamped = render_table(results, run_number if run_number > 1 else None)
+    stamped += f"\nunpaired runs: {unpaired}"
     entry = {"scored_utc": clock().isoformat(),
+             "labels_sha256": file_sha256(labels_path),
              "table_sha256": hashlib.sha256(plain.encode("utf-8")).hexdigest()}
     try:
         record.write_text(json.dumps({"runs": [*earlier, entry]}, indent=2) + "\n",
@@ -271,7 +292,7 @@ def main(
     """Score the test clips once; 0 scored, 2 refused."""
     try:
         _compare(args, git, clock, probs_of, judge_a, score_b)
-    except (ConfigError, LabelsError, FrameReadError, InferenceError) as exc:
+    except (ConfigError, LabelsError, FrameReadError, InferenceError, ValueError) as exc:
         print(f"compare: {exc}")
         return 2
     return 0

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import math
 import subprocess
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -46,6 +46,15 @@ def run_git(args: Sequence[str]) -> str:
         detail = done.stderr.strip().splitlines()[:1] or [f"exit {done.returncode}"]
         raise ConfigError(f"git {args[0]} failed: {detail[0]}")
     return done.stdout
+
+
+def require_clean_tree(git: Callable[[Sequence[str]], str]) -> None:
+    """ConfigError, in one line, if a tracked file has uncommitted changes."""
+    dirty = [line for line in git(["status", "--porcelain", "--untracked-files=no"]).splitlines()
+             if line.strip()]
+    if dirty:
+        raise ConfigError(f"the working tree has uncommitted changes to {len(dirty)} tracked "
+                          f"file(s); commit them first")
 
 
 def threshold_of(path: Path) -> tuple[str, float]:

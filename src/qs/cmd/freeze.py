@@ -24,6 +24,7 @@ from qs.eval.scoring import utc_now
 from qs.lane.freeze import (
     Freeze,
     model_file_sha256,
+    require_clean_tree,
     run_git,
     threshold_of,
     write_freeze,
@@ -52,11 +53,7 @@ def _freeze(
     out = Path(args.out)
     if out.exists():
         raise ConfigError(f"{out} already exists; a freeze is never overwritten")
-    dirty = [line for line in git(["status", "--porcelain", "--untracked-files=no"]).splitlines()
-             if line.strip()]
-    if dirty:
-        raise ConfigError(f"the working tree has uncommitted changes to {len(dirty)} tracked "
-                          f"file(s); commit them first")
+    require_clean_tree(git)
     if (args.patchcore is None) != (args.patchcore_threshold is None):
         raise ConfigError("--patchcore and --patchcore-threshold go together")
     patchcore: tuple[str, float] | None = None
