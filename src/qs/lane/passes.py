@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import math
 import statistics
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -17,7 +17,7 @@ import torch
 
 from qs.contracts import Label
 from qs.inspector.window import to_input
-from qs.labels import Cup, VideoFrames
+from qs.labels import Cup, FrameReadError, VideoFrames
 from qs.lane.lanefile import Lane, crop
 from qs.lane.model import predict
 
@@ -149,22 +149,41 @@ def _distance(run: Run, frame: int) -> int:
 
 
 def frame_probs(
-    video: Path, lane: Lane, model: torch.nn.Module, device: str, *, input_px: int, batch: int = 64
+    video: Path,
+    lane: Lane,
+    model: torch.nn.Module,
+    device: str,
+    *,
+    input_px: int,
+    batch: int = 64,
+    progress: Callable[[int, int], None] | None = None,
 ) -> np.ndarray:
     """`(frames, 3)` probabilities `(P(full), P(empty), P(none))`, one row per frame of `video`,
     frame 0 first, each from `to_input(crop(frame, lane), input_px)`. Frames are scored `batch`
-    at a time, so memory does not grow with the clip."""
+    at a time, so memory does not grow with the clip. `progress(done, total)` is called after
+    each batch. If a read fails before the container's frame count, frames are missing and
+    later frame numbers would not match the file, so `FrameReadError` names both counts."""
     if batch < 1:
         raise ValueError(f"batch must be at least 1, got {batch}")
     frames = VideoFrames(video)
+    total = len(frames.ids)
     try:
         rows: list[np.ndarray] = []
-        for start in range(0, len(frames.ids), batch):
-            stop = min(start + batch, len(frames.ids))
-            inputs = np.stack(
-                [to_input(crop(frames.read(i), lane), input_px) for i in range(start, stop)]
-            )
-            rows.append(predict(model, inputs, device))
+        for start in range(0, total, batch):
+            stop = min(start + batch, total)
+            images = []
+            for i in range(start, stop):
+                try:
+                    pixels = frames.read(i)
+                except FrameReadError as error:
+                    raise FrameReadError(
+                        f"{frames.name}: {i} frames decoded, the container says {total}: "
+                        "frames are missing, so frame numbers are not reliable; run qs clip-fix"
+                    ) from error
+                images.append(to_input(crop(pixels, lane), input_px))
+            rows.append(predict(model, np.stack(images), device))
+            if progress is not None:
+                progress(stop, total)
     finally:
         frames.close()
     return np.concatenate(rows)
