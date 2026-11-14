@@ -6,7 +6,8 @@ When frames are missing, or the container's count disagrees with the frames that
 frame rate off the nominal one does it too), a frame read in order is not the frame read by
 seeking. It fixes a clip with either fault and refuses one with neither. This writes
 `<name>-fixed.mkv` beside the clip with `ffmpeg -c copy -bsf:v setts=ts=N/(FPS*TB)`: every
-picture is kept, nothing is re-encoded, and the timestamps become evenly spaced. The sidecar is copied to `<name>-fixed.json` with the new
+picture is kept, nothing is re-encoded, and the timestamps become evenly spaced. The sidecar is
+copied to `<name>-fixed.json` with the new
 `sha256`, `fixed_from` (the original's `sha256`) and `missing_frames`. The original is never
 changed and an existing output is never overwritten. The output is counted; if its decoded count
 still differs from its container's it is deleted and the exit code is 2. `missing_frames` is the
