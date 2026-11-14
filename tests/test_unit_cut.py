@@ -70,15 +70,22 @@ def test_one_full_pass_gives_one_overlay_and_is_counted(
     assert (overlay == (0, 255, 0)).all(axis=2).any()
 
 
-def test_a_pass_with_no_unit_is_counted_by_its_fault_and_gets_no_overlay(
+def test_a_pass_with_no_unit_is_counted_by_its_fault_and_gets_its_plain_crop(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     paths = _setup(tmp_path, [("full", 50), ("full_pink", 110)], empty_from=100)
     assert run(_argv(tmp_path, paths)) == 0
-    assert [p.name for p in (tmp_path / "out").iterdir()] == ["T-1.mkv-50.png"]
+    names = sorted(p.name for p in (tmp_path / "out").iterdir())
     out = capsys.readouterr().out.splitlines()
     assert out[0] == "cut 1 of 2"
     assert out[1] in {"no unit: 1", "unit size out of range: 1"}
+    assert names in (
+        ["T-1.mkv-110-fault-no-unit.png", "T-1.mkv-50.png"],
+        ["T-1.mkv-110-fault-unit-size-out-of-range.png", "T-1.mkv-50.png"],
+    )
+    plain = cv2.imread(str(tmp_path / "out" / names[0]))
+    assert plain.shape == (230, 276, 3)
+    assert not (plain == (0, 255, 0)).all(axis=2).any()
 
 
 def test_limit_keeps_the_first_and_last_of_evenly_spaced_passes(tmp_path: Path) -> None:
@@ -117,6 +124,6 @@ def test_a_bad_unit_file_stops_the_run_naming_the_key(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     paths = _setup(tmp_path)
-    paths["unit"].write_text(GOOD.replace("reach_px: 60\n", ""))
+    paths["unit"].write_text(GOOD.replace("reach_px: 70\n", ""))
     assert run(_argv(tmp_path, paths)) == 2
     assert "reach_px" in capsys.readouterr().out
