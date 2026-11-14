@@ -230,3 +230,16 @@ def test_a_clip_with_frames_missing_is_refused_naming_the_fix(
         "lane-split: T-1.mkv decodes 110 frames but its container says 120: "
         "frame numbers are not reliable; run qs clip-fix"]
     assert not out.exists()
+
+
+def test_a_clip_that_cannot_be_opened_is_named_as_not_checked(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    footage = _footage(tmp_path)
+    assert _run(footage, tmp_path / "split.yml", *GOOD) == 0
+    assert capsys.readouterr().out.strip().splitlines() == [
+        "lane-split: T-1.mkv: cannot be opened, frame count not checked",
+        "lane-split: C-1.mkv: cannot be opened, frame count not checked",
+        "lane-split: E-1.mkv: cannot be opened, frame count not checked",
+        f"lane-split: 3 clips written to {tmp_path / 'split.yml'}",
+    ]

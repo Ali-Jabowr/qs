@@ -43,3 +43,24 @@ def make_gapped_clip(folder: Path, name: str = "clip") -> Path:
     )
     full.unlink()
     return video
+
+
+def make_off_rate_clip(
+    folder: Path, name: str = "clip", frames: int = 91, rate: float = 30.2
+) -> Path:
+    """`<folder>/<name>.mkv`: every frame present, timestamps at a true `rate` although the
+    clip is declared 30 fps, so the container's count is an estimate that is off by one."""
+    full = folder / f"{name}-full.avi"
+    writer = cv2.VideoWriter(str(full), cv2.VideoWriter.fourcc(*"MJPG"), FPS, (320, 240))
+    assert writer.isOpened()
+    for index in range(frames):
+        writer.write(numbered_frame(index))
+    writer.release()
+    video = folder / f"{name}.mkv"
+    subprocess.run(
+        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(full),
+         "-c", "copy", "-bsf:v", f"setts=ts=N/({rate}*TB)", str(video)],
+        check=True,
+    )
+    full.unlink()
+    return video

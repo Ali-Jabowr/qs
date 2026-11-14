@@ -10,7 +10,7 @@ import cv2
 import numpy as np
 import pytest
 
-from gapped_clip import make_gapped_clip
+from gapped_clip import make_gapped_clip, make_off_rate_clip
 from qs.__main__ import run
 from qs.cmd import clip_fix
 from qs.lane.split import ClipCounts
@@ -163,3 +163,55 @@ def test_a_real_clip_with_ten_frames_removed_is_fixed(tmp_path, capsys):
     assert np.array_equal(decode_by_seeking(fixed, 60), decode_in_order(fixed)[60])
     written = json.loads((tmp_path / "T-1-fixed.json").read_text())
     assert (written["missing_frames"], written["fixed_from"]) == (10, "aaaa")
+
+
+def rig_with_counts(tmp_path: Path, counts: dict[str, ClipCounts]) -> tuple[Rig, int]:
+    """A rig whose frame counter answers by file name: the original and the fixed output."""
+    rig = Rig(tmp_path)
+    code = clip_fix.main(
+        argparse_namespace(rig.video),
+        run_ffmpeg=rig.ffmpeg,
+        count=lambda video: counts[video.name],
+        file_hash=lambda path: "bbbb",
+    )
+    return rig, code
+
+
+def test_a_clip_whose_container_count_is_off_but_misses_no_frame_is_fixed(tmp_path):
+    rig, code = rig_with_counts(tmp_path, {
+        "T-1.mkv": ClipCounts(91, 92, 0), "T-1-fixed.mkv": ClipCounts(91, 91, 0)})
+    assert code == 0
+    written = json.loads((tmp_path / "T-1-fixed.json").read_text())
+    assert written["missing_frames"] == 0
+    assert len(rig.argv) == 1
+
+
+def test_a_clip_with_agreeing_counts_and_no_gap_has_nothing_to_fix(tmp_path, capsys):
+    rig, code = rig_with_counts(tmp_path, {"T-1.mkv": ClipCounts(91, 91, 0)})
+    assert code == 2
+    assert capsys.readouterr().out.strip().splitlines() == [
+        f"clip-fix: {tmp_path / 'T-1.mkv'} has no missing frames and its counts agree; "
+        "nothing to fix"
+    ]
+    assert rig.argv == []
+
+
+def test_an_output_whose_counts_still_disagree_is_deleted(tmp_path, capsys):
+    _, code = rig_with_counts(tmp_path, {
+        "T-1.mkv": ClipCounts(110, 120, 10), "T-1-fixed.mkv": ClipCounts(110, 112, 0)})
+    assert code == 2
+    assert capsys.readouterr().out.strip().splitlines() == [
+        f"clip-fix: {tmp_path / 'T-1-fixed.mkv'} decodes 110 frames but its container says "
+        "112 after the fix; output deleted"
+    ]
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["T-1.json", "T-1.mkv"]
+
+
+def test_a_real_clip_at_a_true_rate_of_30_2_with_nothing_removed_is_fixed(tmp_path):
+    video = make_off_rate_clip(tmp_path, "T-1")
+    (tmp_path / "T-1.json").write_text(json.dumps({**SIDECAR, "sha256": "aaaa"}))
+    assert (len(decode_in_order(video)), container_count(video)) == (91, 90)
+    assert run(["clip-fix", str(video)]) == 0
+    fixed = tmp_path / "T-1-fixed.mkv"
+    assert (len(decode_in_order(fixed)), container_count(fixed)) == (91, 91)
+    assert json.loads((tmp_path / "T-1-fixed.json").read_text())["missing_frames"] == 0
