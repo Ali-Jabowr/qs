@@ -170,7 +170,7 @@ def test_the_whole_scene_moving_still_warns_inside_the_static_region(tmp_path, c
 @pytest.mark.parametrize("region", ["0,160,320", "a,b,c,d", "0,160,320,900", "-5,0,10,10"])
 def test_a_static_region_that_does_not_fit_the_picture_is_refused(tmp_path, capsys, region):
     video = draw(tmp_path, [textured()] * 90)
-    code, out = check([str(video), "--static", region], capsys)
+    code, out = check([str(video), f"--static={region}"], capsys)
     assert code == 2
     assert out.startswith("clip-check:")
 
