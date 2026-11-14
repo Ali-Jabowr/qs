@@ -79,6 +79,45 @@ def test_a_batch_below_one_raises(tmp_path, batch):
         frame_probs(clip, LANE, _RedDetector(), "cpu", input_px=16, batch=batch)
 
 
+class _GappedFrames:
+    """A reader whose container says `count` frames but whose decoding stops after `decoded`."""
+
+    name = "a.mkv"
+
+    def __init__(self, count: int, decoded: int) -> None:
+        self.ids = tuple(f"a.mkv#{i}" for i in range(count))
+        self._decoded = decoded
+
+    def read(self, position: int) -> np.ndarray:
+        if position >= self._decoded:
+            raise FrameReadError(f"cannot read the video frame a.mkv#{position}")
+        return np.zeros((HEIGHT, WIDTH, 3), dtype=np.uint8)
+
+    def close(self) -> None:
+        pass
+
+
+def test_missing_frames_raise_one_error_with_both_counts_and_the_remedy(monkeypatch):
+    monkeypatch.setattr("qs.lane.passes.VideoFrames", lambda path: _GappedFrames(120, 110))
+    expected = (
+        "a.mkv: 110 frames decoded, the container says 120: frames are missing, "
+        "so frame numbers are not reliable; run qs clip-fix"
+    )
+    with pytest.raises(FrameReadError) as raised:
+        frame_probs(Path("a.mkv"), LANE, _RedDetector(), "cpu", input_px=16, batch=64)
+    assert str(raised.value) == expected
+
+
+def test_progress_is_reported_after_each_batch(tmp_path):
+    clip = _clip(tmp_path / "a.avi", [RED, BLUE, RED, RED, BLUE])
+    seen: list[tuple[int, int]] = []
+    frame_probs(
+        clip, LANE, _RedDetector(), "cpu", input_px=16, batch=2,
+        progress=lambda done, total: seen.append((done, total)),
+    )
+    assert seen == [(2, 5), (4, 5), (5, 5)]
+
+
 @pytest.mark.env
 def test_the_real_model_on_the_gpu_gives_one_row_per_frame(tmp_path):
     from qs.lane.model import build
