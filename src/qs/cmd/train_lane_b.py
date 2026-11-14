@@ -62,6 +62,7 @@ def add_parser(commands: Any) -> None:
     parser.add_argument("--max-passes", type=positive_int, default=150, metavar="N",
                         help="fit at most N full passes, evenly spaced in time (150, about "
                         "0.9 GiB of embeddings at 256 px)")
+    parser.add_argument("--states", default="stub")
     parser.add_argument("--models", default="models", metavar="DIR",
                         help="where bundles are written (models)")
     parser.add_argument("--device", choices=("cuda", "cpu"), default="cuda",

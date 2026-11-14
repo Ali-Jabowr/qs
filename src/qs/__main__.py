@@ -362,6 +362,9 @@ def build_parser() -> argparse.ArgumentParser:
     from qs.cmd import unit_cut
 
     unit_cut.add_parser(commands)
+    from qs.cmd import unit_scores
+
+    unit_scores.add_parser(commands)
     from qs.cmd import threshold_lane
 
     threshold_lane.add_parser(commands)
@@ -469,6 +472,10 @@ def run(argv: Sequence[str] | None = None) -> int:
         from qs.cmd import unit_cut
 
         return unit_cut.main(args)
+    if args.command == "unit-scores":
+        from qs.cmd import unit_scores
+
+        return unit_scores.main(args)
     if args.command == "threshold-lane":
         from qs.cmd import threshold_lane
 
